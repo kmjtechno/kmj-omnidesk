@@ -1,0 +1,40 @@
+schema_version: 1
+profiles:
+  office_good:
+    bandwidth_mbps: 20
+    latency_ms: 20
+    jitter_ms: 5
+    loss_percent: 0
+  mobile_constrained:
+    bandwidth_mbps: 2
+    latency_ms: 80
+    jitter_ms: 25
+    loss_percent: 1
+  weak_mobile:
+    bandwidth_mbps: 0.75
+    latency_ms: 150
+    jitter_ms: 50
+    loss_percent: 3
+  severe:
+    bandwidth_mbps: 0.35
+    latency_ms: 250
+    jitter_ms: 100
+    loss_percent: 5
+
+required_metrics:
+  - interactive_latency_ms
+  - connection_time_ms
+  - reconnect_time_ms
+  - bandwidth_kbps
+  - cpu_percent
+  - gpu_percent
+  - ram_mb
+  - direct_connect_success_rate
+  - relay_ratio
+  - visual_quality_metric
+
+rules:
+  raw_results_required: true
+  environment_metadata_required: true
+  cherry_picking_forbidden: true
+  comparative_claims_require_reproducible_comparable_tests: true
