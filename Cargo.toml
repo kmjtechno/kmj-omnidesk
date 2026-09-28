@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/omnidesk-core",
+    "crates/omnidesk-protocol",
+]
+
+[workspace.package]
+edition = "2024"
+license = "LicenseRef-KMJ-Proprietary"
+repository = "https://github.com/kmjtechno/kmj-omnidesk"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "warn"
+nursery = "warn"
