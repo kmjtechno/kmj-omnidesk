@@ -5,6 +5,10 @@
 
 #![forbid(unsafe_code)]
 
+pub mod metrics;
+pub mod session;
+pub mod transport;
+
 pub use omnidesk_protocol::{PRODUCT_ID, PRODUCT_SLUG, PROTOCOL_VERSION};
 
 /// Product maturity exposed by the pre-alpha foundation.
