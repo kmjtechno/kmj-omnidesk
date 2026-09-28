@@ -93,7 +93,7 @@ A feature is not complete because it compiles. A release gate requires relevant 
 
 ## Canonical execution map
 
-Engineering work is governed by [`ROADMAP.yaml`](./ROADMAP.yaml). Architecture decisions live in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), protocol/authorization ordering in [`docs/PROTOCOL.md`](./docs/PROTOCOL.md), and release-blocking security assumptions in [`docs/THREAT_MODEL.md`](./docs/THREAT_MODEL.md).
+Engineering work is governed by [`ROADMAP.yaml`](./ROADMAP.yaml). Architecture decisions live in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), protocol/authorization ordering in [`docs/PROTOCOL.md`](./docs/PROTOCOL.md), and release-blocking security assumptions in [`docs/THREAT_MODEL.md`](./docs/THREAT_MODEL.md). Commercial licensing is locked by [`docs/LICENSING.md`](./docs/LICENSING.md), the machine-readable [`KSLP-v1 contract`](./protocol/licensing/omnidesk-licensing-v1.yaml), and the versioned [`OpenAPI boundary`](./protocol/licensing/openapi-v1.yaml).
 
 **Rule:** roadmap status changes only after the milestone's declared acceptance gates are verified. Time targets never convert an unverified milestone into a completed milestone.
 
