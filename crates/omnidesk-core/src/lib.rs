@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod licensing;
 pub mod metrics;
 pub mod session;
 pub mod transport;
