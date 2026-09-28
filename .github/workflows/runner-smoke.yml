@@ -1,0 +1,19 @@
+name: Runner Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/runner-smoke.yml
+
+permissions: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Runner proof
+        run: |
+          echo "runner-started"
+          uname -a
