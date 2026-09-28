@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kmj:omnidesk:licensing:signed-entitlement:v1",
+  "title": "KMJ OmniDesk Signed Entitlement Payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version","contract_version","jti","kid","license_id","entitlement_id","customer_id","product_id","product_slug","plan","activation_id","device_public_key_fingerprint","installation_id","capabilities","limits","iat","nbf","exp","lease_expires_at","sequence","nonce"],
+  "properties": {
+    "protocol_version": {"const": "KSLP-v1"},
+    "contract_version": {"const": "kmj.omnidesk.license.v1"},
+    "jti": {"type": "string", "minLength": 16, "maxLength": 128},
+    "kid": {"type": "string", "minLength": 1, "maxLength": 128},
+    "license_id": {"type": "string", "format": "uuid"},
+    "entitlement_id": {"type": "string", "format": "uuid"},
+    "customer_id": {"type": "string", "format": "uuid"},
+    "organization_id": {"type": ["string","null"], "format": "uuid"},
+    "product_id": {"const": "KMJ_OMNIDESK"},
+    "product_slug": {"const": "kmj-omnidesk"},
+    "plan": {"enum": ["Personal_Free","Trial","Professional","Business","Enterprise","OEM_Custom"]},
+    "activation_id": {"type": "string", "format": "uuid"},
+    "device_public_key_fingerprint": {"type": "string", "minLength": 16, "maxLength": 256},
+    "installation_id": {"type": "string", "minLength": 8, "maxLength": 256},
+    "capabilities": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "licensed_users": {"type": ["integer","null"], "minimum": 0},
+        "managed_devices": {"type": ["integer","null"], "minimum": 0},
+        "concurrent_sessions": {"type": ["integer","null"], "minimum": 0},
+        "unattended_devices": {"type": ["integer","null"], "minimum": 0},
+        "relay_bytes_monthly": {"type": ["integer","null"], "minimum": 0},
+        "relay_policy": {"type": "string", "minLength": 1, "maxLength": 64}
+      }
+    },
+    "iat": {"type": "integer", "minimum": 0},
+    "nbf": {"type": "integer", "minimum": 0},
+    "exp": {"type": "integer", "minimum": 0},
+    "lease_expires_at": {"type": "integer", "minimum": 0},
+    "sequence": {"type": "integer", "minimum": 1},
+    "nonce": {"type": "string", "minLength": 16, "maxLength": 256}
+  }
+}
