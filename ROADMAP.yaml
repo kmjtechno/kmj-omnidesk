@@ -1,0 +1,489 @@
+schema_version: 1
+product:
+  name: KMJ OmniDesk
+  slug: kmj-omnidesk
+  product_id: KMJ_OMNIDESK
+  owner: KMJ TECHNO
+  repository: kmjtechno/kmj-omnidesk
+  maturity: pre-alpha
+  tagline: Access without distance.
+  commercial_authority: KMJ Main Platform
+
+execution:
+  mode: gate_driven
+  canonical_plan_file: ROADMAP.yaml
+  target_acceleration_window_minutes: 60
+  completion_rule: >
+    Time is a target, never a substitute for verification. A milestone may be marked
+    complete only when its required artifacts exist and all declared acceptance gates pass.
+  priorities:
+    - security
+    - correctness
+    - direct_connect_success
+    - interactive_latency
+    - weak_network_resilience
+    - bandwidth_efficiency
+    - client_resource_efficiency
+    - relay_cost_efficiency
+    - premium_native_ux
+  non_negotiables:
+    - no_fake_performance_claims
+    - no_fake_release_claims
+    - no_production_secrets_in_repository
+    - no_master_license_unlock_in_client
+    - no_silent_permission_escalation
+    - no_plaintext_session_data_at_relay
+    - fail_closed_authorization
+    - measurable_release_gates
+    - main_platform_is_commercial_authority
+
+architecture:
+  core_language: Rust
+  ui_direction: native_lightweight
+  session_path_priority:
+    - encrypted_direct_p2p
+    - encrypted_relay_fallback
+  control_plane:
+    responsibilities:
+      - identity
+      - device_registration
+      - authorization
+      - organization_policy
+      - entitlement_validation
+      - signaling_metadata
+      - audit_events
+      - release_authority
+    forbidden_default_role:
+      - screen_data_path
+      - audio_data_path
+  transport_direction:
+    preferred:
+      - QUIC_UDP
+    fallback_required: true
+    final_library_selection_requires:
+      - benchmark
+      - security_review
+      - maintenance_review
+      - license_review
+  media_direction:
+    candidate_codecs:
+      - AV1
+      - HEVC
+      - H264
+    selection_requires:
+      - endpoint_capability
+      - measured_benefit
+      - interoperability
+      - legal_license_review
+  performance_mechanisms:
+    - dirty_region_detection
+    - static_screen_suppression
+    - adaptive_bitrate
+    - adaptive_fps
+    - adaptive_resolution
+    - congestion_response
+    - hardware_encode_decode
+    - low_bandwidth_mode
+    - rapid_reconnect
+    - path_recovery
+
+commercial:
+  plans_target:
+    - Personal_Free
+    - Trial
+    - Professional
+    - Business
+    - Enterprise
+    - OEM_Custom
+  authority: kmj-main-platform
+  entitlement_driven: true
+  purchase_enabled_now: false
+  public_lifecycle_now: pre-alpha
+  integration_contract:
+    versioned: true
+    fail_closed: true
+    client_master_secret_forbidden: true
+
+milestones:
+  - id: M0
+    name: Repository and contracts
+    status: in_progress
+    objective: Create a deterministic engineering foundation before feature expansion.
+    deliverables:
+      - README.md
+      - ROADMAP.yaml
+      - SECURITY.md
+      - LICENSE
+      - docs/ARCHITECTURE.md
+      - Cargo.toml
+      - rust-toolchain.toml
+      - .github/workflows/ci.yml
+      - crates/omnidesk-protocol
+      - crates/omnidesk-core
+    gates:
+      - id: M0_G1
+        command: cargo fmt --all -- --check
+        required: true
+      - id: M0_G2
+        command: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        required: true
+      - id: M0_G3
+        command: cargo test --workspace --all-targets --all-features
+        required: true
+    exit_criteria:
+      - all_deliverables_present
+      - all_M0_gates_pass
+      - canonical_identity_tested
+
+  - id: M1
+    name: Session model and authenticated LAN proof
+    status: pending
+    depends_on: [M0]
+    objective: Establish explicit session state, authorization, and a measurable local transport proof.
+    deliverables:
+      - session_state_machine
+      - peer_identity_model
+      - explicit_control_permission
+      - transport_abstraction
+      - loopback_transport
+      - LAN_transport_proof
+      - session_metrics
+    required_tests:
+      - invalid_transition_rejected
+      - control_without_authorization_rejected
+      - protocol_version_mismatch_rejected
+      - disconnect_transitions_closed
+      - metrics_are_monotonic_and_bounded
+    exit_criteria:
+      - authenticated_LAN_session_proof
+      - no_implicit_control_permission
+      - deterministic_unit_tests_pass
+
+  - id: M2
+    name: Capture to render pipeline
+    status: pending
+    depends_on: [M1]
+    objective: Build the first measurable frame pipeline without premature codec lock-in.
+    deliverables:
+      - capture_adapter_contract
+      - frame_model
+      - dirty_region_model
+      - encoder_adapter_contract
+      - decoder_adapter_contract
+      - render_adapter_contract
+      - pipeline_benchmark_harness
+    platforms_initial:
+      - Windows
+    exit_criteria:
+      - capture_encode_transport_decode_render_path_measured
+      - static_frame_suppression_verified
+      - no_unbounded_frame_queue
+      - benchmark_results_saved_as_artifacts
+
+  - id: M3
+    name: Remote input and session permissions
+    status: pending
+    depends_on: [M1]
+    objective: Add keyboard and pointer control behind explicit authorization.
+    deliverables:
+      - input_protocol
+      - input_adapter_contract
+      - permission_model
+      - emergency_local_revoke
+    security_gates:
+      - unauthenticated_input_rejected
+      - stale_session_input_rejected
+      - revoked_permission_rejected
+      - malformed_input_rejected
+    exit_criteria:
+      - authorized_input_round_trip_verified
+      - all_security_gates_pass
+
+  - id: M4
+    name: Internet direct connectivity
+    status: pending
+    depends_on: [M1]
+    objective: Prefer direct peer connectivity and measure establishment behavior.
+    deliverables:
+      - signaling_contract
+      - candidate_discovery
+      - NAT_traversal
+      - direct_path_selection
+      - connection_metrics
+    metrics:
+      - connection_time_ms
+      - direct_connect_success_rate
+      - reconnect_time_ms
+    exit_criteria:
+      - direct_path_verified_across_test_matrix
+      - failure_modes_are_explicit
+      - metrics_exported
+
+  - id: M5
+    name: Encrypted relay fallback
+    status: pending
+    depends_on: [M4]
+    objective: Preserve connectivity when direct establishment fails without exposing session plaintext.
+    deliverables:
+      - relay_protocol
+      - relay_service
+      - relay_selection_policy
+      - relay_usage_metrics
+    security_gates:
+      - relay_cannot_decrypt_session_payload
+      - relay_cannot_grant_control_permission
+      - authorization_failure_is_fail_closed
+    cost_metrics:
+      - relayed_bytes
+      - relay_session_minutes
+      - relay_ratio
+    exit_criteria:
+      - forced_direct_failure_falls_back_to_relay
+      - end_to_end_confidentiality_preserved
+      - relay_utilization_measured
+
+  - id: M6
+    name: Weak network optimization
+    status: pending
+    depends_on: [M2, M4, M5]
+    objective: Keep sessions usable under constrained and unstable networks.
+    network_profiles:
+      - name: office_good
+        bandwidth_mbps: 20
+        latency_ms: 20
+        jitter_ms: 5
+        loss_percent: 0
+      - name: mobile_constrained
+        bandwidth_mbps: 2
+        latency_ms: 80
+        jitter_ms: 25
+        loss_percent: 1
+      - name: weak_mobile
+        bandwidth_mbps: 0.75
+        latency_ms: 150
+        jitter_ms: 50
+        loss_percent: 3
+      - name: severe
+        bandwidth_mbps: 0.35
+        latency_ms: 250
+        jitter_ms: 100
+        loss_percent: 5
+    deliverables:
+      - adaptive_bitrate
+      - adaptive_fps
+      - adaptive_resolution
+      - congestion_response
+      - low_bandwidth_mode
+      - reconnect_policy
+    exit_criteria:
+      - every_profile_has_reproducible_results
+      - no_unverified_fastest_claim
+      - degradation_is_progressive_not_catastrophic
+
+  - id: M7
+    name: Desktop product shell
+    status: pending
+    depends_on: [M2, M3]
+    objective: Deliver a premium lightweight native user experience.
+    deliverables:
+      - device_list
+      - connect_flow
+      - session_view
+      - permission_prompts
+      - quality_controls
+      - connection_stats
+      - accessibility_baseline
+      - black_red_KMJ_visual_system
+    ux_rules:
+      - performance_over_decoration
+      - clear_security_state
+      - no_dark_patterns
+      - no_fake_online_state
+    exit_criteria:
+      - primary_flow_works_without_terminal
+      - keyboard_navigation_verified
+      - resource_budget_measured
+
+  - id: M8
+    name: File clipboard audio and multi-monitor
+    status: pending
+    depends_on: [M2, M3, M7]
+    deliverables:
+      - clipboard_sync
+      - resumable_file_transfer
+      - remote_audio
+      - multi_monitor
+      - reboot_reconnect
+    security_gates:
+      - clipboard_permission_enforced
+      - file_paths_sanitized
+      - transfer_integrity_verified
+      - audio_permission_explicit
+    exit_criteria:
+      - feature_tests_pass
+      - weak_network_transfer_resume_verified
+
+  - id: M9
+    name: KMJ Main Platform licensing
+    status: pending
+    depends_on: [M1]
+    can_run_parallel_with: [M2, M3, M4, M5, M6, M7, M8]
+    objective: Bind product access to governed versioned commercial contracts.
+    deliverables:
+      - versioned_entitlement_contract
+      - activation_binding
+      - lease_validation
+      - offline_grace_policy
+      - revocation_handling
+      - plan_feature_mapping
+    authority:
+      product_slug: kmj-omnidesk
+      product_id: KMJ_OMNIDESK
+      source: kmj-main-platform
+    security_gates:
+      - forged_entitlement_rejected
+      - expired_entitlement_handled_by_policy
+      - revoked_entitlement_rejected
+      - client_cannot_self_upgrade_plan
+      - secrets_redacted_from_logs
+    exit_criteria:
+      - integration_tests_pass
+      - purchase_stays_disabled_until_release_gate
+
+  - id: M10
+    name: Enterprise controls
+    status: pending
+    depends_on: [M7, M9]
+    deliverables:
+      - organization_policy
+      - RBAC
+      - trusted_devices
+      - unattended_access_policy
+      - MFA_SSO_boundary
+      - audit_history
+      - managed_deployment_direction
+    exit_criteria:
+      - tenant_boundary_tests_pass
+      - privilege_escalation_tests_pass
+      - audit_events_verified
+
+  - id: M11
+    name: Security hardening
+    status: pending
+    depends_on: [M3, M5, M8, M9]
+    deliverables:
+      - threat_model
+      - abuse_cases
+      - fuzz_targets
+      - dependency_audit
+      - secret_scan
+      - update_integrity_design
+      - privacy_review
+    exit_criteria:
+      - critical_findings_zero
+      - high_findings_zero_or_explicitly_block_release
+      - threat_model_reviewed
+      - fuzz_and_negative_tests_pass
+
+  - id: M12
+    name: Cross platform and packaging
+    status: pending
+    depends_on: [M7, M11]
+    platforms:
+      priority:
+        - Windows
+        - macOS
+        - Linux
+      later:
+        - Android
+        - iOS
+    deliverables:
+      - signed_installer_pipeline
+      - safe_update_path
+      - uninstall_cleanup
+      - platform_permission_guides
+    exit_criteria:
+      - install_update_uninstall_matrix_pass
+      - signature_verification_pass
+
+  - id: M13
+    name: Release candidate performance matrix
+    status: pending
+    depends_on: [M6, M8, M11, M12]
+    metrics:
+      - interactive_latency_ms
+      - connection_time_ms
+      - reconnect_time_ms
+      - bandwidth_kbps
+      - cpu_percent
+      - gpu_percent
+      - ram_mb
+      - direct_connect_success_rate
+      - relay_ratio
+      - visual_quality_metric
+    rules:
+      - save_raw_results
+      - save_environment_metadata
+      - no_cherry_picked_results
+      - comparative_claims_require_reproducible_comparable_tests
+    exit_criteria:
+      - full_matrix_complete
+      - regressions_block_release
+
+  - id: M14
+    name: Commercial release gate
+    status: pending
+    depends_on: [M9, M10, M11, M13]
+    objective: Enable customer availability only after technical and commercial authority agree.
+    gates:
+      - signed_release_artifacts
+      - update_metadata_verified
+      - licensing_integration_verified
+      - security_gate_pass
+      - performance_gate_pass
+      - support_and_recovery_path_defined
+      - legal_and_codec_license_review_complete
+    actions_after_pass:
+      - enable_release_metadata
+      - enable_allowed_plans
+      - update_main_platform_lifecycle
+      - publish_verified_performance_facts_only
+
+parallel_tracks:
+  core:
+    milestones: [M0, M1, M2, M3]
+  connectivity:
+    milestones: [M4, M5, M6]
+  product_ux:
+    milestones: [M7, M8]
+  commerce:
+    milestones: [M9, M10]
+  assurance:
+    milestones: [M11, M12, M13, M14]
+
+definition_of_done:
+  repository:
+    - canonical_roadmap_exists
+    - CI_gates_enforced
+    - security_policy_exists
+    - architecture_contract_exists
+  product:
+    - authenticated_remote_session
+    - direct_first_connectivity
+    - encrypted_relay_fallback
+    - weak_network_adaptation
+    - explicit_remote_input_authorization
+    - production_grade_desktop_shell
+    - file_clipboard_audio_multimonitor
+    - main_platform_entitlements
+    - enterprise_controls
+    - signed_packaging_and_updates
+  evidence:
+    - automated_tests
+    - security_tests
+    - network_impairment_tests
+    - reproducible_benchmarks
+    - release_artifact_integrity
+  final_rule: >
+    KMJ OmniDesk is not complete until every required milestone exit criterion is
+    verified. Remaining work must never be hidden by changing status labels.
