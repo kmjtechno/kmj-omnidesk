@@ -325,7 +325,9 @@ milestones:
 
   - id: M9
     name: KMJ Main Platform licensing
-    status: pending
+    status: in_progress
+    contract_status: complete
+    production_signer_status: gated
     depends_on: [M1]
     can_run_parallel_with: [M2, M3, M4, M5, M6, M7, M8]
     objective: Bind product access to governed versioned commercial contracts.
@@ -336,6 +338,11 @@ milestones:
       - offline_grace_policy
       - revocation_handling
       - plan_feature_mapping
+      - strict_signed_entitlement_schema
+      - versioned_openapi_boundary
+      - deterministic_error_contract
+      - client_fail_closed_policy_engine
+      - lifecycle_test_vectors
     authority:
       product_slug: kmj-omnidesk
       product_id: KMJ_OMNIDESK
