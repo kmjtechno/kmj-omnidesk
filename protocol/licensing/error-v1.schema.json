@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kmj:omnidesk:licensing:error:v1",
+  "title": "KMJ OmniDesk Licensing Error v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["error", "request_id"],
+  "properties": {
+    "error": {"enum": ["INVALID_REQUEST","UNAUTHENTICATED","FORBIDDEN","PRODUCT_MISMATCH","ENTITLEMENT_INACTIVE","DEVICE_LIMIT_REACHED","ACTIVATION_CONFLICT","ACTIVATION_REVOKED","LICENSE_REVOKED","KEY_REVOKED","LEASE_EXPIRED","STALE_SEQUENCE","REPLAY_DETECTED","RATE_LIMITED","SERVER_UNAVAILABLE"]},
+    "request_id": {"type": "string", "minLength": 8, "maxLength": 128},
+    "retry_after_seconds": {"type": ["integer","null"], "minimum": 0},
+    "message": {"type": ["string","null"], "maxLength": 240}
+  }
+}
