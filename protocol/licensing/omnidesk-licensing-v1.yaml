@@ -1,0 +1,330 @@
+schema_version: 1
+contract:
+  name: KMJ OmniDesk Licensing Contract
+  protocol: KSLP-v1
+  contract_version: kmj.omnidesk.license.v1
+  product_id: KMJ_OMNIDESK
+  product_slug: kmj-omnidesk
+  capability: omnidesk.remote_access
+  authority: KMJ Main Platform
+  enforcement_point: KMJ OmniDesk client
+  default_policy: fail_closed
+
+authority_boundaries:
+  main_platform_owns:
+    - customer_and_organization_identity
+    - billing_and_payment_state
+    - plan_catalog
+    - entitlement_issuance
+    - device_activation_authorization
+    - lease_renewal
+    - revocation
+    - signing_key_custody
+    - audit_history
+  omnidesk_owns:
+    - local_device_keypair
+    - signed_artifact_verification
+    - local_lease_cache
+    - feature_and_limit_enforcement
+    - session_runtime
+  forbidden:
+    - omnidesk_direct_database_access_to_main_platform
+    - production_private_signing_key_in_client
+    - master_unlock_secret_in_client
+    - payment_confirmation_as_implicit_entitlement
+    - unsigned_entitlement_acceptance
+    - relay_as_license_authority
+
+cryptography:
+  signing_algorithm: Ed25519
+  production_private_key_location: KMS_or_HSM_only
+  private_key_export_to_client: forbidden
+  verification_key_distribution:
+    endpoint: /api/v1/licensing/keys
+    cacheable: true
+    fields: [kid, algorithm, public_key, not_before, not_after, status]
+  key_rotation:
+    kid_required: true
+    overlapping_verification_window: true
+    revoked_kid_rejected: true
+  separate_release_and_license_signing_keys: recommended
+
+device_identity:
+  keypair:
+    generated: first_install
+    algorithm: asymmetric_platform_appropriate
+    private_key_export: forbidden_when_platform_supports_non_exportable_storage
+  binding_claims:
+    - activation_id
+    - device_public_key_fingerprint
+    - installation_id
+  machine_identity:
+    privacy_preserving: true
+    raw_hardware_serials_in_signed_token: discouraged
+  reinstall_and_transfer:
+    require_main_platform_authorization: true
+
+signed_entitlement:
+  format: canonical_payload_plus_detached_or_compact_signature
+  required_claims:
+    protocol_version: KSLP-v1
+    contract_version: kmj.omnidesk.license.v1
+    jti: unique_token_id
+    kid: signing_key_id
+    license_id: uuid
+    entitlement_id: uuid
+    customer_id: uuid
+    organization_id: uuid_or_null
+    product_id: KMJ_OMNIDESK
+    product_slug: kmj-omnidesk
+    plan: enum
+    activation_id: uuid
+    device_public_key_fingerprint: string
+    installation_id: string
+    capabilities: list
+    limits: object
+    iat: unix_seconds
+    nbf: unix_seconds
+    exp: unix_seconds
+    lease_expires_at: unix_seconds
+    sequence: monotonically_increasing_integer
+    nonce: unique_server_nonce
+  plans:
+    - Personal_Free
+    - Trial
+    - Professional
+    - Business
+    - Enterprise
+    - OEM_Custom
+  capability_examples:
+    - remote.interactive
+    - remote.unattended
+    - clipboard.sync
+    - file.transfer
+    - audio.remote
+    - multimonitor
+    - session.recording
+    - terminal.remote
+    - enterprise.rbac
+    - enterprise.sso
+    - enterprise.audit
+    - ai.kristi
+  limit_examples:
+    licensed_users: integer_or_null
+    managed_devices: integer_or_null
+    concurrent_sessions: integer_or_null
+    unattended_devices: integer_or_null
+    relay_bytes_monthly: integer_or_null
+    relay_policy: direct_preferred_or_policy_value
+  verification_order:
+    - parse_strict_schema
+    - resolve_trusted_kid
+    - verify_ed25519_signature
+    - verify_protocol_and_contract_version
+    - verify_product_binding
+    - verify_time_bounds
+    - verify_activation_binding
+    - reject_replayed_or_older_sequence
+    - apply_revocation_state
+    - enforce_capabilities_and_limits
+
+activation:
+  endpoint: POST /api/v1/licensing/omnidesk/activations
+  idempotency_key_required: true
+  request:
+    - license_or_entitlement_reference
+    - device_public_key
+    - device_public_key_fingerprint
+    - installation_id
+    - client_version
+    - protocol_version
+    - platform
+    - architecture
+    - client_nonce
+  response:
+    - activation_id
+    - signed_entitlement
+    - lease
+    - server_time
+    - key_set_version
+  server_checks:
+    - authenticated_customer_or_authorized_activation_grant
+    - product_matches_KMJ_OMNIDESK
+    - entitlement_active
+    - plan_device_limit
+    - duplicate_activation_policy
+    - device_binding_consistency
+    - replay_protection
+    - suspicious_activation_rate
+  errors:
+    - INVALID_REQUEST
+    - UNAUTHENTICATED
+    - FORBIDDEN
+    - PRODUCT_MISMATCH
+    - ENTITLEMENT_INACTIVE
+    - DEVICE_LIMIT_REACHED
+    - ACTIVATION_CONFLICT
+    - REPLAY_DETECTED
+    - RATE_LIMITED
+
+lease:
+  purpose: short_lived_renewable_authorization
+  endpoint: POST /api/v1/licensing/omnidesk/leases/renew
+  request:
+    - activation_id
+    - current_jti
+    - current_sequence
+    - device_signature_over_server_challenge
+    - client_nonce
+    - client_version
+  response:
+    - signed_entitlement
+    - lease_expires_at
+    - next_renewal_at
+    - server_time
+  rules:
+    renewal_rotates_nonce: true
+    sequence_must_increase: true
+    stale_sequence_rejected: true
+    clock_rollback_detected: true
+    cached_last_known_good_required: true
+
+offline_grace:
+  state_machine:
+    - ACTIVE
+    - RENEWAL_DUE
+    - GRACE
+    - RESTRICTED
+    - REACTIVATED
+    - REVOKED
+  policy:
+    duration: plan_and_policy_driven
+    hardcoded_universal_duration: false
+    starts_only_from_last_known_good_lease: true
+    local_clock_rollback_must_not_extend_grace: true
+    destructive_actions_on_expiry: forbidden
+    customer_data_deletion_on_expiry: forbidden
+  restricted_behavior:
+    principle: preserve_local_data_and_recovery_path
+    new_paid_only_sessions: denied_unless_policy_explicitly_allows
+    reactivation: allowed
+
+revocation:
+  endpoint: GET /api/v1/licensing/omnidesk/activations/{activation_id}/status
+  sources:
+    - license_revoked
+    - entitlement_revoked
+    - activation_revoked
+    - device_transfer
+    - signing_key_revoked
+  semantics:
+    explicit_revocation_overrides_offline_grace: true
+    cached_known_revocation_is_fail_closed: true
+    reason_code_required: true
+    revoked_at_required: true
+    destructive_customer_data_action: forbidden
+  event_types:
+    - com.kmjtechno.mainplatform.v1.license.revoked
+    - com.kmjtechno.mainplatform.v1.entitlement.revoked
+    - com.kmjtechno.mainplatform.v1.activation.revoked
+
+deactivation_and_transfer:
+  deactivate_endpoint: POST /api/v1/licensing/omnidesk/activations/{activation_id}/deactivate
+  transfer_endpoint: POST /api/v1/licensing/omnidesk/activations/{activation_id}/transfer
+  authorization_required: true
+  audit_reason_required_for_admin_override: true
+  old_activation_invalid_after_successful_transfer: true
+
+api_boundaries:
+  base: /api/v1/licensing/omnidesk
+  endpoints:
+    - method: GET
+      path: /api/v1/licensing/keys
+      auth: public_integrity_metadata
+      purpose: trusted_verification_keys
+    - method: POST
+      path: /api/v1/licensing/omnidesk/activations
+      auth: customer_or_activation_grant
+      purpose: bind_entitlement_to_device
+    - method: POST
+      path: /api/v1/licensing/omnidesk/leases/renew
+      auth: device_proof_plus_activation
+      purpose: renew_short_lived_lease
+    - method: GET
+      path: /api/v1/licensing/omnidesk/activations/{activation_id}/status
+      auth: device_or_customer
+      purpose: status_and_revocation_check
+    - method: POST
+      path: /api/v1/licensing/omnidesk/activations/{activation_id}/deactivate
+      auth: customer_or_admin
+      purpose: release_device_binding
+    - method: POST
+      path: /api/v1/licensing/omnidesk/activations/{activation_id}/transfer
+      auth: customer_or_admin
+      purpose: controlled_device_transfer
+    - method: GET
+      path: /api/v1/licensing/omnidesk/entitlements/current
+      auth: customer
+      purpose: portal_and_client_entitlement_summary
+  invariants:
+    versioned: true
+    tenant_isolation: mandatory
+    authorization_on_every_private_endpoint: mandatory
+    idempotent_activation: mandatory
+    deterministic_error_codes: mandatory
+    secrets_in_logs: forbidden
+    raw_signed_tokens_in_logs: forbidden
+    rate_limiting: mandatory
+    audit_event_for_state_change: mandatory
+
+billing_boundary:
+  source_of_truth: KMJ Main Platform
+  payment_provider_details_visible_to_omnidesk_client: false
+  payment_success_directly_unlocks_client: false
+  flow:
+    - payment_or_free_plan_selection
+    - main_platform_commercial_reconciliation
+    - explicit_entitlement_issuance
+    - activation_or_lease_renewal
+    - signed_entitlement_enforced_by_client
+
+audit:
+  immutable_events_required:
+    - entitlement_issued
+    - activation_created
+    - lease_renewed
+    - activation_deactivated
+    - activation_transferred
+    - entitlement_revoked
+    - license_revoked
+    - admin_override
+    - suspicious_activation
+  sensitive_fields_redacted: true
+
+client_failure_policy:
+  malformed_token: RESTRICTED
+  invalid_signature: RESTRICTED
+  unknown_or_revoked_kid: RESTRICTED
+  wrong_product: RESTRICTED
+  wrong_device_binding: RESTRICTED
+  replayed_sequence: RESTRICTED
+  known_revocation: REVOKED
+  central_unreachable_with_valid_cached_lease: ACTIVE_or_RENEWAL_DUE
+  central_unreachable_after_lease_within_grace: GRACE
+  central_unreachable_after_grace: RESTRICTED
+
+production_gates:
+  - production_signing_key_in_KMS_or_HSM
+  - public_key_rotation_test
+  - activation_idempotency_test
+  - replay_and_sequence_test
+  - duplicate_activation_test
+  - clock_rollback_test
+  - offline_grace_test
+  - revocation_propagation_test
+  - tenant_isolation_test
+  - IDOR_test
+  - race_condition_test
+  - secret_redaction_test
+  - client_forgery_negative_test
+  - signed_test_vectors_cross_language
