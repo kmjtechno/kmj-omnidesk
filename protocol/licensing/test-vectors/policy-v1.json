@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "purpose": "Deterministic policy vectors. These are not production signatures or secrets.",
+  "contract_version": "kmj.omnidesk.license.v1",
+  "vectors": [
+    {"name":"active","now":1000,"last_trusted_server_time":900,"renewal_due_at":1500,"lease_expires_at":2000,"grace_expires_at":3000,"sequence":2,"last_sequence":1,"revoked":false,"expected":"ACTIVE"},
+    {"name":"renewal_due","now":1600,"last_trusted_server_time":900,"renewal_due_at":1500,"lease_expires_at":2000,"grace_expires_at":3000,"sequence":2,"last_sequence":1,"revoked":false,"expected":"RENEWAL_DUE"},
+    {"name":"offline_grace","now":2100,"last_trusted_server_time":900,"renewal_due_at":1500,"lease_expires_at":2000,"grace_expires_at":3000,"sequence":2,"last_sequence":1,"revoked":false,"expected":"GRACE"},
+    {"name":"grace_exhausted","now":3100,"last_trusted_server_time":900,"renewal_due_at":1500,"lease_expires_at":2000,"grace_expires_at":3000,"sequence":2,"last_sequence":1,"revoked":false,"expected":"RESTRICTED"},
+    {"name":"known_revocation","now":2100,"last_trusted_server_time":900,"renewal_due_at":1500,"lease_expires_at":2000,"grace_expires_at":3000,"sequence":2,"last_sequence":1,"revoked":true,"expected":"REVOKED"},
+    {"name":"stale_sequence","now":1000,"last_trusted_server_time":900,"renewal_due_at":1500,"lease_expires_at":2000,"grace_expires_at":3000,"sequence":1,"last_sequence":1,"revoked":false,"expected":"REPLAY_DETECTED"},
+    {"name":"clock_rollback","now":800,"last_trusted_server_time":900,"renewal_due_at":1500,"lease_expires_at":2000,"grace_expires_at":3000,"sequence":2,"last_sequence":1,"revoked":false,"expected":"CLOCK_ROLLBACK"}
+  ]
+}
