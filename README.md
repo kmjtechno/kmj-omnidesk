@@ -91,6 +91,12 @@ Sensitive commercial authority, signing material, production secrets, and KMJ Ma
 
 A feature is not complete because it compiles. A release gate requires relevant tests plus measurable performance and security evidence. Customer-facing availability remains fail-closed until a signed release is accepted.
 
+## Canonical execution map
+
+Engineering work is governed by [`ROADMAP.yaml`](./ROADMAP.yaml). Architecture decisions live in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), protocol/authorization ordering in [`docs/PROTOCOL.md`](./docs/PROTOCOL.md), and release-blocking security assumptions in [`docs/THREAT_MODEL.md`](./docs/THREAT_MODEL.md).
+
+**Rule:** roadmap status changes only after the milestone's declared acceptance gates are verified. Time targets never convert an unverified milestone into a completed milestone.
+
 ## Current milestone — M0 Foundation / Pre-alpha
 
 1. Establish repository and architecture contracts.
