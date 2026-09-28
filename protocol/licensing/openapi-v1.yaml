@@ -1,0 +1,191 @@
+openapi: 3.1.0
+info:
+  title: KMJ Main Platform - OmniDesk Licensing API
+  version: 1.0.0
+  description: Versioned KSLP-v1 boundary. Main Platform is authoritative.
+servers:
+  - url: https://kmjtechno.com
+paths:
+  /api/v1/licensing/keys:
+    get:
+      operationId: listLicenseVerificationKeys
+      responses:
+        "200":
+          description: Active and rollover verification keys.
+  /api/v1/licensing/omnidesk/activations:
+    post:
+      operationId: activateOmniDeskDevice
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: {type: string, minLength: 16, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ActivationRequest"}
+      responses:
+        "201":
+          description: Device activation created or idempotently replayed.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ActivationResponse"}
+        "400": {$ref: "#/components/responses/LicenseError"}
+        "401": {$ref: "#/components/responses/LicenseError"}
+        "403": {$ref: "#/components/responses/LicenseError"}
+        "409": {$ref: "#/components/responses/LicenseError"}
+        "429": {$ref: "#/components/responses/LicenseError"}
+  /api/v1/licensing/omnidesk/leases/renew:
+    post:
+      operationId: renewOmniDeskLease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/RenewLeaseRequest"}
+      responses:
+        "200":
+          description: New signed entitlement/lease.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RenewLeaseResponse"}
+        "400": {$ref: "#/components/responses/LicenseError"}
+        "401": {$ref: "#/components/responses/LicenseError"}
+        "403": {$ref: "#/components/responses/LicenseError"}
+        "409": {$ref: "#/components/responses/LicenseError"}
+        "429": {$ref: "#/components/responses/LicenseError"}
+  /api/v1/licensing/omnidesk/activations/{activation_id}/status:
+    get:
+      operationId: getOmniDeskActivationStatus
+      parameters:
+        - $ref: "#/components/parameters/ActivationId"
+      responses:
+        "200":
+          description: Current activation/revocation state.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ActivationStatus"}
+        "401": {$ref: "#/components/responses/LicenseError"}
+        "403": {$ref: "#/components/responses/LicenseError"}
+        "404": {$ref: "#/components/responses/LicenseError"}
+  /api/v1/licensing/omnidesk/activations/{activation_id}/deactivate:
+    post:
+      operationId: deactivateOmniDeskActivation
+      parameters:
+        - $ref: "#/components/parameters/ActivationId"
+      responses:
+        "204": {description: Activation deactivated idempotently.}
+        "401": {$ref: "#/components/responses/LicenseError"}
+        "403": {$ref: "#/components/responses/LicenseError"}
+  /api/v1/licensing/omnidesk/activations/{activation_id}/transfer:
+    post:
+      operationId: transferOmniDeskActivation
+      parameters:
+        - $ref: "#/components/parameters/ActivationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TransferRequest"}
+      responses:
+        "200":
+          description: Replacement activation issued and old activation revoked.
+        "401": {$ref: "#/components/responses/LicenseError"}
+        "403": {$ref: "#/components/responses/LicenseError"}
+        "409": {$ref: "#/components/responses/LicenseError"}
+  /api/v1/licensing/omnidesk/entitlements/current:
+    get:
+      operationId: getCurrentOmniDeskEntitlement
+      responses:
+        "200": {description: Current customer entitlement summary.}
+        "401": {$ref: "#/components/responses/LicenseError"}
+components:
+  parameters:
+    ActivationId:
+      in: path
+      name: activation_id
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    LicenseError:
+      description: Deterministic licensing failure.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+  schemas:
+    ActivationRequest:
+      type: object
+      additionalProperties: false
+      required: [license_or_entitlement_reference,device_public_key,device_public_key_fingerprint,installation_id,client_version,protocol_version,platform,architecture,client_nonce]
+      properties:
+        license_or_entitlement_reference: {type: string, minLength: 1, maxLength: 256}
+        device_public_key: {type: string, minLength: 32, maxLength: 4096}
+        device_public_key_fingerprint: {type: string, minLength: 16, maxLength: 256}
+        installation_id: {type: string, minLength: 8, maxLength: 256}
+        client_version: {type: string, minLength: 1, maxLength: 64}
+        protocol_version: {const: KSLP-v1}
+        platform: {type: string, minLength: 1, maxLength: 64}
+        architecture: {type: string, minLength: 1, maxLength: 64}
+        client_nonce: {type: string, minLength: 16, maxLength: 256}
+    ActivationResponse:
+      type: object
+      additionalProperties: false
+      required: [activation_id,signed_entitlement,lease_expires_at,server_time,key_set_version]
+      properties:
+        activation_id: {type: string, format: uuid}
+        signed_entitlement: {type: string, minLength: 32}
+        lease_expires_at: {type: integer, minimum: 0}
+        server_time: {type: integer, minimum: 0}
+        key_set_version: {type: string, minLength: 1, maxLength: 128}
+    RenewLeaseRequest:
+      type: object
+      additionalProperties: false
+      required: [activation_id,current_jti,current_sequence,server_challenge,device_signature,client_nonce,client_version]
+      properties:
+        activation_id: {type: string, format: uuid}
+        current_jti: {type: string, minLength: 16, maxLength: 128}
+        current_sequence: {type: integer, minimum: 1}
+        server_challenge: {type: string, minLength: 16, maxLength: 512}
+        device_signature: {type: string, minLength: 32, maxLength: 4096}
+        client_nonce: {type: string, minLength: 16, maxLength: 256}
+        client_version: {type: string, minLength: 1, maxLength: 64}
+    RenewLeaseResponse:
+      type: object
+      additionalProperties: false
+      required: [signed_entitlement,lease_expires_at,next_renewal_at,server_time]
+      properties:
+        signed_entitlement: {type: string, minLength: 32}
+        lease_expires_at: {type: integer, minimum: 0}
+        next_renewal_at: {type: integer, minimum: 0}
+        server_time: {type: integer, minimum: 0}
+    ActivationStatus:
+      type: object
+      additionalProperties: false
+      required: [activation_id,state,sequence,server_time]
+      properties:
+        activation_id: {type: string, format: uuid}
+        state: {enum: [ACTIVE,RENEWAL_DUE,GRACE,RESTRICTED,REVOKED]}
+        sequence: {type: integer, minimum: 1}
+        reason_code: {type: [string,"null"], maxLength: 128}
+        revoked_at: {type: [integer,"null"], minimum: 0}
+        server_time: {type: integer, minimum: 0}
+    TransferRequest:
+      type: object
+      additionalProperties: false
+      required: [new_device_public_key,new_device_public_key_fingerprint,new_installation_id,client_nonce]
+      properties:
+        new_device_public_key: {type: string, minLength: 32, maxLength: 4096}
+        new_device_public_key_fingerprint: {type: string, minLength: 16, maxLength: 256}
+        new_installation_id: {type: string, minLength: 8, maxLength: 256}
+        client_nonce: {type: string, minLength: 16, maxLength: 256}
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error,request_id]
+      properties:
+        error:
+          enum: [INVALID_REQUEST,UNAUTHENTICATED,FORBIDDEN,PRODUCT_MISMATCH,ENTITLEMENT_INACTIVE,DEVICE_LIMIT_REACHED,ACTIVATION_CONFLICT,ACTIVATION_REVOKED,LICENSE_REVOKED,KEY_REVOKED,LEASE_EXPIRED,STALE_SEQUENCE,REPLAY_DETECTED,RATE_LIMITED,SERVER_UNAVAILABLE]
+        request_id: {type: string, minLength: 8, maxLength: 128}
+        retry_after_seconds: {type: [integer,"null"], minimum: 0}
+        message: {type: [string,"null"], maxLength: 240}
