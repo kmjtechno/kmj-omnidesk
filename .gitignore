@@ -1,0 +1,13 @@
+/target
+**/*.rs.bk
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+*.log
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
