@@ -18,6 +18,10 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
         .map(|(_, control)| control.action)
 }
 
+fn accessibility_coordinate(value: usize) -> f64 {
+    f64::from(u32::try_from(value).unwrap_or(u32::MAX))
+}
+
 fn control_bounds(shell: &ProductShell, index: usize) -> Rect {
     let presentation = presentation_for(shell);
     let rect = control_rects_for(&presentation, 960, 640)
@@ -30,10 +34,10 @@ fn control_bounds(shell: &ProductShell, index: usize) -> Rect {
             height: 0,
         });
     Rect {
-        x0: rect.x as f64,
-        y0: rect.y as f64,
-        x1: rect.x.saturating_add(rect.width) as f64,
-        y1: rect.y.saturating_add(rect.height) as f64,
+        x0: accessibility_coordinate(rect.x),
+        y0: accessibility_coordinate(rect.y),
+        x1: accessibility_coordinate(rect.x.saturating_add(rect.width)),
+        y1: accessibility_coordinate(rect.y.saturating_add(rect.height)),
     }
 }
 
