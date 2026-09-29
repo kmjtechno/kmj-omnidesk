@@ -21,6 +21,7 @@ pub enum StunError {
     Io(ErrorKind),
     InvalidMessage,
     TransactionMismatch,
+    UnexpectedSource,
     MissingMappedAddress,
 }
 
@@ -51,21 +52,44 @@ impl StunClient {
             IpAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
         };
         let socket = UdpSocket::bind(bind_address).map_err(|error| io_error(&error))?;
+        self.discover_from(&socket, server, transaction_id)
+    }
+
+    /// Discovers a mapped address while preserving the caller's UDP socket.
+    ///
+    /// Reusing the same local socket across independent STUN servers allows the
+    /// NAT traversal layer to compare mappings without changing the local port.
+    ///
+    /// # Errors
+    ///
+    /// Returns a bounded timeout, I/O failure, unexpected response source,
+    /// malformed response, transaction mismatch, or missing mapped address.
+    pub fn discover_from(
+        &self,
+        socket: &UdpSocket,
+        server: SocketAddr,
+        transaction_id: [u8; 12],
+    ) -> Result<SocketAddr, StunError> {
         socket
             .set_read_timeout(Some(self.timeout))
             .map_err(|error| io_error(&error))?;
         socket
             .set_write_timeout(Some(self.timeout))
             .map_err(|error| io_error(&error))?;
-        socket.connect(server).map_err(|error| io_error(&error))?;
 
         let request = binding_request(transaction_id);
-        socket.send(&request).map_err(|error| io_error(&error))?;
+        socket
+            .send_to(&request, server)
+            .map_err(|error| io_error(&error))?;
 
         let mut response = [0_u8; 512];
-        let received = socket
-            .recv(&mut response)
+        let (received, source) = socket
+            .recv_from(&mut response)
             .map_err(|error| map_receive_error(&error))?;
+        if source != server {
+            return Err(StunError::UnexpectedSource);
+        }
+
         parse_binding_response(&response[..received], transaction_id)
     }
 }
