@@ -38,6 +38,7 @@ pub trait Transport {
     ///
     /// Returns an error when the transport is closed or an invalid frame/I/O failure occurs.
     fn receive(&mut self) -> Result<Option<Vec<u8>>, TransportError>;
+    /// Closes the transport and discards any queued local payloads.
     fn close(&mut self);
 }
 
@@ -154,7 +155,7 @@ impl Transport for TcpLanTransport {
                 self.closed = true;
                 return Err(TransportError::Closed);
             }
-            return Err(io_error(error));
+            return Err(io_error(&error));
         }
 
         let length = usize::try_from(u32::from_be_bytes(header))
