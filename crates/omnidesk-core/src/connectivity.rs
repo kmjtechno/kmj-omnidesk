@@ -92,10 +92,7 @@ mod tests {
         let tcp = candidate(CandidateKind::Host, TransportProtocol::Tcp, 4000, 100);
         let udp = candidate(CandidateKind::Host, TransportProtocol::Udp, 5000, 100);
 
-        assert_eq!(
-            DirectPathSelector::select(&[tcp, udp.clone()]),
-            Ok(&udp)
-        );
+        assert_eq!(DirectPathSelector::select(&[tcp, udp.clone()]), Ok(&udp));
     }
 
     #[test]
