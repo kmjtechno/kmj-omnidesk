@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/omnidesk-core",
     "crates/omnidesk-protocol",
+    "crates/omnidesk-desktop",
 ]
 
 [workspace.package]
