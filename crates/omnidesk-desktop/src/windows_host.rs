@@ -177,10 +177,8 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor_position = Some((
-                    position.x.max(0.0) as usize,
-                    position.y.max(0.0) as usize,
-                ));
+                self.cursor_position =
+                    Some((position.x.max(0.0) as usize, position.y.max(0.0) as usize));
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
