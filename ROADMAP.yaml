@@ -201,7 +201,7 @@ milestones:
 
   - id: M4
     name: Internet direct connectivity
-    status: pending
+    status: in_progress
     depends_on: [M1]
     objective: Prefer direct peer connectivity and measure establishment behavior.
     deliverables:
