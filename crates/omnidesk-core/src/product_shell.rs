@@ -29,11 +29,27 @@ pub enum ConnectError {
     DeviceOffline,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QualityPreset {
+    DataSaver,
+    Balanced,
+    HighQuality,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConnectionStats {
+    pub latency_ms: u32,
+    pub bitrate_kbps: u32,
+    pub fps: u16,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductShell {
     devices: Vec<DeviceSummary>,
     selected_device: Option<String>,
     security_state: SecurityState,
+    quality_preset: QualityPreset,
+    connection_stats: Option<ConnectionStats>,
 }
 
 impl ProductShell {
@@ -43,6 +59,8 @@ impl ProductShell {
             devices: Vec::new(),
             selected_device: None,
             security_state: SecurityState::Disconnected,
+            quality_preset: QualityPreset::Balanced,
+            connection_stats: None,
         }
     }
 
@@ -70,6 +88,24 @@ impl ProductShell {
     #[must_use]
     pub const fn security_state(&self) -> SecurityState {
         self.security_state
+    }
+
+    #[must_use]
+    pub const fn quality_preset(&self) -> QualityPreset {
+        self.quality_preset
+    }
+
+    pub const fn set_quality_preset(&mut self, preset: QualityPreset) {
+        self.quality_preset = preset;
+    }
+
+    #[must_use]
+    pub const fn connection_stats(&self) -> Option<ConnectionStats> {
+        self.connection_stats
+    }
+
+    pub const fn update_connection_stats(&mut self, stats: ConnectionStats) {
+        self.connection_stats = Some(stats);
     }
 
     /// Starts a connection attempt for an online known device.
@@ -105,6 +141,7 @@ impl ProductShell {
     pub fn disconnect(&mut self) {
         self.selected_device = None;
         self.security_state = SecurityState::Disconnected;
+        self.connection_stats = None;
     }
 }
 
@@ -154,6 +191,34 @@ mod tests {
         );
         assert_eq!(shell.selected_device(), None);
         assert_eq!(shell.security_state(), SecurityState::Disconnected);
+    }
+
+    #[test]
+    fn quality_controls_and_stats_are_explicit_and_stats_clear_on_disconnect() {
+        let mut shell = ProductShell::new();
+        assert_eq!(shell.quality_preset(), QualityPreset::Balanced);
+        assert_eq!(shell.connection_stats(), None);
+
+        shell.set_quality_preset(QualityPreset::DataSaver);
+        shell.update_connection_stats(ConnectionStats {
+            latency_ms: 42,
+            bitrate_kbps: 900,
+            fps: 30,
+        });
+
+        assert_eq!(shell.quality_preset(), QualityPreset::DataSaver);
+        assert_eq!(
+            shell.connection_stats(),
+            Some(ConnectionStats {
+                latency_ms: 42,
+                bitrate_kbps: 900,
+                fps: 30,
+            })
+        );
+
+        shell.disconnect();
+        assert_eq!(shell.connection_stats(), None);
+        assert_eq!(shell.quality_preset(), QualityPreset::DataSaver);
     }
 
     #[test]
