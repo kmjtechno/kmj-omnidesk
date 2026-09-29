@@ -41,6 +41,8 @@ jobs:
         run: cargo test -p omnidesk-core licensing::tests --lib
       - name: M9 committed licensing vector conformance gate
         run: cargo test -p omnidesk-core --test licensing_vectors
+      - name: M9 signed entitlement boundary gate
+        run: cargo test -p omnidesk-core signed_payload_boundary --lib
       - name: Verify M8 runtime evidence
         run: |
           mkdir -p artifacts
