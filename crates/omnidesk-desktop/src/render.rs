@@ -14,14 +14,7 @@ struct Canvas<'a> {
 }
 
 impl Canvas<'_> {
-    fn fill_rect(
-        &mut self,
-        x: usize,
-        y: usize,
-        rect_width: usize,
-        rect_height: usize,
-        color: u32,
-    ) {
+    fn fill_rect(&mut self, x: usize, y: usize, rect_width: usize, rect_height: usize, color: u32) {
         let max_x = x.saturating_add(rect_width).min(self.width);
         let max_y = y.saturating_add(rect_height).min(self.height);
         for py in y.min(self.height)..max_y {
@@ -137,21 +130,8 @@ fn draw_controls(canvas: &mut Canvas<'_>, presentation: &PresentationModel, pale
     let mut control_y = panel_y + 84;
     for control in &presentation.controls {
         let card_width = panel_width.saturating_sub(44);
-        canvas.fill_rect(
-            panel_x + 22,
-            control_y,
-            card_width,
-            48,
-            palette.background,
-        );
-        canvas.stroke_rect(
-            panel_x + 22,
-            control_y,
-            card_width,
-            48,
-            2,
-            palette.accent,
-        );
+        canvas.fill_rect(panel_x + 22, control_y, card_width, 48, palette.background);
+        canvas.stroke_rect(panel_x + 22, control_y, card_width, 48, 2, palette.accent);
         canvas.text(
             panel_x + 36,
             control_y + 12,
@@ -164,13 +144,7 @@ fn draw_controls(canvas: &mut Canvas<'_>, presentation: &PresentationModel, pale
         let shortcut_x = panel_x
             .saturating_add(panel_width)
             .saturating_sub(22 + shortcut.len() * 9 + 14);
-        canvas.text(
-            shortcut_x,
-            control_y + 12,
-            &shortcut,
-            1,
-            palette.danger,
-        );
+        canvas.text(shortcut_x, control_y + 12, &shortcut, 1, palette.danger);
         control_y = control_y.saturating_add(62);
     }
 }
