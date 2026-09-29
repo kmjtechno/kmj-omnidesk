@@ -112,8 +112,10 @@ pub fn parse_binding_response(
     let mut offset = HEADER_BYTES;
     while offset + 4 <= end {
         let attribute_type = u16::from_be_bytes([message[offset], message[offset + 1]]);
-        let attribute_length =
-            usize::from(u16::from_be_bytes([message[offset + 2], message[offset + 3]]));
+        let attribute_length = usize::from(u16::from_be_bytes([
+            message[offset + 2],
+            message[offset + 3],
+        ]));
         let value_start = offset + 4;
         let value_end = value_start
             .checked_add(attribute_length)
@@ -144,7 +146,8 @@ fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr
     }
 
     let cookie = MAGIC_COOKIE.to_be_bytes();
-    let port = u16::from_be_bytes([value[2], value[3]]) ^ u16::from_be_bytes([cookie[0], cookie[1]]);
+    let port =
+        u16::from_be_bytes([value[2], value[3]]) ^ u16::from_be_bytes([cookie[0], cookie[1]]);
 
     match value[1] {
         0x01 if value.len() == 8 => {
@@ -243,10 +246,7 @@ mod tests {
 
     #[test]
     fn transaction_mismatch_is_rejected() {
-        let response = success_response(
-            [1_u8; 12],
-            "203.0.113.7:54321".parse().expect("mapped"),
-        );
+        let response = success_response([1_u8; 12], "203.0.113.7:54321".parse().expect("mapped"));
 
         assert_eq!(
             parse_binding_response(&response, [2_u8; 12]),
