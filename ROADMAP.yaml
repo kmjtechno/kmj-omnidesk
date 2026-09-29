@@ -161,7 +161,7 @@ milestones:
 
   - id: M2
     name: Capture to render pipeline
-    status: in_progress
+    status: complete
     depends_on: [M1]
     objective: Build the first measurable frame pipeline without premature codec lock-in.
     deliverables:
