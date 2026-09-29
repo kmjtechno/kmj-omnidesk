@@ -117,9 +117,9 @@ pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
                 .take(9)
                 .enumerate()
                 .map(|(index, device)| {
-                    let key =
-                        char::from_digit(u32::try_from(index + 1).expect("device key index"), 10)
-                            .expect("device key digit");
+                    const DEVICE_KEYS: [char; 9] =
+                        ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+                    let key = DEVICE_KEYS.get(index).copied().unwrap_or('9');
                     let online = device.status == DeviceStatus::Online;
                     ShellControl {
                         label: format!(
