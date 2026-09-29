@@ -38,6 +38,7 @@ pub struct Run {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Direct {
     pub eligible: bool,
     pub ineligibility_reason: Option<String>,
@@ -56,6 +57,7 @@ pub struct Direct {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Reconnect {
     pub eligible: bool,
     pub disruption_verified: bool,
@@ -157,6 +159,7 @@ fn percentile(mut values: Vec<u64>, numerator: usize, denominator: usize) -> Opt
     let rank = (numerator * values.len()).div_ceil(denominator);
     values.get(rank.saturating_sub(1)).copied()
 }
+#[allow(clippy::cast_precision_loss)]
 fn rate(pass: usize, total: usize) -> Option<f64> {
     if total == 0 {
         None
@@ -176,6 +179,8 @@ fn scenario_prefix(s: &str) -> Option<&'static str> {
     }
 }
 
+#[must_use]
+#[allow(clippy::too_many_lines, clippy::if_not_else)]
 pub fn validate(manifest: &Manifest, package_root: Option<&Path>) -> Report {
     let mut d = Vec::new();
     if manifest.protocol != "M4-REALNET-60-v1" {
