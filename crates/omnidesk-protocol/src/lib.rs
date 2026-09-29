@@ -16,7 +16,6 @@ pub const PRODUCT_ID: &str = "KMJ_OMNIDESK";
 /// Canonical Main Platform product slug.
 pub const PRODUCT_SLUG: &str = "kmj-omnidesk";
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
