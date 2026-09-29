@@ -60,18 +60,18 @@ impl DirectProbe {
             IpAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
             IpAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
         };
-        let socket = UdpSocket::bind(bind_address).map_err(io_error)?;
+        let socket = UdpSocket::bind(bind_address).map_err(|error| io_error(&error))?;
         socket
             .set_read_timeout(Some(self.timeout))
-            .map_err(io_error)?;
+            .map_err(|error| io_error(&error))?;
         socket
             .set_write_timeout(Some(self.timeout))
-            .map_err(io_error)?;
-        socket.connect(candidate.address).map_err(io_error)?;
+            .map_err(|error| io_error(&error))?;
+        socket.connect(candidate.address).map_err(|error| io_error(&error))?;
 
         let request = encode_probe(session_id, authentication_nonce);
         let started = Instant::now();
-        socket.send(&request).map_err(io_error)?;
+        socket.send(&request).map_err(|error| io_error(&error))?;
 
         let mut response = [0_u8; PROBE_BYTES];
         let received = socket.recv(&mut response).map_err(map_receive_error)?;
@@ -129,11 +129,11 @@ pub fn encode_probe(session_id: [u8; 16], authentication_nonce: [u8; 32]) -> [u8
 fn map_receive_error(error: std::io::Error) -> DirectProbeError {
     match error.kind() {
         ErrorKind::WouldBlock | ErrorKind::TimedOut => DirectProbeError::Timeout,
-        _ => io_error(error),
+        _ => io_error(&error),
     }
 }
 
-fn io_error(error: std::io::Error) -> DirectProbeError {
+fn io_error(error: &std::io::Error) -> DirectProbeError {
     DirectProbeError::Io(error.kind())
 }
 
