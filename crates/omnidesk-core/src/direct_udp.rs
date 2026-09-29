@@ -67,7 +67,9 @@ impl DirectProbe {
         socket
             .set_write_timeout(Some(self.timeout))
             .map_err(|error| io_error(&error))?;
-        socket.connect(candidate.address).map_err(|error| io_error(&error))?;
+        socket
+            .connect(candidate.address)
+            .map_err(|error| io_error(&error))?;
 
         let request = encode_probe(session_id, authentication_nonce);
         let started = Instant::now();
