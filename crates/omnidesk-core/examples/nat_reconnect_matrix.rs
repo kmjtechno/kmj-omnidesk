@@ -49,7 +49,10 @@ fn stun_response(transaction_id: [u8; 12], mapped: SocketAddr) -> Vec<u8> {
     response
 }
 
-fn spawn_stun(mapped: SocketAddr, transaction_id: [u8; 12]) -> (SocketAddr, thread::JoinHandle<()>) {
+fn spawn_stun(
+    mapped: SocketAddr,
+    transaction_id: [u8; 12],
+) -> (SocketAddr, thread::JoinHandle<()>) {
     let server = UdpSocket::bind("127.0.0.1:0").expect("bind STUN");
     let address = server.local_addr().expect("STUN address");
     let handle = thread::spawn(move || {
@@ -71,14 +74,8 @@ fn observe_case(first: SocketAddr, second: SocketAddr) -> MappingBehavior {
     let (second_server, second_thread) = spawn_stun(second, second_tx);
     let client = StunClient::new(Duration::from_secs(1));
 
-    let observation = observe_mapping(
-        &client,
-        first_server,
-        second_server,
-        first_tx,
-        second_tx,
-    )
-    .expect("mapping observation");
+    let observation = observe_mapping(&client, first_server, second_server, first_tx, second_tx)
+        .expect("mapping observation");
     first_thread.join().expect("first STUN");
     second_thread.join().expect("second STUN");
     observation.behavior
