@@ -81,8 +81,9 @@ pub fn reconnect_direct<P: CandidateProbe, S: ReconnectSleeper>(
     let mut last_error = DirectAttemptError::NoUsableDirectCandidate;
 
     for round in 1..=policy.max_rounds {
+        let index = usize::try_from(round - 1).map_err(|_| ReconnectError::MissingFreshNonce)?;
         let nonce = *fresh_nonces
-            .get(usize::try_from(round - 1).expect("round index"))
+            .get(index)
             .ok_or(ReconnectError::MissingFreshNonce)?;
         sleeper.sleep(policy.backoff_for_round(round));
 
