@@ -35,7 +35,7 @@ pub struct SignalingOffer {
 
 impl SignalingOffer {
     #[must_use]
-    pub fn new(
+    pub const fn new(
         session_id: [u8; 16],
         authentication_nonce: [u8; 32],
         candidates: Vec<ConnectionCandidate>,
