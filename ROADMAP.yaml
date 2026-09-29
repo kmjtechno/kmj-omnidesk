@@ -107,7 +107,7 @@ commercial:
 milestones:
   - id: M0
     name: Repository and contracts
-    status: in_progress
+    status: complete
     objective: Create a deterministic engineering foundation before feature expansion.
     deliverables:
       - README.md
@@ -137,7 +137,7 @@ milestones:
 
   - id: M1
     name: Session model and authenticated LAN proof
-    status: pending
+    status: in_progress
     depends_on: [M0]
     objective: Establish explicit session state, authorization, and a measurable local transport proof.
     deliverables:

@@ -8,48 +8,48 @@ pub struct SessionMetrics {
 }
 
 impl SessionMetrics {
-    pub fn record_sent(&mut self, bytes: usize) {
+    pub const fn record_sent(&mut self, bytes: usize) {
         self.sent_bytes = self.sent_bytes.saturating_add(bytes as u64);
     }
 
-    pub fn record_received(&mut self, bytes: usize) {
+    pub const fn record_received(&mut self, bytes: usize) {
         self.received_bytes = self.received_bytes.saturating_add(bytes as u64);
     }
 
-    pub fn record_sent_frame(&mut self) {
+    pub const fn record_sent_frame(&mut self) {
         self.sent_frames = self.sent_frames.saturating_add(1);
     }
 
-    pub fn record_received_frame(&mut self) {
+    pub const fn record_received_frame(&mut self) {
         self.received_frames = self.received_frames.saturating_add(1);
     }
 
-    pub fn record_reconnect(&mut self) {
+    pub const fn record_reconnect(&mut self) {
         self.reconnects = self.reconnects.saturating_add(1);
     }
 
     #[must_use]
-    pub fn sent_bytes(&self) -> u64 {
+    pub const fn sent_bytes(&self) -> u64 {
         self.sent_bytes
     }
 
     #[must_use]
-    pub fn received_bytes(&self) -> u64 {
+    pub const fn received_bytes(&self) -> u64 {
         self.received_bytes
     }
 
     #[must_use]
-    pub fn sent_frames(&self) -> u64 {
+    pub const fn sent_frames(&self) -> u64 {
         self.sent_frames
     }
 
     #[must_use]
-    pub fn received_frames(&self) -> u64 {
+    pub const fn received_frames(&self) -> u64 {
         self.received_frames
     }
 
     #[must_use]
-    pub fn reconnects(&self) -> u64 {
+    pub const fn reconnects(&self) -> u64 {
         self.reconnects
     }
 }

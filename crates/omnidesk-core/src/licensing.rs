@@ -44,7 +44,18 @@ pub enum LicenseError {
 }
 
 pub trait SignatureVerifier {
-    fn verify(&self, kid: &str, canonical_payload: &[u8], signature: &[u8]) -> Result<(), LicenseError>;
+    /// Verifies the canonical entitlement payload against the selected signing key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed licensing error when the key is unknown/revoked or the
+    /// signature cannot be verified.
+    fn verify(
+        &self,
+        kid: &str,
+        canonical_payload: &[u8],
+        signature: &[u8],
+    ) -> Result<(), LicenseError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +76,7 @@ pub struct LicenseClaims<'a> {
     pub sequence: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeviceBinding<'a> {
     pub activation_id: &'a str,
     pub device_public_key_fingerprint: &'a str,
@@ -93,6 +104,13 @@ pub fn has_capability(claims: &LicenseClaims<'_>, capability: &str) -> bool {
     claims.capabilities.contains(&capability)
 }
 
+/// Verifies a signed entitlement and evaluates its local lifecycle state.
+///
+/// # Errors
+///
+/// Returns a fail-closed licensing error for invalid signatures, contract/product
+/// mismatch, invalid device binding, replay, revocation, invalid time bounds, or
+/// clock rollback.
 pub fn verify_and_evaluate(
     verifier: &dyn SignatureVerifier,
     canonical_payload: &[u8],
@@ -199,16 +217,37 @@ mod tests {
         }
     }
 
-    fn evaluate(claims: &LicenseClaims<'_>, context: &VerificationContext<'_>) -> Result<LicenseState, LicenseError> {
-        verify_and_evaluate(&AcceptSignature, b"canonical", b"signature", claims, context)
+    fn evaluate(
+        claims: &LicenseClaims<'_>,
+        context: &VerificationContext<'_>,
+    ) -> Result<LicenseState, LicenseError> {
+        verify_and_evaluate(
+            &AcceptSignature,
+            b"canonical",
+            b"signature",
+            claims,
+            context,
+        )
     }
 
     #[test]
     fn active_renewal_grace_and_restricted_states_are_deterministic() {
-        assert_eq!(evaluate(&claims(), &context(1_000)), Ok(LicenseState::Active));
-        assert_eq!(evaluate(&claims(), &context(1_600)), Ok(LicenseState::RenewalDue));
-        assert_eq!(evaluate(&claims(), &context(2_100)), Ok(LicenseState::Grace));
-        assert_eq!(evaluate(&claims(), &context(3_100)), Ok(LicenseState::Restricted));
+        assert_eq!(
+            evaluate(&claims(), &context(1_000)),
+            Ok(LicenseState::Active)
+        );
+        assert_eq!(
+            evaluate(&claims(), &context(1_600)),
+            Ok(LicenseState::RenewalDue)
+        );
+        assert_eq!(
+            evaluate(&claims(), &context(2_100)),
+            Ok(LicenseState::Grace)
+        );
+        assert_eq!(
+            evaluate(&claims(), &context(3_100)),
+            Ok(LicenseState::Restricted)
+        );
     }
 
     #[test]
@@ -221,21 +260,30 @@ mod tests {
     fn wrong_product_fails_closed() {
         let mut value = claims();
         value.product_id = "OTHER_PRODUCT";
-        assert_eq!(evaluate(&value, &context(1_000)), Err(LicenseError::ProductMismatch));
+        assert_eq!(
+            evaluate(&value, &context(1_000)),
+            Err(LicenseError::ProductMismatch)
+        );
     }
 
     #[test]
     fn wrong_device_binding_fails_closed() {
         let mut value = claims();
         value.installation_id = "other-install";
-        assert_eq!(evaluate(&value, &context(1_000)), Err(LicenseError::DeviceBindingMismatch));
+        assert_eq!(
+            evaluate(&value, &context(1_000)),
+            Err(LicenseError::DeviceBindingMismatch)
+        );
     }
 
     #[test]
     fn replayed_sequence_fails_closed() {
         let mut value = claims();
         value.sequence = 1;
-        assert_eq!(evaluate(&value, &context(1_000)), Err(LicenseError::ReplayOrStaleSequence));
+        assert_eq!(
+            evaluate(&value, &context(1_000)),
+            Err(LicenseError::ReplayOrStaleSequence)
+        );
     }
 
     #[test]
@@ -256,7 +304,10 @@ mod tests {
     fn expired_entitlement_fails_closed() {
         let mut value = claims();
         value.expires_at = 1_000;
-        assert_eq!(evaluate(&value, &context(1_000)), Err(LicenseError::Expired));
+        assert_eq!(
+            evaluate(&value, &context(1_000)),
+            Err(LicenseError::Expired)
+        );
     }
 
     #[test]
