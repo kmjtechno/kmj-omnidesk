@@ -21,6 +21,15 @@ pub struct AccessibleControl {
 }
 
 #[must_use]
+pub fn action_for_key(view: PrimaryView, key: char) -> Option<DesktopAction> {
+    let key = key.to_ascii_lowercase();
+    controls_for(view)
+        .iter()
+        .find(|control| control.keyboard_key == key)
+        .map(|control| control.action)
+}
+
+#[must_use]
 pub const fn controls_for(view: PrimaryView) -> &'static [AccessibleControl] {
     match view {
         PrimaryView::Devices => &[AccessibleControl {
@@ -72,6 +81,23 @@ mod tests {
                     .all(|control| control.keyboard_key.is_ascii())
             );
         }
+    }
+
+    #[test]
+    fn keyboard_dispatch_is_case_insensitive_and_view_scoped() {
+        assert_eq!(
+            action_for_key(PrimaryView::PermissionPrompt, 'A'),
+            Some(DesktopAction::AllowPermission)
+        );
+        assert_eq!(
+            action_for_key(PrimaryView::PermissionPrompt, 'N'),
+            Some(DesktopAction::DenyPermission)
+        );
+        assert_eq!(action_for_key(PrimaryView::Devices, 'A'), None);
+        assert_eq!(
+            action_for_key(PrimaryView::Session, 'X'),
+            Some(DesktopAction::Disconnect)
+        );
     }
 
     #[test]
