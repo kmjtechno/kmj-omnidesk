@@ -8,12 +8,24 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::apply_key;
+use crate::{AccessibilityNode, accessibility_snapshot, apply_key};
 
-#[derive(Default)]
 struct DesktopHost {
     window: Option<Window>,
     shell: ProductShell,
+    accessibility: Vec<AccessibilityNode>,
+}
+
+impl Default for DesktopHost {
+    fn default() -> Self {
+        let shell = ProductShell::new();
+        let accessibility = accessibility_snapshot(&shell);
+        Self {
+            window: None,
+            shell,
+            accessibility,
+        }
+    }
 }
 
 impl ApplicationHandler for DesktopHost {
@@ -41,7 +53,9 @@ impl ApplicationHandler for DesktopHost {
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 if let Some(text) = event.text {
                     if let Some(key) = text.chars().next() {
-                        let _handled = apply_key(&mut self.shell, key);
+                        if apply_key(&mut self.shell, key) {
+                            self.accessibility = accessibility_snapshot(&self.shell);
+                        }
                     }
                 }
             }
