@@ -183,10 +183,7 @@ pub fn has_capability(claims: &LicenseClaims<'_>, capability: &str) -> bool {
 }
 
 
-fn temporal_bounds_are_valid(
-    claims: &LicenseClaims<'_>,
-    clock: LocalLicenseClock,
-) -> bool {
+fn temporal_bounds_are_valid(claims: &LicenseClaims<'_>, clock: LocalLicenseClock) -> bool {
     claims.issued_at <= claims.not_before
         && claims.not_before < claims.lease_expires_at
         && claims.lease_expires_at <= claims.expires_at
@@ -511,10 +508,7 @@ mod tests {
         value.not_before = 950;
         let mut ctx = context(940);
         ctx.clock.last_trusted_server_time = 900;
-        assert_eq!(
-            evaluate(&value, &ctx),
-            Err(LicenseError::NotYetValid)
-        );
+        assert_eq!(evaluate(&value, &ctx), Err(LicenseError::NotYetValid));
     }
 
     #[test]
