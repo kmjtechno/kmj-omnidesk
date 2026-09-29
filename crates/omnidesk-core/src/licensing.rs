@@ -321,10 +321,7 @@ mod tests {
         let payload = b"canonical-license-payload";
         let signature = signing_key.sign(payload).to_bytes();
 
-        assert_eq!(
-            verifier.verify("kid-2026-01", payload, &signature),
-            Ok(())
-        );
+        assert_eq!(verifier.verify("kid-2026-01", payload, &signature), Ok(()));
         assert_eq!(
             verifier.verify("kid-2026-01", b"tampered", &signature),
             Err(LicenseError::InvalidSignature)
