@@ -1,8 +1,9 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use omnidesk_core::licensing::{
     DeviceBinding, Ed25519SignatureVerifier, LICENSE_CONTRACT_VERSION, LICENSE_PROTOCOL_VERSION,
-    LicenseClaims, LicenseError, LicensePublicKey, LicenseState, LocalLicenseClock,
-    RevocationState, SignatureVerifier, VerificationContext,
+    LicenseClaims, LicenseError, LicenseKeyStatus, LicensePlan, LicensePublicKey, LicenseState,
+    LocalLicenseClock, ResourceLimitKind, RevocationState, SignatureVerifier, VerificationContext,
+    verify_signed_entitlement,
 };
 use omnidesk_core::{PRODUCT_ID, PRODUCT_SLUG};
 use serde_json::Value;
@@ -74,11 +75,16 @@ fn committed_ed25519_vector_matches_client_verifier() {
         .decode(value_str(&vector, "signature_base64"))
         .expect("valid signature base64");
 
-    let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
-        kid: value_str(&vector, "kid").to_owned(),
-        public_key,
-        revoked: false,
-    }])
+    let verifier = Ed25519SignatureVerifier::new(
+        vec![LicensePublicKey {
+            kid: value_str(&vector, "kid").to_owned(),
+            public_key,
+            not_before: 0,
+            not_after: u64::MAX,
+            status: LicenseKeyStatus::Active,
+        }],
+        1_800_000_000,
+    )
     .expect("test vector public key must be accepted");
 
     let payload = value_str(&vector, "canonical_payload_utf8").as_bytes();
@@ -93,6 +99,69 @@ fn committed_ed25519_vector_matches_client_verifier() {
         verifier.verify(value_str(&vector, "kid"), &tampered, &signature),
         Err(LicenseError::InvalidSignature)
     );
+}
+
+#[test]
+fn committed_ed25519_vector_passes_full_signed_entitlement_boundary() {
+    let vector: Value = serde_json::from_str(ED25519_VECTOR).expect("valid Ed25519 vector JSON");
+    let payload_text = value_str(&vector, "canonical_payload_utf8");
+    let payload_json: Value =
+        serde_json::from_str(payload_text).expect("canonical payload must be valid JSON");
+
+    let public_key = STANDARD
+        .decode(value_str(&vector, "public_key_base64"))
+        .expect("valid public key base64");
+    let public_key: [u8; 32] = public_key
+        .try_into()
+        .expect("Ed25519 public key must be 32 bytes");
+    let signature = STANDARD
+        .decode(value_str(&vector, "signature_base64"))
+        .expect("valid signature base64");
+
+    let verifier = Ed25519SignatureVerifier::new(
+        vec![LicensePublicKey {
+            kid: value_str(&vector, "kid").to_owned(),
+            public_key,
+            not_before: 0,
+            not_after: u64::MAX,
+            status: LicenseKeyStatus::Active,
+        }],
+        1_800_000_000,
+    )
+    .expect("test vector public key must be accepted");
+
+    let issued_at = value_u64(&payload_json, "iat");
+    let lease_expires_at = value_u64(&payload_json, "lease_expires_at");
+    let expires_at = value_u64(&payload_json, "exp");
+    let context = VerificationContext {
+        binding: DeviceBinding {
+            activation_id: value_str(&payload_json, "activation_id"),
+            device_public_key_fingerprint: value_str(
+                &payload_json,
+                "device_public_key_fingerprint",
+            ),
+            installation_id: value_str(&payload_json, "installation_id"),
+        },
+        last_accepted_sequence: 0,
+        revocation: RevocationState::Clear,
+        clock: LocalLicenseClock {
+            now: issued_at.saturating_add(60),
+            last_trusted_server_time: issued_at,
+            renewal_due_at: issued_at.saturating_add(1_800).min(lease_expires_at),
+            grace_expires_at: lease_expires_at.saturating_add(3_600).min(expires_at),
+        },
+    };
+
+    let entitlement =
+        verify_signed_entitlement(&verifier, payload_text.as_bytes(), &signature, &context)
+            .expect("committed vector must pass the full client boundary");
+
+    assert_eq!(entitlement.state, LicenseState::Active);
+    assert_eq!(entitlement.payload.plan, LicensePlan::Professional);
+    assert!(entitlement.has_capability("remote.interactive"));
+    assert!(entitlement.has_capability("file.transfer"));
+    assert!(entitlement.permits_resource(ResourceLimitKind::ConcurrentSessions, 2));
+    assert!(!entitlement.permits_resource(ResourceLimitKind::ConcurrentSessions, 3));
 }
 
 #[test]
