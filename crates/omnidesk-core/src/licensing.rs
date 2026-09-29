@@ -197,11 +197,20 @@ pub trait SignatureVerifier {
     ) -> Result<(), LicenseError>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LicenseKeyStatus {
+    Active,
+    Rollover,
+    Revoked,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LicensePublicKey {
     pub kid: String,
     pub public_key: [u8; 32],
-    pub revoked: bool,
+    pub not_before: u64,
+    pub not_after: u64,
+    pub status: LicenseKeyStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,11 +218,13 @@ pub enum LicenseKeySetError {
     EmptyKeyId,
     DuplicateKeyId,
     InvalidPublicKey,
+    InvalidValidityWindow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ed25519SignatureVerifier {
     keys: Vec<LicensePublicKey>,
+    trusted_time: u64,
 }
 
 impl Ed25519SignatureVerifier {
@@ -222,7 +233,10 @@ impl Ed25519SignatureVerifier {
     /// # Errors
     ///
     /// Rejects empty/duplicate key identifiers and invalid Ed25519 public keys.
-    pub fn new(keys: Vec<LicensePublicKey>) -> Result<Self, LicenseKeySetError> {
+    pub fn new(
+        keys: Vec<LicensePublicKey>,
+        trusted_time: u64,
+    ) -> Result<Self, LicenseKeySetError> {
         let mut key_ids = BTreeSet::new();
         for key in &keys {
             if key.kid.trim().is_empty() {
@@ -231,10 +245,13 @@ impl Ed25519SignatureVerifier {
             if !key_ids.insert(key.kid.as_str()) {
                 return Err(LicenseKeySetError::DuplicateKeyId);
             }
+            if key.not_before >= key.not_after {
+                return Err(LicenseKeySetError::InvalidValidityWindow);
+            }
             VerifyingKey::from_bytes(&key.public_key)
                 .map_err(|_| LicenseKeySetError::InvalidPublicKey)?;
         }
-        Ok(Self { keys })
+        Ok(Self { keys, trusted_time })
     }
 
     #[must_use]
@@ -254,7 +271,10 @@ impl SignatureVerifier for Ed25519SignatureVerifier {
             .keys
             .iter()
             .find(|key| key.kid == kid)
-            .filter(|key| !key.revoked)
+            .filter(|key| key.status != LicenseKeyStatus::Revoked)
+            .filter(|key| {
+                self.trusted_time >= key.not_before && self.trusted_time < key.not_after
+            })
             .ok_or(LicenseError::UnknownOrRevokedKey)?;
 
         let public_key = VerifyingKey::from_bytes(&key.public_key)
@@ -541,8 +561,10 @@ mod tests {
         let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
             kid: "kid-2026-01".to_owned(),
             public_key: signing_key.verifying_key().to_bytes(),
-            revoked: false,
-        }])
+            not_before: 0,
+            not_after: u64::MAX,
+            status: LicenseKeyStatus::Active,
+        }], 1_000)
         .unwrap();
         let payload = b"canonical-license-payload";
         let signature = signing_key.sign(payload).to_bytes();
@@ -566,8 +588,10 @@ mod tests {
         let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
             kid: "kid-revoked".to_owned(),
             public_key: signing_key.verifying_key().to_bytes(),
-            revoked: true,
-        }])
+            not_before: 0,
+            not_after: u64::MAX,
+            status: LicenseKeyStatus::Revoked,
+        }], 1_000)
         .unwrap();
         let payload = b"canonical";
         let signature = signing_key.sign(payload).to_bytes();
@@ -589,8 +613,10 @@ mod tests {
             Ed25519SignatureVerifier::new(vec![LicensePublicKey {
                 kid: String::new(),
                 public_key,
-                revoked: false,
-            }]),
+                not_before: 0,
+                not_after: u64::MAX,
+                status: LicenseKeyStatus::Active,
+            }], 1_000),
             Err(LicenseKeySetError::EmptyKeyId)
         );
         assert_eq!(
@@ -598,12 +624,16 @@ mod tests {
                 LicensePublicKey {
                     kid: "same".to_owned(),
                     public_key,
-                    revoked: false,
+                    not_before: 0,
+                    not_after: u64::MAX,
+                    status: LicenseKeyStatus::Active,
                 },
                 LicensePublicKey {
                     kid: "same".to_owned(),
                     public_key,
-                    revoked: false,
+                    not_before: 0,
+                    not_after: u64::MAX,
+                    status: LicenseKeyStatus::Active,
                 },
             ]),
             Err(LicenseKeySetError::DuplicateKeyId)
@@ -618,8 +648,10 @@ mod tests {
         let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
             kid: "kid-boundary".to_owned(),
             public_key: signing_key.verifying_key().to_bytes(),
-            revoked: false,
-        }])
+            not_before: 0,
+            not_after: u64::MAX,
+            status: LicenseKeyStatus::Active,
+        }], 1_000)
         .unwrap();
 
         let payload = br#"{"protocol_version":"KSLP-v1","contract_version":"kmj.omnidesk.license.v1","jti":"jti-000000000001","kid":"kid-boundary","license_id":"license-1","entitlement_id":"entitlement-1","customer_id":"customer-1","organization_id":null,"product_id":"KMJ_OMNIDESK","product_slug":"kmj-omnidesk","plan":"Professional","activation_id":"activation-1","device_public_key_fingerprint":"device-fingerprint","installation_id":"install-1","capabilities":["remote.interactive","file.transfer"],"limits":{"licensed_users":1,"managed_devices":5,"concurrent_sessions":2,"unattended_devices":3,"relay_bytes_monthly":1000,"relay_policy":"direct_preferred"},"iat":900,"nbf":900,"exp":10000,"lease_expires_at":2000,"sequence":2,"nonce":"nonce-00000000001"}"#;
@@ -660,6 +692,67 @@ mod tests {
                 &context(1_000),
             ),
             Err(LicenseError::MalformedPayload)
+        );
+    }
+
+    #[test]
+    fn signing_key_validity_window_and_rollover_are_enforced() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[45_u8; 32]);
+        let payload = b"key-window";
+        let signature = signing_key.sign(payload).to_bytes();
+
+        let active = LicensePublicKey {
+            kid: "windowed".to_owned(),
+            public_key: signing_key.verifying_key().to_bytes(),
+            not_before: 900,
+            not_after: 1_100,
+            status: LicenseKeyStatus::Active,
+        };
+        let verifier = Ed25519SignatureVerifier::new(vec![active.clone()], 1_000).unwrap();
+        assert_eq!(verifier.verify("windowed", payload, &signature), Ok(()));
+
+        let before_window = Ed25519SignatureVerifier::new(vec![active.clone()], 899).unwrap();
+        assert_eq!(
+            before_window.verify("windowed", payload, &signature),
+            Err(LicenseError::UnknownOrRevokedKey)
+        );
+
+        let after_window = Ed25519SignatureVerifier::new(vec![active.clone()], 1_100).unwrap();
+        assert_eq!(
+            after_window.verify("windowed", payload, &signature),
+            Err(LicenseError::UnknownOrRevokedKey)
+        );
+
+        let rollover = Ed25519SignatureVerifier::new(
+            vec![LicensePublicKey {
+                status: LicenseKeyStatus::Rollover,
+                ..active
+            }],
+            1_000,
+        )
+        .unwrap();
+        assert_eq!(rollover.verify("windowed", payload, &signature), Ok(()));
+    }
+
+    #[test]
+    fn invalid_key_validity_window_is_rejected() {
+        use ed25519_dalek::SigningKey;
+
+        let signing_key = SigningKey::from_bytes(&[46_u8; 32]);
+        assert_eq!(
+            Ed25519SignatureVerifier::new(
+                vec![LicensePublicKey {
+                    kid: "bad-window".to_owned(),
+                    public_key: signing_key.verifying_key().to_bytes(),
+                    not_before: 1_000,
+                    not_after: 1_000,
+                    status: LicenseKeyStatus::Active,
+                }],
+                1_000,
+            ),
+            Err(LicenseKeySetError::InvalidValidityWindow)
         );
     }
 
