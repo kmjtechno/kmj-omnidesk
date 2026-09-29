@@ -1,4 +1,4 @@
-use crate::PROTOCOL_VERSION;
+use crate::{PROTOCOL_VERSION, authentication::PeerAuthenticationProof};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionState {
@@ -53,6 +53,7 @@ pub struct Session {
     state: SessionState,
     peer: Option<PeerIdentity>,
     control_authorized: bool,
+    authenticated_public_key: Option<[u8; 32]>,
 }
 
 impl Default for Session {
@@ -61,6 +62,7 @@ impl Default for Session {
             state: SessionState::Disconnected,
             peer: None,
             control_authorized: false,
+            authenticated_public_key: None,
         }
     }
 }
@@ -79,6 +81,12 @@ impl Session {
     #[must_use]
     pub const fn control_authorized(&self) -> bool {
         self.control_authorized
+    }
+
+    /// Returns the public key proven during peer authentication.
+    #[must_use]
+    pub const fn authenticated_public_key(&self) -> Option<&[u8; 32]> {
+        self.authenticated_public_key.as_ref()
     }
 
     /// Begins protocol negotiation with a peer.
@@ -105,13 +113,17 @@ impl Session {
         Ok(())
     }
 
-    /// Records successful peer authentication.
+    /// Records a cryptographically verified peer-authentication proof.
     ///
     /// # Errors
     ///
     /// Returns an error unless the session is currently negotiating.
-    pub fn authentication_succeeded(&mut self) -> Result<(), SessionError> {
+    pub fn authentication_succeeded(
+        &mut self,
+        proof: &PeerAuthenticationProof,
+    ) -> Result<(), SessionError> {
         self.require_state(SessionState::Negotiating, "authentication_succeeded")?;
+        self.authenticated_public_key = Some(*proof.public_key());
         self.state = SessionState::AwaitingAuthorization;
         Ok(())
     }
@@ -163,6 +175,7 @@ impl Session {
     pub fn disconnect(&mut self) {
         self.control_authorized = false;
         self.peer = None;
+        self.authenticated_public_key = None;
         self.state = SessionState::Closed;
     }
 
@@ -188,10 +201,25 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
+    use ed25519_dalek::{Signer, SigningKey};
+
+    use crate::authentication::{peer_auth_message, verify_peer_authentication};
+
     use super::*;
 
     fn peer() -> PeerIdentity {
         PeerIdentity::new("device:test-peer").expect("valid peer")
+    }
+
+    fn proof() -> PeerAuthenticationProof {
+        let signing_key = SigningKey::from_bytes(&[7_u8; 32]);
+        let public_key = signing_key.verifying_key().to_bytes();
+        let nonce = [9_u8; 32];
+        let signature = signing_key
+            .sign(&peer_auth_message(&public_key, &nonce))
+            .to_bytes();
+
+        verify_peer_authentication(public_key, nonce, signature).expect("valid proof")
     }
 
     #[test]
@@ -205,8 +233,11 @@ mod tests {
             Err(SessionError::ControlNotAuthorized)
         );
 
-        session.authentication_succeeded().expect("authenticate");
+        session
+            .authentication_succeeded(&proof())
+            .expect("authenticate");
         assert_eq!(session.state(), SessionState::AwaitingAuthorization);
+        assert!(session.authenticated_public_key().is_some());
         assert_eq!(
             session.require_control(),
             Err(SessionError::ControlNotAuthorized)
@@ -250,7 +281,9 @@ mod tests {
     fn revoke_and_disconnect_remove_control_permission() {
         let mut session = Session::default();
         session.begin(peer(), PROTOCOL_VERSION).expect("begin");
-        session.authentication_succeeded().expect("authenticate");
+        session
+            .authentication_succeeded(&proof())
+            .expect("authenticate");
         session.authorize_control().expect("authorize");
 
         session.revoke_control().expect("revoke");
@@ -263,6 +296,7 @@ mod tests {
         assert_eq!(session.state(), SessionState::Closed);
         assert!(!session.control_authorized());
         assert!(session.peer().is_none());
+        assert!(session.authenticated_public_key().is_none());
         assert_eq!(session.require_control(), Err(SessionError::Closed));
     }
 

@@ -137,7 +137,7 @@ milestones:
 
   - id: M1
     name: Session model and authenticated LAN proof
-    status: in_progress
+    status: complete
     depends_on: [M0]
     objective: Establish explicit session state, authorization, and a measurable local transport proof.
     deliverables:
