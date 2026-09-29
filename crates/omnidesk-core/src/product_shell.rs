@@ -72,7 +72,7 @@ impl ProductShell {
         self.security_state
     }
 
-    pub fn begin_connect(&mut self, device_id: &str) -> Result<(), ConnectError> {
+    /// Starts a connection attempt for an online known device.\n    ///\n    /// # Errors\n    ///\n    /// Returns [`ConnectError::UnknownDevice`] when the identifier is absent, or\n    /// [`ConnectError::DeviceOffline`] when the device is not currently online.\n    pub fn begin_connect(&mut self, device_id: &str) -> Result<(), ConnectError> {
         let device = self
             .devices
             .iter()
