@@ -503,6 +503,159 @@ impl RebootReconnectState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileTransferPolicy {
+    pub send_allowed: bool,
+    pub receive_allowed: bool,
+}
+
+impl FileTransferPolicy {
+    #[must_use]
+    pub const fn permits(self, direction: DataDirection) -> bool {
+        match direction {
+            DataDirection::LocalToRemote => self.send_allowed,
+            DataDirection::RemoteToLocal => self.receive_allowed,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CollaborationPermissions {
+    pub clipboard: ClipboardPolicy,
+    pub file_transfer: FileTransferPolicy,
+    pub audio: AudioPermission,
+    pub monitor_switch_allowed: bool,
+    pub reboot_reconnect: RebootReconnectPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CollaborationSessionError {
+    Clipboard(ClipboardSyncError),
+    FileTransferDenied,
+    InvalidTransfer(TransferManifestError),
+    Audio(AudioError),
+    MonitorSwitchDenied,
+    Monitor(MonitorLayoutError),
+    RebootReconnect(RebootReconnectError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollaborationSession {
+    permissions: CollaborationPermissions,
+    clipboard: ClipboardSyncState,
+    audio: RemoteAudioState,
+    monitors: MonitorLayout,
+    reboot_reconnect: RebootReconnectState,
+}
+
+impl CollaborationSession {
+    /// Creates one authoritative collaboration permission boundary for a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns a monitor-layout error when the supplied display topology is invalid.
+    pub fn new(
+        permissions: CollaborationPermissions,
+        monitors: Vec<MonitorDescriptor>,
+    ) -> Result<Self, MonitorLayoutError> {
+        Ok(Self {
+            permissions,
+            clipboard: ClipboardSyncState::new(),
+            audio: RemoteAudioState::new(permissions.audio),
+            monitors: MonitorLayout::new(monitors)?,
+            reboot_reconnect: RebootReconnectState::new(permissions.reboot_reconnect),
+        })
+    }
+
+    /// Applies one ordered clipboard update through the session's explicit policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns a clipboard validation/replay error when the update is not allowed.
+    pub fn sync_clipboard(
+        &mut self,
+        direction: DataDirection,
+        sequence: u64,
+        payload: &[u8],
+    ) -> Result<[u8; 32], CollaborationSessionError> {
+        self.clipboard
+            .accept(self.permissions.clipboard, direction, sequence, payload)
+            .map_err(CollaborationSessionError::Clipboard)
+    }
+
+    /// Starts a validated resumable file receive/send checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when the direction is not allowed or the manifest is invalid.
+    pub fn begin_file_transfer(
+        &self,
+        direction: DataDirection,
+        manifest: &FileTransferManifest,
+    ) -> Result<TransferCheckpoint, CollaborationSessionError> {
+        if !self.permissions.file_transfer.permits(direction) {
+            return Err(CollaborationSessionError::FileTransferDenied);
+        }
+        manifest
+            .validate()
+            .map_err(CollaborationSessionError::InvalidTransfer)?;
+        Ok(TransferCheckpoint::new())
+    }
+
+    /// Enables remote audio through the session's explicit audio policy.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when audio permission is denied.
+    pub fn start_audio(&mut self) -> Result<(), CollaborationSessionError> {
+        self.audio
+            .start()
+            .map_err(CollaborationSessionError::Audio)
+    }
+
+    pub const fn stop_audio(&mut self) {
+        self.audio.stop();
+    }
+
+    #[must_use]
+    pub const fn audio_active(&self) -> bool {
+        self.audio.is_active()
+    }
+
+    /// Selects a monitor only when monitor switching is explicitly enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns a permission error or an unknown-monitor/layout error.
+    pub fn select_monitor(
+        &mut self,
+        monitor_id: &str,
+    ) -> Result<(), CollaborationSessionError> {
+        if !self.permissions.monitor_switch_allowed {
+            return Err(CollaborationSessionError::MonitorSwitchDenied);
+        }
+        self.monitors
+            .select(monitor_id)
+            .map_err(CollaborationSessionError::Monitor)
+    }
+
+    #[must_use]
+    pub fn selected_monitor(&self) -> &str {
+        self.monitors.selected()
+    }
+
+    /// Consumes one bounded reboot-reconnect attempt under the session policy.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when reboot reconnect is denied or the attempt budget is exhausted.
+    pub fn begin_reboot_reconnect(&mut self) -> Result<u8, CollaborationSessionError> {
+        self.reboot_reconnect
+            .begin_attempt()
+            .map_err(CollaborationSessionError::RebootReconnect)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,6 +685,107 @@ mod tests {
             },
             chunks,
         )
+    }
+
+    fn collaboration_permissions(allowed: bool) -> CollaborationPermissions {
+        CollaborationPermissions {
+            clipboard: ClipboardPolicy {
+                send_allowed: allowed,
+                receive_allowed: allowed,
+            },
+            file_transfer: FileTransferPolicy {
+                send_allowed: allowed,
+                receive_allowed: allowed,
+            },
+            audio: if allowed {
+                AudioPermission::Allowed
+            } else {
+                AudioPermission::Denied
+            },
+            monitor_switch_allowed: allowed,
+            reboot_reconnect: RebootReconnectPolicy {
+                explicitly_allowed: allowed,
+                max_attempts: 2,
+            },
+        }
+    }
+
+    fn monitors() -> Vec<MonitorDescriptor> {
+        vec![
+            MonitorDescriptor {
+                id: "primary".to_owned(),
+                width: 1920,
+                height: 1080,
+                primary: true,
+            },
+            MonitorDescriptor {
+                id: "secondary".to_owned(),
+                width: 1280,
+                height: 1024,
+                primary: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn collaboration_session_applies_one_authoritative_permission_boundary() {
+        let (manifest, chunks) = transfer_manifest();
+        let mut session = CollaborationSession::new(collaboration_permissions(true), monitors())
+            .expect("valid collaboration session");
+
+        assert!(session
+            .sync_clipboard(DataDirection::LocalToRemote, 1, b"hello")
+            .is_ok());
+
+        let mut checkpoint = session
+            .begin_file_transfer(DataDirection::RemoteToLocal, &manifest)
+            .expect("file transfer allowed");
+        checkpoint
+            .accept(&manifest, 0, &chunks[0])
+            .expect("valid chunk");
+
+        assert_eq!(session.start_audio(), Ok(()));
+        assert!(session.audio_active());
+        session.stop_audio();
+        assert!(!session.audio_active());
+
+        assert_eq!(session.select_monitor("secondary"), Ok(()));
+        assert_eq!(session.selected_monitor(), "secondary");
+        assert_eq!(session.begin_reboot_reconnect(), Ok(1));
+    }
+
+    #[test]
+    fn collaboration_session_denies_every_sensitive_feature_when_policy_denies() {
+        let (manifest, _) = transfer_manifest();
+        let mut session = CollaborationSession::new(collaboration_permissions(false), monitors())
+            .expect("valid collaboration session");
+
+        assert_eq!(
+            session.sync_clipboard(DataDirection::LocalToRemote, 1, b"blocked"),
+            Err(CollaborationSessionError::Clipboard(
+                ClipboardSyncError::Validation(ClipboardError::PermissionDenied)
+            ))
+        );
+        assert_eq!(
+            session.begin_file_transfer(DataDirection::LocalToRemote, &manifest),
+            Err(CollaborationSessionError::FileTransferDenied)
+        );
+        assert_eq!(
+            session.start_audio(),
+            Err(CollaborationSessionError::Audio(
+                AudioError::PermissionDenied
+            ))
+        );
+        assert_eq!(
+            session.select_monitor("secondary"),
+            Err(CollaborationSessionError::MonitorSwitchDenied)
+        );
+        assert_eq!(
+            session.begin_reboot_reconnect(),
+            Err(CollaborationSessionError::RebootReconnect(
+                RebootReconnectError::PermissionDenied
+            ))
+        );
     }
 
     #[test]
