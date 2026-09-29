@@ -129,13 +129,7 @@ fn draw_controls(canvas: &mut Canvas<'_>, presentation: &PresentationModel, pale
 
     let mut detail_y = panel_y + 68;
     for detail in &presentation.details {
-        canvas.text(
-            panel_x + 22,
-            detail_y,
-            detail,
-            1,
-            palette.foreground,
-        );
+        canvas.text(panel_x + 22, detail_y, detail, 1, palette.foreground);
         detail_y = detail_y.saturating_add(18);
     }
 
