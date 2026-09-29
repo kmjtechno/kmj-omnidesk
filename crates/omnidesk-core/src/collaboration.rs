@@ -577,7 +577,7 @@ mod tests {
         let digest = state
             .accept(policy, DataDirection::LocalToRemote, 1, b"hello")
             .unwrap();
-        assert_eq!(state.payload_sha256(), Some(digest));
+        assert_eq!(state.last_payload_sha256(), Some(digest));
         assert_eq!(
             state.accept(policy, DataDirection::LocalToRemote, 1, b"replay"),
             Err(ClipboardSyncError::ReplayOrOutOfOrder)
