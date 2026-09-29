@@ -116,8 +116,7 @@ impl Transport for TcpLanTransport {
             return Err(TransportError::PayloadTooLarge);
         }
 
-        let length =
-            u32::try_from(payload.len()).map_err(|_| TransportError::PayloadTooLarge)?;
+        let length = u32::try_from(payload.len()).map_err(|_| TransportError::PayloadTooLarge)?;
         self.stream
             .write_all(&length.to_be_bytes())
             .map_err(io_error)?;
@@ -165,11 +164,7 @@ fn io_error(error: std::io::Error) -> TransportError {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        net::TcpListener,
-        thread,
-        time::Duration,
-    };
+    use std::{net::TcpListener, thread, time::Duration};
 
     use super::*;
 
