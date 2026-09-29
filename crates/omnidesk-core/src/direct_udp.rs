@@ -76,7 +76,9 @@ impl DirectProbe {
         socket.send(&request).map_err(|error| io_error(&error))?;
 
         let mut response = [0_u8; PROBE_BYTES];
-        let received = socket.recv(&mut response).map_err(|error| map_receive_error(&error))?;
+        let received = socket
+            .recv(&mut response)
+            .map_err(|error| map_receive_error(&error))?;
         if received != PROBE_BYTES || response != request {
             return Err(DirectProbeError::InvalidResponse);
         }
