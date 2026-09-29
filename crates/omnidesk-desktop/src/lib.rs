@@ -2,6 +2,7 @@
 
 use omnidesk_core::product_shell::{PermissionDecision, PrimaryView, ProductShell};
 
+pub mod accesskit_tree;
 pub mod render;
 
 #[cfg(windows)]
