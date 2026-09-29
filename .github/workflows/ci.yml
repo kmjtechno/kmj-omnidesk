@@ -45,6 +45,12 @@ jobs:
           cargo run -p omnidesk-core --example m8_runtime_evidence --release > artifacts/m8-runtime-evidence.json
           cat artifacts/m8-runtime-evidence.json
           grep -q '"m8_runtime_evidence":"PASS"' artifacts/m8-runtime-evidence.json
+      - name: Verify M8 weak-network transfer resume
+        run: |
+          cargo run -p omnidesk-core --example m8_weak_network_resume --release > artifacts/m8-weak-network-resume.json
+          cat artifacts/m8-weak-network-resume.json
+          grep -q '"m8_weak_network_resume":"PASS"' artifacts/m8-weak-network-resume.json
+          grep -q '"evidence_type":"deterministic_synthetic_impairment"' artifacts/m8-weak-network-resume.json
 
       - name: M4 REALNET-60 schema conformance gate
         run: python3 scripts/check_m4_schemas.py
