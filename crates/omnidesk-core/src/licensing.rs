@@ -141,6 +141,43 @@ pub struct SignedEntitlementPayload {
     pub nonce: String,
 }
 
+impl SignedEntitlementPayload {
+    fn semantic_shape_is_valid(&self) -> bool {
+        let identity_fields = [
+            self.jti.as_str(),
+            self.kid.as_str(),
+            self.license_id.as_str(),
+            self.entitlement_id.as_str(),
+            self.customer_id.as_str(),
+            self.activation_id.as_str(),
+            self.device_public_key_fingerprint.as_str(),
+            self.installation_id.as_str(),
+            self.nonce.as_str(),
+        ];
+        if identity_fields.iter().any(|value| value.trim().is_empty()) {
+            return false;
+        }
+        if self
+            .organization_id
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return false;
+        }
+        if self.limits.relay_policy.trim().is_empty() {
+            return false;
+        }
+        if self.capabilities.iter().any(|value| value.trim().is_empty()) {
+            return false;
+        }
+
+        let mut capabilities = BTreeSet::new();
+        self.capabilities
+            .iter()
+            .all(|capability| capabilities.insert(capability.as_str()))
+    }
+}
+
 pub trait SignatureVerifier {
     /// Verifies the canonical entitlement payload against the selected signing key.
     ///
