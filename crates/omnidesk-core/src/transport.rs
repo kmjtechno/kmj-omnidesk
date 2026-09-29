@@ -97,7 +97,8 @@ impl TcpLanTransport {
     ///
     /// Returns an I/O error when the peer cannot be connected or configured.
     pub fn connect(address: SocketAddr, timeout: Duration) -> Result<Self, TransportError> {
-        let stream = TcpStream::connect_timeout(&address, timeout).map_err(|error| io_error(&error))?;
+        let stream =
+            TcpStream::connect_timeout(&address, timeout).map_err(|error| io_error(&error))?;
         Self::from_stream(stream)
     }
 
@@ -142,7 +143,9 @@ impl Transport for TcpLanTransport {
         self.stream
             .write_all(&length.to_be_bytes())
             .map_err(|error| io_error(&error))?;
-        self.stream.write_all(payload).map_err(|error| io_error(&error))?;
+        self.stream
+            .write_all(payload)
+            .map_err(|error| io_error(&error))?;
         self.stream.flush().map_err(|error| io_error(&error))
     }
 
@@ -168,7 +171,9 @@ impl Transport for TcpLanTransport {
         }
 
         let mut payload = vec![0_u8; length];
-        self.stream.read_exact(&mut payload).map_err(|error| io_error(&error))?;
+        self.stream
+            .read_exact(&mut payload)
+            .map_err(|error| io_error(&error))?;
         Ok(Some(payload))
     }
 
