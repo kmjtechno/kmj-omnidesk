@@ -35,6 +35,9 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --workspace --all-targets --all-features
+      - name: M8 collaboration security and resume gate
+        run: cargo test -p omnidesk-core collaboration::tests --lib
+
       - name: M4 REALNET-60 schema conformance gate
         run: python3 scripts/check_m4_schemas.py
 
