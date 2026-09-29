@@ -1,4 +1,4 @@
-//! Performance-critical KMJ OmniDesk core.
+//! Performance-critical KMJ `OmniDesk` core.
 //!
 //! The core is intentionally UI-agnostic. Capture, transport, media, session,
 //! input, and policy boundaries will evolve behind measured interfaces.
