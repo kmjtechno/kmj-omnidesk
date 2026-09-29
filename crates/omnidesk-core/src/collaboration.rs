@@ -194,7 +194,6 @@ impl TransferCheckpoint {
         }
     }
 
-    #[must_use]
     pub fn completed_chunks(&self) -> impl Iterator<Item = u32> + '_ {
         self.completed.iter().copied()
     }
@@ -282,7 +281,7 @@ impl RemoteAudioState {
     ///
     /// # Errors
     ///
-    /// Returns AudioError::PermissionDenied when audio was not explicitly allowed.
+    /// Returns `AudioError::PermissionDenied` when audio was not explicitly allowed.
     pub const fn start(&mut self) -> Result<(), AudioError> {
         if !matches!(self.permission, AudioPermission::Allowed) {
             return Err(AudioError::PermissionDenied);
@@ -363,12 +362,12 @@ impl MonitorLayout {
     ///
     /// # Errors
     ///
-    /// Returns MonitorLayoutError::UnknownMonitor for an unknown identifier.
+    /// Returns `MonitorLayoutError::UnknownMonitor` for an unknown identifier.
     pub fn select(&mut self, monitor_id: &str) -> Result<(), MonitorLayoutError> {
         if !self.monitors.iter().any(|monitor| monitor.id == monitor_id) {
             return Err(MonitorLayoutError::UnknownMonitor);
         }
-        self.selected_id = monitor_id.to_owned();
+        monitor_id.clone_into(&mut self.selected_id);
         Ok(())
     }
 
