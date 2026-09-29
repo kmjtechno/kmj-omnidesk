@@ -169,11 +169,17 @@ mod tests {
 
         session.begin(peer(), PROTOCOL_VERSION).expect("begin");
         assert_eq!(session.state(), SessionState::Negotiating);
-        assert_eq!(session.require_control(), Err(SessionError::ControlNotAuthorized));
+        assert_eq!(
+            session.require_control(),
+            Err(SessionError::ControlNotAuthorized)
+        );
 
         session.authentication_succeeded().expect("authenticate");
         assert_eq!(session.state(), SessionState::AwaitingAuthorization);
-        assert_eq!(session.require_control(), Err(SessionError::ControlNotAuthorized));
+        assert_eq!(
+            session.require_control(),
+            Err(SessionError::ControlNotAuthorized)
+        );
 
         session.authorize_control().expect("authorize");
         assert_eq!(session.state(), SessionState::Active);
@@ -217,7 +223,10 @@ mod tests {
         session.authorize_control().expect("authorize");
 
         session.revoke_control().expect("revoke");
-        assert_eq!(session.require_control(), Err(SessionError::ControlNotAuthorized));
+        assert_eq!(
+            session.require_control(),
+            Err(SessionError::ControlNotAuthorized)
+        );
 
         session.disconnect();
         assert_eq!(session.state(), SessionState::Closed);
@@ -228,6 +237,9 @@ mod tests {
 
     #[test]
     fn empty_peer_identity_is_rejected() {
-        assert_eq!(PeerIdentity::new("   "), Err(SessionError::EmptyPeerIdentity));
+        assert_eq!(
+            PeerIdentity::new("   "),
+            Err(SessionError::EmptyPeerIdentity)
+        );
     }
 }
