@@ -1,67 +1,49 @@
 #![cfg(windows)]
 
-use windows::{
-    Win32::{
-        Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
-        UI::WindowsAndMessaging::{
-            CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, MSG,
-            RegisterClassW, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW,
-            WS_OVERLAPPEDWINDOW, WS_VISIBLE,
-        },
-    },
-    core::w,
+use winit::{
+    application::ApplicationHandler,
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, EventLoop},
+    window::{Window, WindowAttributes, WindowId},
 };
 
-unsafe extern "system" fn window_proc(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    unsafe { DefWindowProcW(window, message, wparam, lparam) }
+#[derive(Default)]
+struct DesktopHost {
+    window: Option<Window>,
 }
 
-/// Creates the smallest native Windows host for the M7 desktop shell.
+impl ApplicationHandler for DesktopHost {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_none() {
+            let attributes = WindowAttributes::default()
+                .with_title("KMJ OmniDesk")
+                .with_inner_size(winit::dpi::LogicalSize::new(960.0, 640.0));
+            self.window = Some(
+                event_loop
+                    .create_window(attributes)
+                    .expect("native desktop window creation must succeed"),
+            );
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        if matches!(event, WindowEvent::CloseRequested) {
+            event_loop.exit();
+        }
+    }
+}
+
+/// Runs the safe native Windows host for the M7 desktop shell.
 ///
 /// # Errors
 ///
-/// Returns the underlying Windows error when class registration or window
-/// creation fails.
-pub fn run() -> windows::core::Result<()> {
-    unsafe {
-        let instance = HINSTANCE::default();
-        let class_name = w!("KMJOmniDeskWindow");
-        let class = WNDCLASSW {
-            lpfnWndProc: Some(window_proc),
-            hInstance: instance,
-            lpszClassName: class_name,
-            ..Default::default()
-        };
-
-        if RegisterClassW(&class) == 0 {
-            return Err(windows::core::Error::from_win32());
-        }
-
-        CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            class_name,
-            w!("KMJ OmniDesk"),
-            WINDOW_STYLE(WS_OVERLAPPEDWINDOW.0 | WS_VISIBLE.0),
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            960,
-            640,
-            None,
-            None,
-            Some(instance.0 as _),
-            None,
-        )?;
-
-        let mut message = MSG::default();
-        while GetMessageW(&mut message, None, 0, 0).as_bool() {
-            let _ = TranslateMessage(&message);
-            DispatchMessageW(&message);
-        }
-    }
-    Ok(())
+/// Returns the event-loop error when the native host cannot start or run.
+pub fn run() -> Result<(), winit::error::EventLoopError> {
+    let event_loop = EventLoop::new()?;
+    event_loop.run_app(&mut DesktopHost::default())
 }

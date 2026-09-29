@@ -10,7 +10,7 @@ rust-version.workspace = true
 omnidesk-core = { path = "../omnidesk-core" }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+winit = "0.30"
 
 [lints]
 workspace = true

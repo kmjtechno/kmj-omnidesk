@@ -69,6 +69,34 @@ jobs:
         run: cargo check -p omnidesk-core --all-targets
       - name: Test Windows capture conversion
         run: cargo test -p omnidesk-core --lib
+      - name: Compile Windows desktop host
+        run: cargo build -p omnidesk-desktop --release
+      - name: Measure Windows desktop resource baseline
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $process = Start-Process -FilePath "target\release\omnidesk-desktop.exe" -PassThru
+          Start-Sleep -Seconds 2
+          $process.Refresh()
+          $cpuStart = $process.TotalProcessorTime.TotalSeconds
+          $cpuWindowSeconds = 2
+          Start-Sleep -Seconds $cpuWindowSeconds
+          $process.Refresh()
+          $cpuEnd = $process.TotalProcessorTime.TotalSeconds
+          $logicalProcessors = [Environment]::ProcessorCount
+          $cpuPercent = (($cpuEnd - $cpuStart) / ($cpuWindowSeconds * $logicalProcessors)) * 100
+          $sample = [ordered]@{
+            process = "omnidesk-desktop"
+            working_set_mib = [math]::Round($process.WorkingSet64 / 1MB, 2)
+            private_memory_mib = [math]::Round($process.PrivateMemorySize64 / 1MB, 2)
+            idle_cpu_percent = [math]::Round($cpuPercent, 3)
+            idle_cpu_milli_percent = [math]::Round($cpuPercent * 1000)
+            logical_processors = $logicalProcessors
+            warmup_seconds = 2
+            cpu_sample_seconds = $cpuWindowSeconds
+          }
+          $sample | ConvertTo-Json | Tee-Object -FilePath artifacts/windows-desktop-resource.json
+          Stop-Process -Id $process.Id -Force
       - name: Capture Windows desktop smoke frame
         shell: pwsh
         run: |
@@ -78,5 +106,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-capture-evidence
-          path: artifacts/windows-capture-smoke.json
+          path: |
+            artifacts/windows-capture-smoke.json
+            artifacts/windows-desktop-resource.json
           if-no-files-found: error

@@ -1,5 +1,5 @@
 #[cfg(windows)]
-fn main() -> windows::core::Result<()> {
+fn main() -> Result<(), winit::error::EventLoopError> {
     omnidesk_desktop::windows_host::run()
 }
 
