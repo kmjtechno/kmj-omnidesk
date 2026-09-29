@@ -210,12 +210,7 @@ mod tests {
 
         let probe = DirectProbe::new(Duration::from_secs(2));
         let result = probe
-            .connect_then_reconnect(
-                &candidate(address),
-                [1_u8; 16],
-                [2_u8; 32],
-                [3_u8; 32],
-            )
+            .connect_then_reconnect(&candidate(address), [1_u8; 16], [2_u8; 32], [3_u8; 32])
             .expect("connect and reconnect");
         let observed = responder.join().expect("responder");
 
