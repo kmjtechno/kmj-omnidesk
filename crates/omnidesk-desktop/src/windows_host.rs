@@ -1,15 +1,19 @@
 #![cfg(windows)]
 
+use omnidesk_core::product_shell::ProductShell;
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowAttributes, WindowId},
 };
 
+use crate::apply_key;
+
 #[derive(Default)]
 struct DesktopHost {
     window: Option<Window>,
+    shell: ProductShell,
 }
 
 impl ApplicationHandler for DesktopHost {
@@ -32,8 +36,16 @@ impl ApplicationHandler for DesktopHost {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        if matches!(event, WindowEvent::CloseRequested) {
-            event_loop.exit();
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if let Some(text) = event.text {
+                    if let Some(key) = text.chars().next() {
+                        let _handled = apply_key(&mut self.shell, key);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
