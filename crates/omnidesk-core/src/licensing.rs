@@ -182,10 +182,7 @@ pub fn has_capability(claims: &LicenseClaims<'_>, capability: &str) -> bool {
     claims.capabilities.contains(&capability)
 }
 
-const fn temporal_bounds_are_valid(
-    claims: &LicenseClaims<'_>,
-    clock: LocalLicenseClock,
-) -> bool {
+const fn temporal_bounds_are_valid(claims: &LicenseClaims<'_>, clock: LocalLicenseClock) -> bool {
     let issued_at = claims.issued_at;
     let not_before = claims.not_before;
     let lease_expires_at = claims.lease_expires_at;
@@ -196,8 +193,7 @@ const fn temporal_bounds_are_valid(
     let entitlement_order =
         issued_at <= not_before && not_before < lease_expires_at && lease_expires_at <= expires_at;
     let renewal_window = renewal_due_at >= not_before && renewal_due_at <= lease_expires_at;
-    let grace_window =
-        grace_expires_at >= lease_expires_at && grace_expires_at <= expires_at;
+    let grace_window = grace_expires_at >= lease_expires_at && grace_expires_at <= expires_at;
 
     entitlement_order && renewal_window && grace_window
 }
