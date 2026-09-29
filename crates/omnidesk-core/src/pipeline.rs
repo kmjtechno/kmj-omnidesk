@@ -72,10 +72,10 @@ where
         width: frame.width(),
         height: frame.height(),
     }];
-    let encoded = encoder.encode(&frame, &regions)?;
-    let output_bytes = encoded.payload.len();
+    let encoded_frame = encoder.encode(&frame, &regions)?;
+    let output_bytes = encoded_frame.payload.len();
 
-    transport.send(&encoded.payload)?;
+    transport.send(&encoded_frame.payload)?;
     let payload = transport
         .receive()?
         .ok_or(PipelineError::MissingTransportPayload)?;
@@ -83,8 +83,8 @@ where
         payload,
         regions: Vec::new(),
     };
-    let decoded = decoder.decode(&received)?;
-    renderer.render(&decoded)?;
+    let decoded_frame = decoder.decode(&received)?;
+    renderer.render(&decoded_frame)?;
 
     Ok(PipelineOutcome::Rendered(PipelineMeasurement {
         elapsed: started.elapsed(),
@@ -188,9 +188,9 @@ mod tests {
         };
         assert_eq!(measurement.input_bytes, 16);
         assert_eq!(measurement.output_bytes, 28);
-        let rendered = renderer.rendered.expect("rendered frame");
-        assert_eq!(rendered.format(), PixelFormat::Bgra8);
-        assert_eq!(rendered.data(), &[7_u8; 16]);
+        let output_frame = renderer.rendered.expect("rendered frame");
+        assert_eq!(output_frame.format(), PixelFormat::Bgra8);
+        assert_eq!(output_frame.data(), &[7_u8; 16]);
     }
 
     #[test]
