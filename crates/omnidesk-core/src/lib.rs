@@ -7,6 +7,7 @@
 
 pub mod authentication;
 pub mod connectivity;
+pub mod direct_udp;
 pub mod input;
 pub mod licensing;
 pub mod media;
