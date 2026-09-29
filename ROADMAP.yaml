@@ -306,7 +306,7 @@ milestones:
 
   - id: M8
     name: File clipboard audio and multi-monitor
-    status: in_progress
+    status: complete
     depends_on: [M2, M3, M7]
     deliverables:
       - clipboard_sync
