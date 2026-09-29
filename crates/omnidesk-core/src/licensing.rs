@@ -167,7 +167,11 @@ impl SignedEntitlementPayload {
         if self.limits.relay_policy.trim().is_empty() {
             return false;
         }
-        if self.capabilities.iter().any(|value| value.trim().is_empty()) {
+        if self
+            .capabilities
+            .iter()
+            .any(|value| value.trim().is_empty())
+        {
             return false;
         }
 
@@ -396,13 +400,7 @@ pub fn verify_signed_entitlement(
         sequence: payload.sequence,
     };
 
-    let state = verify_and_evaluate(
-        verifier,
-        canonical_payload,
-        signature,
-        &claims,
-        context,
-    )?;
+    let state = verify_and_evaluate(verifier, canonical_payload, signature, &claims, context)?;
     Ok(VerifiedEntitlement { state, payload })
 }
 
