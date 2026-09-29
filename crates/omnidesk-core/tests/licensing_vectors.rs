@@ -1,8 +1,8 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use omnidesk_core::licensing::{
     DeviceBinding, Ed25519SignatureVerifier, LICENSE_CONTRACT_VERSION, LICENSE_PROTOCOL_VERSION,
-    LicenseClaims, LicenseError, LicensePlan, LicensePublicKey, LicenseState, LocalLicenseClock,
-    ResourceLimitKind, RevocationState, SignatureVerifier, VerificationContext,
+    LicenseClaims, LicenseError, LicenseKeyStatus, LicensePlan, LicensePublicKey, LicenseState,
+    LocalLicenseClock, ResourceLimitKind, RevocationState, SignatureVerifier, VerificationContext,
     verify_signed_entitlement,
 };
 use omnidesk_core::{PRODUCT_ID, PRODUCT_SLUG};
@@ -78,8 +78,10 @@ fn committed_ed25519_vector_matches_client_verifier() {
     let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
         kid: value_str(&vector, "kid").to_owned(),
         public_key,
-        revoked: false,
-    }])
+        not_before: 0,
+        not_after: u64::MAX,
+        status: LicenseKeyStatus::Active,
+    }], 1_800_000_000)
     .expect("test vector public key must be accepted");
 
     let payload = value_str(&vector, "canonical_payload_utf8").as_bytes();
@@ -116,8 +118,10 @@ fn committed_ed25519_vector_passes_full_signed_entitlement_boundary() {
     let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
         kid: value_str(&vector, "kid").to_owned(),
         public_key,
-        revoked: false,
-    }])
+        not_before: 0,
+        not_after: u64::MAX,
+        status: LicenseKeyStatus::Active,
+    }], 1_800_000_000)
     .expect("test vector public key must be accepted");
 
     let issued_at = value_u64(&payload_json, "iat");
