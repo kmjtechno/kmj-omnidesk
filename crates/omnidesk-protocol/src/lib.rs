@@ -1,4 +1,4 @@
-//! Versioned, transport-neutral contracts for KMJ OmniDesk.
+//! Versioned, transport-neutral contracts for KMJ `OmniDesk`.
 //!
 //! Protocol evolution must remain explicit and backwards-aware. Production
 //! secrets, licensing signing keys, and machine credentials do not belong here.
