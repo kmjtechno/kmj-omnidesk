@@ -6,7 +6,9 @@
 #![forbid(unsafe_code)]
 
 pub mod authentication;
+pub mod input;
 pub mod licensing;
+pub mod media;
 pub mod metrics;
 pub mod session;
 pub mod transport;
