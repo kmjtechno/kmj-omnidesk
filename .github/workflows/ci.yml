@@ -39,6 +39,8 @@ jobs:
         run: cargo test -p omnidesk-core collaboration::tests --lib
       - name: M9 licensing crypto and policy gate
         run: cargo test -p omnidesk-core licensing::tests --lib
+      - name: M9 committed licensing vector conformance gate
+        run: cargo test -p omnidesk-core --test licensing_vectors
       - name: Verify M8 runtime evidence
         run: |
           mkdir -p artifacts
