@@ -688,7 +688,6 @@ mod tests {
         assert!(session.details.iter().any(|line| line == "FPS: 60"));
     }
 
-
     #[test]
     fn pointer_hit_test_drives_same_fail_closed_actions_as_keyboard() {
         use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView};
