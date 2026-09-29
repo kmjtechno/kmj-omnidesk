@@ -1,13 +1,6 @@
-use std::{
-    net::UdpSocket,
-    thread,
-    time::Duration,
-};
+use std::{net::UdpSocket, thread, time::Duration};
 
-use omnidesk_core::{
-    connectivity::DirectConnectStats,
-    direct_udp::DirectProbe,
-};
+use omnidesk_core::{connectivity::DirectConnectStats, direct_udp::DirectProbe};
 use omnidesk_protocol::signaling::{CandidateKind, ConnectionCandidate, TransportProtocol};
 
 const ITERATIONS: u8 = 10;
@@ -22,9 +15,12 @@ fn main() {
     let responder = thread::spawn(move || {
         for _ in 0..usize::from(ITERATIONS) * 2 {
             let mut request = [0_u8; PROBE_BYTES];
-            let (received, source) = peer.recv_from(&mut request).expect("receive benchmark probe");
+            let (received, source) = peer
+                .recv_from(&mut request)
+                .expect("receive benchmark probe");
             assert_eq!(received, PROBE_BYTES);
-            peer.send_to(&request, source).expect("echo benchmark probe");
+            peer.send_to(&request, source)
+                .expect("echo benchmark probe");
         }
     });
 
