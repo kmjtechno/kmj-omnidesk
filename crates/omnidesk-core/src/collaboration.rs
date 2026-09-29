@@ -56,6 +56,74 @@ pub const fn validate_clipboard_transfer(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClipboardSyncError {
+    Validation(ClipboardError),
+    ReplayOrOutOfOrder,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipboardSyncState {
+    sent_sequence: Option<u64>,
+    received_sequence: Option<u64>,
+    payload_sha256: Option<[u8; 32]>,
+}
+
+impl ClipboardSyncState {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            sent_sequence: None,
+            received_sequence: None,
+            payload_sha256: None,
+        }
+    }
+
+    /// Validates and records one ordered clipboard update.
+    ///
+    /// # Errors
+    ///
+    /// Fails when permission/size validation fails or when the sequence number is
+    /// replayed or moves backwards for the selected transfer direction.
+    pub fn accept(
+        &mut self,
+        policy: ClipboardPolicy,
+        direction: DataDirection,
+        sequence: u64,
+        payload: &[u8],
+    ) -> Result<[u8; 32], ClipboardSyncError> {
+        validate_clipboard_transfer(policy, direction, payload.len())
+            .map_err(ClipboardSyncError::Validation)?;
+
+        let previous = match direction {
+            DataDirection::LocalToRemote => self.sent_sequence,
+            DataDirection::RemoteToLocal => self.received_sequence,
+        };
+        if previous.is_some_and(|previous| sequence <= previous) {
+            return Err(ClipboardSyncError::ReplayOrOutOfOrder);
+        }
+
+        let digest: [u8; 32] = Sha256::digest(payload).into();
+        match direction {
+            DataDirection::LocalToRemote => self.sent_sequence = Some(sequence),
+            DataDirection::RemoteToLocal => self.received_sequence = Some(sequence),
+        }
+        self.payload_sha256 = Some(digest);
+        Ok(digest)
+    }
+
+    #[must_use]
+    pub const fn last_payload_sha256(&self) -> Option<[u8; 32]> {
+        self.payload_sha256
+    }
+}
+
+impl Default for ClipboardSyncState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransferPathError {
     Empty,
     Absolute,
@@ -495,6 +563,34 @@ mod tests {
                 MAX_CLIPBOARD_BYTES + 1
             ),
             Err(ClipboardError::PayloadTooLarge)
+        );
+    }
+
+    #[test]
+    fn clipboard_sync_rejects_replay_and_tracks_digest() {
+        let policy = ClipboardPolicy {
+            send_allowed: true,
+            receive_allowed: true,
+        };
+        let mut state = ClipboardSyncState::new();
+
+        let digest = state
+            .accept(policy, DataDirection::LocalToRemote, 1, b"hello")
+            .unwrap();
+        assert_eq!(state.last_payload_sha256(), Some(digest));
+        assert_eq!(
+            state.accept(policy, DataDirection::LocalToRemote, 1, b"replay"),
+            Err(ClipboardSyncError::ReplayOrOutOfOrder)
+        );
+        assert_eq!(
+            state.accept(policy, DataDirection::LocalToRemote, 0, b"older"),
+            Err(ClipboardSyncError::ReplayOrOutOfOrder)
+        );
+
+        assert!(
+            state
+                .accept(policy, DataDirection::RemoteToLocal, 1, b"remote")
+                .is_ok()
         );
     }
 

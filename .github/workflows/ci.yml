@@ -37,6 +37,12 @@ jobs:
         run: cargo test --workspace --all-targets --all-features
       - name: M8 collaboration security and resume gate
         run: cargo test -p omnidesk-core collaboration::tests --lib
+      - name: Verify M8 runtime evidence
+        run: |
+          mkdir -p artifacts
+          cargo run -p omnidesk-core --example m8_runtime_evidence --release > artifacts/m8-runtime-evidence.json
+          cat artifacts/m8-runtime-evidence.json
+          grep -q '"m8_runtime_evidence":"PASS"' artifacts/m8-runtime-evidence.json
 
       - name: M4 REALNET-60 schema conformance gate
         run: python3 scripts/check_m4_schemas.py
