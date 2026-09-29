@@ -94,7 +94,10 @@ mod tests {
             Some(DesktopAction::DenyPermission)
         );
         assert_eq!(action_for_key(PrimaryView::Devices, 'A'), None);
-        assert_eq!(action_for_key(PrimaryView::Session, 'X'), Some(DesktopAction::Disconnect));
+        assert_eq!(
+            action_for_key(PrimaryView::Session, 'X'),
+            Some(DesktopAction::Disconnect)
+        );
     }
 
     #[test]
