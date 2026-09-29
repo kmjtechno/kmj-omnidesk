@@ -105,6 +105,16 @@ jobs:
             cpu_sample_seconds = $cpuWindowSeconds
           }
           $sample | ConvertTo-Json | Tee-Object -FilePath artifacts/windows-desktop-resource.json
+          $memoryBudgetMiB = 64
+          $cpuBudgetMilliPercent = 500
+          if ($sample.working_set_mib -gt $memoryBudgetMiB) {
+            Stop-Process -Id $process.Id -Force
+            throw "Windows desktop working set $($sample.working_set_mib) MiB exceeds $memoryBudgetMiB MiB budget"
+          }
+          if ($sample.idle_cpu_milli_percent -gt $cpuBudgetMilliPercent) {
+            Stop-Process -Id $process.Id -Force
+            throw "Windows desktop idle CPU $($sample.idle_cpu_milli_percent) milli-percent exceeds $cpuBudgetMilliPercent budget"
+          }
           Stop-Process -Id $process.Id -Force
       - name: Capture Windows desktop smoke frame
         shell: pwsh
