@@ -41,10 +41,7 @@ impl DesktopHost {
         self.accessibility = accessibility_snapshot(&self.shell);
         if let Some(window) = self.window.as_ref() {
             let presentation = presentation_for(&self.shell);
-            window.set_title(&format!(
-                "{} — {}",
-                presentation.title, presentation.status
-            ));
+            window.set_title(&format!("{} — {}", presentation.title, presentation.status));
             window.request_redraw();
         }
     }
