@@ -127,10 +127,7 @@ mod tests {
 
     use omnidesk_protocol::signaling::{CandidateKind, TransportProtocol};
 
-    use crate::{
-        connectivity::ConnectionMetrics,
-        direct_udp::DirectProbeError,
-    };
+    use crate::{connectivity::ConnectionMetrics, direct_udp::DirectProbeError};
 
     use super::*;
 
