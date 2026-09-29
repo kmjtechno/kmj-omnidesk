@@ -28,6 +28,11 @@ pub enum SessionError {
 pub struct PeerIdentity(String);
 
 impl PeerIdentity {
+    /// Creates a non-empty peer identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SessionError::EmptyPeerIdentity` when the supplied identity is blank.
     pub fn new(value: impl Into<String>) -> Result<Self, SessionError> {
         let value = value.into();
         if value.trim().is_empty() {
@@ -62,20 +67,25 @@ impl Default for Session {
 
 impl Session {
     #[must_use]
-    pub fn state(&self) -> SessionState {
+    pub const fn state(&self) -> SessionState {
         self.state
     }
 
     #[must_use]
-    pub fn peer(&self) -> Option<&PeerIdentity> {
+    pub const fn peer(&self) -> Option<&PeerIdentity> {
         self.peer.as_ref()
     }
 
     #[must_use]
-    pub fn control_authorized(&self) -> bool {
+    pub const fn control_authorized(&self) -> bool {
         self.control_authorized
     }
 
+    /// Begins protocol negotiation with a peer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid state or protocol-version mismatch.
     pub fn begin(
         &mut self,
         peer: PeerIdentity,
@@ -95,12 +105,22 @@ impl Session {
         Ok(())
     }
 
+    /// Records successful peer authentication.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error unless the session is currently negotiating.
     pub fn authentication_succeeded(&mut self) -> Result<(), SessionError> {
         self.require_state(SessionState::Negotiating, "authentication_succeeded")?;
         self.state = SessionState::AwaitingAuthorization;
         Ok(())
     }
 
+    /// Grants remote-control permission after authentication.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error unless the session is awaiting explicit authorization.
     pub fn authorize_control(&mut self) -> Result<(), SessionError> {
         self.require_state(SessionState::AwaitingAuthorization, "authorize_control")?;
         self.control_authorized = true;
@@ -108,6 +128,11 @@ impl Session {
         Ok(())
     }
 
+    /// Revokes remote-control permission.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SessionError::Closed` when the session is already closed.
     pub fn revoke_control(&mut self) -> Result<(), SessionError> {
         if self.state == SessionState::Closed {
             return Err(SessionError::Closed);
@@ -117,6 +142,12 @@ impl Session {
         Ok(())
     }
 
+    /// Verifies that remote control is currently authorized.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed error when the session is closed, inactive, or control
+    /// permission has not been explicitly granted.
     pub fn require_control(&self) -> Result<(), SessionError> {
         if self.state == SessionState::Closed {
             return Err(SessionError::Closed);
