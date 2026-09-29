@@ -14,14 +14,9 @@ use winit::{
 };
 
 use crate::{
-    AccessibilityNode,
-    accesskit_tree::{
-        build_accesskit_tree_with_focus, desktop_action_for_node,
-    },
-    accessibility_snapshot,
-    apply_action,
-    apply_key,
-    presentation_for,
+    AccessibilityNode, accessibility_snapshot,
+    accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
+    apply_action, apply_key, presentation_for,
     render::render_shell,
 };
 
@@ -149,11 +144,8 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
             );
             let surface = Surface::new(&self.context, Arc::clone(&window))
                 .expect("native render surface creation must succeed");
-            let adapter = Adapter::with_event_loop_proxy(
-                event_loop,
-                &window,
-                self.event_loop_proxy.clone(),
-            );
+            let adapter =
+                Adapter::with_event_loop_proxy(event_loop, &window, self.event_loop_proxy.clone());
             window.set_visible(true);
             window.request_redraw();
 
