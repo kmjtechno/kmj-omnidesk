@@ -8,7 +8,7 @@ use omnidesk_core::product_shell::ProductShell;
 use softbuffer::{Context, Surface};
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, WindowEvent},
+    event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle},
     window::{Window, WindowAttributes, WindowId},
 };
@@ -16,7 +16,7 @@ use winit::{
 use crate::{
     AccessibilityNode, accessibility_snapshot,
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
-    apply_action, apply_key, presentation_for,
+    action_at_point, apply_action, apply_key, presentation_for,
     render::render_shell,
 };
 
@@ -30,6 +30,7 @@ struct DesktopHost {
     shell: ProductShell,
     accessibility: Vec<AccessibilityNode>,
     accessibility_focus: Option<NodeId>,
+    cursor_position: Option<(usize, usize)>,
 }
 
 impl DesktopHost {
@@ -48,6 +49,7 @@ impl DesktopHost {
             shell,
             accessibility,
             accessibility_focus: None,
+            cursor_position: None,
         }
     }
 
@@ -172,6 +174,30 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 self.update_accessibility_tree();
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_position =
+                    Some((position.x.max(0.0) as usize, position.y.max(0.0) as usize));
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                if let (Some((x, y)), Some(window)) = (self.cursor_position, self.window.as_ref()) {
+                    let size = window.inner_size();
+                    if let Some(action) = action_at_point(
+                        &self.shell,
+                        usize::try_from(size.width).unwrap_or(usize::MAX),
+                        usize::try_from(size.height).unwrap_or(usize::MAX),
+                        x,
+                        y,
+                    ) {
+                        apply_action(&mut self.shell, action);
+                        self.accessibility_focus = None;
+                        self.refresh_presentation();
+                    }
                 }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {

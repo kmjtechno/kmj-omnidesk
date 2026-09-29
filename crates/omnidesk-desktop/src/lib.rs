@@ -221,6 +221,74 @@ pub fn presentation_details(shell: &ProductShell) -> Vec<String> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ControlRect {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl ControlRect {
+    #[must_use]
+    pub const fn contains(self, x: usize, y: usize) -> bool {
+        x >= self.x
+            && y >= self.y
+            && x < self.x.saturating_add(self.width)
+            && y < self.y.saturating_add(self.height)
+    }
+}
+
+#[must_use]
+pub fn control_rects_for(
+    presentation: &PresentationModel,
+    width: usize,
+    height: usize,
+) -> Vec<ControlRect> {
+    if width <= 208 || height <= 64 {
+        return Vec::new();
+    }
+
+    let panel_x = 192;
+    let panel_y: usize = 32;
+    let panel_width = width.saturating_sub(216);
+    let detail_y = panel_y
+        .saturating_add(68)
+        .saturating_add(presentation.details.len().saturating_mul(18));
+    let first_control_y = detail_y.saturating_add(16);
+    let card_width = panel_width.saturating_sub(44);
+
+    presentation
+        .controls
+        .iter()
+        .enumerate()
+        .map(|(index, _)| ControlRect {
+            x: panel_x + 22,
+            y: first_control_y.saturating_add(index.saturating_mul(62)),
+            width: card_width,
+            height: 48,
+        })
+        .collect()
+}
+
+#[must_use]
+pub fn action_at_point(
+    shell: &ProductShell,
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+) -> Option<DesktopAction> {
+    let presentation = presentation_for(shell);
+    let rects = control_rects_for(&presentation, width, height);
+    presentation
+        .controls
+        .iter()
+        .zip(rects)
+        .find(|(control, rect)| control.enabled && rect.contains(x, y))
+        .map(|(control, _)| control.action)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResourceBudget {
     pub idle_memory_mib: u32,
     pub idle_cpu_milli_percent: u32,
@@ -618,6 +686,51 @@ mod tests {
                 .any(|line| line == "Bitrate: 1200 kbps")
         );
         assert!(session.details.iter().any(|line| line == "FPS: 60"));
+    }
+
+    #[test]
+    fn pointer_hit_test_drives_same_fail_closed_actions_as_keyboard() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "desk-1".into(),
+                display_name: "Desk 1".into(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "desk-2".into(),
+                display_name: "Desk 2".into(),
+                status: DeviceStatus::Offline,
+            },
+        ]);
+
+        let presentation = presentation_for(&shell);
+        let rects = control_rects_for(&presentation, 960, 640);
+        let first = rects[0];
+        let second = rects[1];
+
+        let connect = action_at_point(
+            &shell,
+            960,
+            640,
+            first.x + first.width / 2,
+            first.y + first.height / 2,
+        );
+        assert_eq!(connect, Some(DesktopAction::ConnectDevice(0)));
+        apply_action(&mut shell, connect.unwrap());
+        assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+
+        shell.disconnect();
+        let offline = action_at_point(
+            &shell,
+            960,
+            640,
+            second.x + second.width / 2,
+            second.y + second.height / 2,
+        );
+        assert_eq!(offline, None);
     }
 
     #[test]

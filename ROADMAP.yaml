@@ -282,7 +282,7 @@ milestones:
 
   - id: M7
     name: Desktop product shell
-    status: pending
+    status: complete
     depends_on: [M2, M3]
     objective: Deliver a premium lightweight native user experience.
     deliverables:

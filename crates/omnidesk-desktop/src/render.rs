@@ -1,6 +1,6 @@
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 
-use crate::PresentationModel;
+use crate::{PresentationModel, control_rects_for};
 
 #[must_use]
 pub const fn packed_rgb(rgb: [u8; 3]) -> u32 {
@@ -133,15 +133,14 @@ fn draw_controls(canvas: &mut Canvas<'_>, presentation: &PresentationModel, pale
         detail_y = detail_y.saturating_add(18);
     }
 
-    let mut control_y = detail_y.saturating_add(16);
-    for control in &presentation.controls {
-        let card_width = panel_width.saturating_sub(44);
-        canvas.fill_rect(panel_x + 22, control_y, card_width, 48, palette.background);
+    let rects = control_rects_for(presentation, canvas.width, canvas.height);
+    for (control, rect) in presentation.controls.iter().zip(rects) {
+        canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, palette.background);
         canvas.stroke_rect(
-            panel_x + 22,
-            control_y,
-            card_width,
-            48,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
             2,
             if control.enabled {
                 palette.accent
@@ -150,8 +149,8 @@ fn draw_controls(canvas: &mut Canvas<'_>, presentation: &PresentationModel, pale
             },
         );
         canvas.text(
-            panel_x + 36,
-            control_y + 12,
+            rect.x + 14,
+            rect.y + 12,
             &control.label,
             1,
             if control.enabled {
@@ -162,11 +161,11 @@ fn draw_controls(canvas: &mut Canvas<'_>, presentation: &PresentationModel, pale
         );
 
         let shortcut = format!("[{}]", control.keyboard_key.to_ascii_uppercase());
-        let shortcut_x = panel_x
-            .saturating_add(panel_width)
-            .saturating_sub(22 + shortcut.len() * 9 + 14);
-        canvas.text(shortcut_x, control_y + 12, &shortcut, 1, palette.danger);
-        control_y = control_y.saturating_add(62);
+        let shortcut_x = rect
+            .x
+            .saturating_add(rect.width)
+            .saturating_sub(shortcut.len() * 9 + 14);
+        canvas.text(shortcut_x, rect.y + 12, &shortcut, 1, palette.danger);
     }
 }
 

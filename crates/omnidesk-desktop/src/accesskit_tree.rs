@@ -1,7 +1,7 @@
 use accesskit::{Action, Node, NodeId, Rect, Role, TreeId, TreeInfo, TreeUpdate};
 use omnidesk_core::product_shell::ProductShell;
 
-use crate::{DesktopAction, controls_for_shell, presentation_for};
+use crate::{DesktopAction, control_rects_for, controls_for_shell, presentation_for};
 
 pub const ROOT_NODE_ID: NodeId = NodeId(0);
 
@@ -18,14 +18,26 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
         .map(|(_, control)| control.action)
 }
 
-fn control_bounds(index: usize) -> Rect {
-    let row = f64::from(u32::try_from(index).expect("control index fits u32"));
-    let y0 = row.mul_add(62.0, 116.0);
+fn accessibility_coordinate(value: usize) -> f64 {
+    f64::from(u32::try_from(value).unwrap_or(u32::MAX))
+}
+
+fn control_bounds(shell: &ProductShell, index: usize) -> Rect {
+    let presentation = presentation_for(shell);
+    let rect = control_rects_for(&presentation, 960, 640)
+        .get(index)
+        .copied()
+        .unwrap_or(crate::ControlRect {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        });
     Rect {
-        x0: 214.0,
-        y0,
-        x1: 910.0,
-        y1: y0 + 48.0,
+        x0: accessibility_coordinate(rect.x),
+        y0: accessibility_coordinate(rect.y),
+        x1: accessibility_coordinate(rect.x.saturating_add(rect.width)),
+        y1: accessibility_coordinate(rect.y.saturating_add(rect.height)),
     }
 }
 
@@ -52,7 +64,7 @@ pub fn build_accesskit_tree_with_focus(
 
         let mut node = Node::new(Role::Button);
         node.set_label(&control.label);
-        node.set_bounds(control_bounds(index));
+        node.set_bounds(control_bounds(shell, index));
         node.add_action(Action::Focus);
         if control.enabled {
             node.add_action(Action::Click);
