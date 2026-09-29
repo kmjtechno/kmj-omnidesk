@@ -1,8 +1,8 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use omnidesk_core::licensing::{
-    DeviceBinding, Ed25519SignatureVerifier, LicenseClaims, LicenseError, LicensePublicKey,
-    LicenseState, LocalLicenseClock, RevocationState, SignatureVerifier, VerificationContext,
-    LICENSE_CONTRACT_VERSION, LICENSE_PROTOCOL_VERSION,
+    DeviceBinding, Ed25519SignatureVerifier, LICENSE_CONTRACT_VERSION, LICENSE_PROTOCOL_VERSION,
+    LicenseClaims, LicenseError, LicensePublicKey, LicenseState, LocalLicenseClock,
+    RevocationState, SignatureVerifier, VerificationContext,
 };
 use omnidesk_core::{PRODUCT_ID, PRODUCT_SLUG};
 use serde_json::Value;
