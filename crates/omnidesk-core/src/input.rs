@@ -12,6 +12,7 @@ pub enum InputPayload {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InputEvent {
+    pub session_nonce: [u8; 32],
     pub sequence: u64,
     pub payload: InputPayload,
 }
@@ -19,6 +20,7 @@ pub struct InputEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputError {
     Session(SessionError),
+    StaleSession,
     StaleSequence,
     InvalidKeyCode,
     InvalidPointerButton,
@@ -65,6 +67,9 @@ impl<A: InputAdapter> AuthorizedInputDispatcher<A> {
     pub fn dispatch(&mut self, session: &Session, event: InputEvent) -> Result<(), InputError> {
         session.require_control()?;
 
+        if session.authentication_nonce() != Some(&event.session_nonce) {
+            return Err(InputError::StaleSession);
+        }
         if event.sequence <= self.last_sequence {
             return Err(InputError::StaleSequence);
         }
@@ -150,6 +155,7 @@ mod tests {
         let result = dispatcher.dispatch(
             &session,
             InputEvent {
+                session_nonce: [9_u8; 32],
                 sequence: 1,
                 payload: InputPayload::PointerMove { x: 10, y: 20 },
             },
@@ -167,6 +173,7 @@ mod tests {
         let session = active_session();
         let mut dispatcher = AuthorizedInputDispatcher::new(RecordingAdapter::default());
         let event = InputEvent {
+            session_nonce: [9_u8; 32],
             sequence: 1,
             payload: InputPayload::PointerMove { x: 10, y: 20 },
         };
@@ -178,10 +185,28 @@ mod tests {
     }
 
     #[test]
+    fn stale_session_input_is_rejected() {
+        let session = active_session();
+        let mut dispatcher = AuthorizedInputDispatcher::new(RecordingAdapter::default());
+        let event = InputEvent {
+            session_nonce: [8_u8; 32],
+            sequence: 1,
+            payload: InputPayload::PointerMove { x: 10, y: 20 },
+        };
+
+        assert_eq!(
+            dispatcher.dispatch(&session, event),
+            Err(InputError::StaleSession)
+        );
+        assert!(dispatcher.adapter().events.is_empty());
+    }
+
+    #[test]
     fn stale_sequence_is_rejected() {
         let session = active_session();
         let mut dispatcher = AuthorizedInputDispatcher::new(RecordingAdapter::default());
         let event = InputEvent {
+            session_nonce: [9_u8; 32],
             sequence: 2,
             payload: InputPayload::KeyDown { key_code: 65 },
         };
