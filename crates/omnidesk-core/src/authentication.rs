@@ -45,8 +45,9 @@ impl PeerAuthenticationProof {
 /// successful signature does not grant remote-control permission by itself.
 #[must_use]
 pub fn peer_auth_message(public_key: &[u8; 32], nonce: &[u8; 32]) -> Vec<u8> {
-    let mut message =
-        Vec::with_capacity(PEER_AUTH_DOMAIN.len() + size_of::<u16>() + public_key.len() + nonce.len());
+    let mut message = Vec::with_capacity(
+        PEER_AUTH_DOMAIN.len() + size_of::<u16>() + public_key.len() + nonce.len(),
+    );
     message.extend_from_slice(PEER_AUTH_DOMAIN);
     message.extend_from_slice(&PROTOCOL_VERSION.to_be_bytes());
     message.extend_from_slice(public_key);
