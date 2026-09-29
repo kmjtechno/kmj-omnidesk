@@ -26,6 +26,12 @@ pub enum DirectAttemptError {
 }
 
 pub trait CandidateProbe {
+    /// Probes one direct candidate for bounded reachability.
+    ///
+    /// # Errors
+    ///
+    /// Returns the concrete direct-probe failure without converting it into a
+    /// relay or alternate-transport decision.
     fn probe(
         &self,
         candidate: &ConnectionCandidate,
