@@ -1,4 +1,4 @@
-use crate::{authentication::PeerAuthenticationProof, PROTOCOL_VERSION};
+use crate::{PROTOCOL_VERSION, authentication::PeerAuthenticationProof};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionState {
@@ -233,7 +233,9 @@ mod tests {
             Err(SessionError::ControlNotAuthorized)
         );
 
-        session.authentication_succeeded(&proof()).expect("authenticate");
+        session
+            .authentication_succeeded(&proof())
+            .expect("authenticate");
         assert_eq!(session.state(), SessionState::AwaitingAuthorization);
         assert!(session.authenticated_public_key().is_some());
         assert_eq!(
@@ -279,7 +281,9 @@ mod tests {
     fn revoke_and_disconnect_remove_control_permission() {
         let mut session = Session::default();
         session.begin(peer(), PROTOCOL_VERSION).expect("begin");
-        session.authentication_succeeded(&proof()).expect("authenticate");
+        session
+            .authentication_succeeded(&proof())
+            .expect("authenticate");
         session.authorize_control().expect("authorize");
 
         session.revoke_control().expect("revoke");
