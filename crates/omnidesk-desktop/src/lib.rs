@@ -2,6 +2,9 @@
 
 use omnidesk_core::product_shell::PrimaryView;
 
+#[cfg(windows)]
+pub mod windows_host;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DesktopAction {
     FocusDevices,
