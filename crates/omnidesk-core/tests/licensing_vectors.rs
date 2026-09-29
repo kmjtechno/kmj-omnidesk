@@ -75,13 +75,16 @@ fn committed_ed25519_vector_matches_client_verifier() {
         .decode(value_str(&vector, "signature_base64"))
         .expect("valid signature base64");
 
-    let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
-        kid: value_str(&vector, "kid").to_owned(),
-        public_key,
-        not_before: 0,
-        not_after: u64::MAX,
-        status: LicenseKeyStatus::Active,
-    }], 1_800_000_000)
+    let verifier = Ed25519SignatureVerifier::new(
+        vec![LicensePublicKey {
+            kid: value_str(&vector, "kid").to_owned(),
+            public_key,
+            not_before: 0,
+            not_after: u64::MAX,
+            status: LicenseKeyStatus::Active,
+        }],
+        1_800_000_000,
+    )
     .expect("test vector public key must be accepted");
 
     let payload = value_str(&vector, "canonical_payload_utf8").as_bytes();
@@ -115,13 +118,16 @@ fn committed_ed25519_vector_passes_full_signed_entitlement_boundary() {
         .decode(value_str(&vector, "signature_base64"))
         .expect("valid signature base64");
 
-    let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
-        kid: value_str(&vector, "kid").to_owned(),
-        public_key,
-        not_before: 0,
-        not_after: u64::MAX,
-        status: LicenseKeyStatus::Active,
-    }], 1_800_000_000)
+    let verifier = Ed25519SignatureVerifier::new(
+        vec![LicensePublicKey {
+            kid: value_str(&vector, "kid").to_owned(),
+            public_key,
+            not_before: 0,
+            not_after: u64::MAX,
+            status: LicenseKeyStatus::Active,
+        }],
+        1_800_000_000,
+    )
     .expect("test vector public key must be accepted");
 
     let issued_at = value_u64(&payload_json, "iat");
