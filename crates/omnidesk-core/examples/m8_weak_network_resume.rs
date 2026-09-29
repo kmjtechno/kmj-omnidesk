@@ -1,6 +1,4 @@
-use omnidesk_core::collaboration::{
-    FileTransferManifest, TransferCheckpoint, TransferChunk,
-};
+use omnidesk_core::collaboration::{FileTransferManifest, TransferCheckpoint, TransferChunk};
 
 #[derive(Clone, Copy)]
 struct Profile {
@@ -18,11 +16,8 @@ fn build_manifest() -> (FileTransferManifest, Vec<Vec<u8>>) {
         .iter()
         .enumerate()
         .map(|(index, bytes)| {
-            let descriptor = TransferChunk::from_bytes(
-                u32::try_from(index).unwrap_or(u32::MAX),
-                offset,
-                bytes,
-            );
+            let descriptor =
+                TransferChunk::from_bytes(u32::try_from(index).unwrap_or(u32::MAX), offset, bytes);
             offset = offset.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
             descriptor
         })
@@ -57,9 +52,8 @@ fn run_profile(profile: Profile) -> u32 {
         }
 
         for index in missing {
-            let should_deliver =
-                (index.saturating_add(round)) % profile.delivery_modulus == 0
-                    || round + 1 == profile.max_rounds;
+            let should_deliver = (index.saturating_add(round)) % profile.delivery_modulus == 0
+                || round + 1 == profile.max_rounds;
             if should_deliver {
                 checkpoint
                     .accept(
@@ -76,7 +70,10 @@ fn run_profile(profile: Profile) -> u32 {
         }
     }
 
-    panic!("profile {} did not complete within retry budget", profile.name);
+    panic!(
+        "profile {} did not complete within retry budget",
+        profile.name
+    );
 }
 
 fn main() {
