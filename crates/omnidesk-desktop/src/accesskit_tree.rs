@@ -1,7 +1,7 @@
 use accesskit::{Action, Node, NodeId, Rect, Role, TreeId, TreeInfo, TreeUpdate};
 use omnidesk_core::product_shell::ProductShell;
 
-use crate::{DesktopAction, controls_for, presentation_for};
+use crate::{DesktopAction, controls_for_shell, presentation_for};
 
 pub const ROOT_NODE_ID: NodeId = NodeId(0);
 
@@ -11,10 +11,10 @@ fn control_node_id(index: usize) -> NodeId {
 
 #[must_use]
 pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<DesktopAction> {
-    controls_for(shell.primary_view())
-        .iter()
+    controls_for_shell(shell)
+        .into_iter()
         .enumerate()
-        .find(|(index, _)| control_node_id(*index) == node_id)
+        .find(|(index, control)| control.enabled && control_node_id(*index) == node_id)
         .map(|(_, control)| control.action)
 }
 
@@ -42,7 +42,7 @@ pub fn build_accesskit_tree_with_focus(
     requested_focus: Option<NodeId>,
 ) -> TreeUpdate {
     let presentation = presentation_for(shell);
-    let controls = controls_for(shell.primary_view());
+    let controls = controls_for_shell(shell);
     let mut child_ids = Vec::with_capacity(controls.len());
     let mut nodes = Vec::with_capacity(controls.len() + 1);
 
@@ -51,10 +51,12 @@ pub fn build_accesskit_tree_with_focus(
         child_ids.push(id);
 
         let mut node = Node::new(Role::Button);
-        node.set_label(control.label);
+        node.set_label(&control.label);
         node.set_bounds(control_bounds(index));
         node.add_action(Action::Focus);
-        node.add_action(Action::Click);
+        if control.enabled {
+            node.add_action(Action::Click);
+        }
         nodes.push((id, node));
     }
 
@@ -96,10 +98,7 @@ mod tests {
         assert_eq!(update.nodes.len(), 2);
         assert_eq!(update.focus, NodeId(1));
         assert!(update.tree.is_some());
-        assert_eq!(
-            desktop_action_for_node(&shell, NodeId(1)),
-            Some(DesktopAction::FocusDevices)
-        );
+        assert_eq!(desktop_action_for_node(&shell, NodeId(1)), None);
         assert_eq!(desktop_action_for_node(&shell, NodeId(2)), None);
     }
 
@@ -111,6 +110,23 @@ mod tests {
 
         let invalid = build_accesskit_tree_with_focus(&shell, Some(NodeId(99)));
         assert_eq!(invalid.focus, NodeId(1));
+    }
+
+    #[test]
+    fn online_device_is_exposed_as_clickable_connect_action() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "desk-1".into(),
+            display_name: "Desk 1".into(),
+            status: DeviceStatus::Online,
+        }]);
+
+        let update = build_accesskit_tree(&shell);
+        assert_eq!(update.nodes.len(), 2);
+        assert_eq!(
+            desktop_action_for_node(&shell, NodeId(1)),
+            Some(DesktopAction::ConnectDevice(0))
+        );
     }
 
     #[test]

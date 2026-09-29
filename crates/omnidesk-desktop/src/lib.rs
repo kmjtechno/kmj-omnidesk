@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
-use omnidesk_core::product_shell::{PermissionDecision, PrimaryView, ProductShell};
+use omnidesk_core::product_shell::{
+    DeviceStatus, PermissionDecision, PrimaryView, ProductShell, QualityPreset,
+};
 
 pub mod accesskit_tree;
 pub mod render;
@@ -11,8 +13,10 @@ pub mod windows_host;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DesktopAction {
     FocusDevices,
+    ConnectDevice(usize),
     AllowPermission,
     DenyPermission,
+    SetQuality(QualityPreset),
     Disconnect,
 }
 
@@ -34,6 +38,15 @@ pub struct AccessibilityNode {
     pub label: &'static str,
     pub role: AccessibleRole,
     pub keyboard_key: char,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellControl {
+    pub label: String,
+    pub action: DesktopAction,
+    pub keyboard_key: char,
+    pub role: AccessibleRole,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +75,8 @@ impl VisualSystem {
 pub struct PresentationModel {
     pub title: &'static str,
     pub status: &'static str,
-    pub controls: Vec<AccessibilityNode>,
+    pub details: Vec<String>,
+    pub controls: Vec<ShellControl>,
     pub visual: VisualSystem,
 }
 
@@ -73,11 +87,136 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         PrimaryView::PermissionPrompt => "Authorization required",
         PrimaryView::Session => "Secure session active",
     };
+    let details = presentation_details(shell);
     PresentationModel {
         title: "KMJ OmniDesk",
         status,
-        controls: accessibility_snapshot(shell),
+        details,
+        controls: controls_for_shell(shell),
         visual: VisualSystem::kmj_black_red(),
+    }
+}
+
+#[must_use]
+pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
+    match shell.primary_view() {
+        PrimaryView::Devices => {
+            if shell.devices().is_empty() {
+                return vec![ShellControl {
+                    label: "No devices available".to_owned(),
+                    action: DesktopAction::FocusDevices,
+                    keyboard_key: 'd',
+                    role: AccessibleRole::Navigation,
+                    enabled: false,
+                }];
+            }
+
+            shell
+                .devices()
+                .iter()
+                .take(9)
+                .enumerate()
+                .map(|(index, device)| {
+                    const DEVICE_KEYS: [char; 9] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+                    let key = DEVICE_KEYS.get(index).copied().unwrap_or('9');
+                    let online = device.status == DeviceStatus::Online;
+                    ShellControl {
+                        label: format!(
+                            "{} — {}",
+                            device.display_name,
+                            if online { "Online" } else { "Offline" }
+                        ),
+                        action: DesktopAction::ConnectDevice(index),
+                        keyboard_key: key,
+                        role: AccessibleRole::Button,
+                        enabled: online,
+                    }
+                })
+                .collect()
+        }
+        PrimaryView::PermissionPrompt => vec![
+            ShellControl {
+                label: "Allow remote session".to_owned(),
+                action: DesktopAction::AllowPermission,
+                keyboard_key: 'a',
+                role: AccessibleRole::Button,
+                enabled: true,
+            },
+            ShellControl {
+                label: "Deny remote session".to_owned(),
+                action: DesktopAction::DenyPermission,
+                keyboard_key: 'n',
+                role: AccessibleRole::Button,
+                enabled: true,
+            },
+        ],
+        PrimaryView::Session => vec![
+            ShellControl {
+                label: "Data saver quality".to_owned(),
+                action: DesktopAction::SetQuality(QualityPreset::DataSaver),
+                keyboard_key: '1',
+                role: AccessibleRole::Button,
+                enabled: true,
+            },
+            ShellControl {
+                label: "Balanced quality".to_owned(),
+                action: DesktopAction::SetQuality(QualityPreset::Balanced),
+                keyboard_key: '2',
+                role: AccessibleRole::Button,
+                enabled: true,
+            },
+            ShellControl {
+                label: "High quality".to_owned(),
+                action: DesktopAction::SetQuality(QualityPreset::HighQuality),
+                keyboard_key: '3',
+                role: AccessibleRole::Button,
+                enabled: true,
+            },
+            ShellControl {
+                label: "Disconnect remote session".to_owned(),
+                action: DesktopAction::Disconnect,
+                keyboard_key: 'x',
+                role: AccessibleRole::Button,
+                enabled: true,
+            },
+        ],
+    }
+}
+
+#[must_use]
+pub fn presentation_details(shell: &ProductShell) -> Vec<String> {
+    match shell.primary_view() {
+        PrimaryView::Devices => {
+            if shell.devices().is_empty() {
+                vec!["Waiting for registered devices".to_owned()]
+            } else {
+                vec![format!("{} registered device(s)", shell.devices().len())]
+            }
+        }
+        PrimaryView::PermissionPrompt => vec![
+            format!(
+                "Device: {}",
+                shell.selected_device().unwrap_or("unavailable")
+            ),
+            "Explicit authorization is required before control".to_owned(),
+        ],
+        PrimaryView::Session => {
+            let mut details = vec![
+                format!(
+                    "Device: {}",
+                    shell.selected_device().unwrap_or("unavailable")
+                ),
+                format!("Quality: {:?}", shell.quality_preset()),
+            ];
+            if let Some(stats) = shell.connection_stats() {
+                details.push(format!("Latency: {} ms", stats.latency_ms));
+                details.push(format!("Bitrate: {} kbps", stats.bitrate_kbps));
+                details.push(format!("FPS: {}", stats.fps));
+            } else {
+                details.push("Connection statistics unavailable".to_owned());
+            }
+            details
+        }
     }
 }
 
@@ -115,17 +254,28 @@ pub fn action_for_key(view: PrimaryView, key: char) -> Option<DesktopAction> {
 pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
     match action {
         DesktopAction::FocusDevices => {}
+        DesktopAction::ConnectDevice(index) => {
+            let device_id = shell.devices().get(index).map(|device| device.id.clone());
+            if let Some(device_id) = device_id {
+                let _ = shell.begin_connect(&device_id);
+            }
+        }
         DesktopAction::AllowPermission => shell.decide_permission(PermissionDecision::Allow),
         DesktopAction::DenyPermission => shell.decide_permission(PermissionDecision::Deny),
+        DesktopAction::SetQuality(preset) => shell.set_quality_preset(preset),
         DesktopAction::Disconnect => shell.disconnect(),
     }
 }
 
 pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
-    let Some(action) = action_for_key(shell.primary_view(), key) else {
+    let key = key.to_ascii_lowercase();
+    let Some(control) = controls_for_shell(shell)
+        .into_iter()
+        .find(|control| control.enabled && control.keyboard_key == key)
+    else {
         return false;
     };
-    apply_action(shell, action);
+    apply_action(shell, control.action);
     true
 }
 
@@ -363,6 +513,111 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn real_device_control_drives_terminal_free_primary_flow() {
+        use omnidesk_core::product_shell::{
+            DeviceStatus, DeviceSummary, PrimaryView, QualityPreset,
+        };
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "desk-1".into(),
+                display_name: "Desk 1".into(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "desk-2".into(),
+                display_name: "Desk 2".into(),
+                status: DeviceStatus::Offline,
+            },
+        ]);
+
+        let controls = controls_for_shell(&shell);
+        assert_eq!(controls[0].action, DesktopAction::ConnectDevice(0));
+        assert!(controls[0].enabled);
+        assert!(!controls[1].enabled);
+
+        assert!(apply_key(&mut shell, '1'));
+        assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+        assert_eq!(shell.selected_device(), Some("desk-1"));
+
+        assert!(apply_key(&mut shell, 'a'));
+        assert_eq!(shell.primary_view(), PrimaryView::Session);
+
+        assert!(apply_key(&mut shell, '1'));
+        assert_eq!(shell.quality_preset(), QualityPreset::DataSaver);
+        assert!(apply_key(&mut shell, '3'));
+        assert_eq!(shell.quality_preset(), QualityPreset::HighQuality);
+
+        assert!(apply_key(&mut shell, 'x'));
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
+    }
+
+    #[test]
+    fn offline_device_keyboard_control_is_fail_closed() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "desk-offline".into(),
+            display_name: "Offline Desk".into(),
+            status: DeviceStatus::Offline,
+        }]);
+
+        assert!(!apply_key(&mut shell, '1'));
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
+        assert_eq!(shell.selected_device(), None);
+    }
+
+    #[test]
+    fn presentation_contains_truthful_device_and_session_details() {
+        use omnidesk_core::product_shell::{
+            ConnectionStats, DeviceStatus, DeviceSummary, QualityPreset,
+        };
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "desk-1".into(),
+            display_name: "Desk 1".into(),
+            status: DeviceStatus::Online,
+        }]);
+
+        let devices = presentation_for(&shell);
+        assert!(
+            devices
+                .details
+                .iter()
+                .any(|line| line.contains("1 registered"))
+        );
+
+        shell.begin_connect("desk-1").unwrap();
+        shell.decide_permission(PermissionDecision::Allow);
+        shell.set_quality_preset(QualityPreset::HighQuality);
+        shell.update_connection_stats(ConnectionStats {
+            latency_ms: 25,
+            bitrate_kbps: 1200,
+            fps: 60,
+        });
+
+        let session = presentation_for(&shell);
+        assert!(session.details.iter().any(|line| line == "Device: desk-1"));
+        assert!(
+            session
+                .details
+                .iter()
+                .any(|line| line == "Quality: HighQuality")
+        );
+        assert!(session.details.iter().any(|line| line == "Latency: 25 ms"));
+        assert!(
+            session
+                .details
+                .iter()
+                .any(|line| line == "Bitrate: 1200 kbps")
+        );
+        assert!(session.details.iter().any(|line| line == "FPS: 60"));
     }
 
     #[test]
