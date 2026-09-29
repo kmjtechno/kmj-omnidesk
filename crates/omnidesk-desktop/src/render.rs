@@ -127,17 +127,44 @@ fn draw_controls(canvas: &mut Canvas<'_>, presentation: &PresentationModel, pale
         palette.accent,
     );
 
-    let mut control_y = panel_y + 84;
+    let mut detail_y = panel_y + 68;
+    for detail in &presentation.details {
+        canvas.text(
+            panel_x + 22,
+            detail_y,
+            detail,
+            1,
+            palette.foreground,
+        );
+        detail_y = detail_y.saturating_add(18);
+    }
+
+    let mut control_y = detail_y.saturating_add(16);
     for control in &presentation.controls {
         let card_width = panel_width.saturating_sub(44);
         canvas.fill_rect(panel_x + 22, control_y, card_width, 48, palette.background);
-        canvas.stroke_rect(panel_x + 22, control_y, card_width, 48, 2, palette.accent);
+        canvas.stroke_rect(
+            panel_x + 22,
+            control_y,
+            card_width,
+            48,
+            2,
+            if control.enabled {
+                palette.accent
+            } else {
+                palette.danger
+            },
+        );
         canvas.text(
             panel_x + 36,
             control_y + 12,
-            control.label,
+            &control.label,
             1,
-            palette.foreground,
+            if control.enabled {
+                palette.foreground
+            } else {
+                palette.danger
+            },
         );
 
         let shortcut = format!("[{}]", control.keyboard_key.to_ascii_uppercase());
