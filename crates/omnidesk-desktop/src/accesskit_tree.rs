@@ -112,7 +112,6 @@ mod tests {
         assert_eq!(invalid.focus, NodeId(1));
     }
 
-
     #[test]
     fn online_device_is_exposed_as_clickable_connect_action() {
         let mut shell = ProductShell::new();
