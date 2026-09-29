@@ -104,6 +104,11 @@ pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
 }
 
 #[must_use]
+pub fn accessibility_snapshot(shell: &ProductShell) -> Vec<AccessibilityNode> {
+    accessibility_nodes_for(shell.primary_view()).to_vec()
+}
+
+#[must_use]
 pub const fn accessibility_nodes_for(view: PrimaryView) -> &'static [AccessibilityNode] {
     match view {
         PrimaryView::Devices => &[AccessibilityNode {
@@ -183,6 +188,34 @@ mod tests {
                     .all(|control| control.keyboard_key.is_ascii())
             );
         }
+    }
+
+    #[test]
+    fn accessibility_snapshot_tracks_product_shell_view() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary};
+
+        let mut shell = ProductShell::new();
+        assert_eq!(
+            accessibility_snapshot(&shell),
+            accessibility_nodes_for(PrimaryView::Devices)
+        );
+
+        shell.replace_devices(vec![DeviceSummary {
+            id: "desk-1".into(),
+            display_name: "Desk 1".into(),
+            status: DeviceStatus::Online,
+        }]);
+        shell.begin_connect("desk-1").unwrap();
+        assert_eq!(
+            accessibility_snapshot(&shell),
+            accessibility_nodes_for(PrimaryView::PermissionPrompt)
+        );
+
+        shell.decide_permission(PermissionDecision::Allow);
+        assert_eq!(
+            accessibility_snapshot(&shell),
+            accessibility_nodes_for(PrimaryView::Session)
+        );
     }
 
     #[test]
