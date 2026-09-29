@@ -97,7 +97,6 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
     }
 }
 
-
 #[must_use]
 pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
     match shell.primary_view() {
@@ -118,8 +117,9 @@ pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
                 .take(9)
                 .enumerate()
                 .map(|(index, device)| {
-                    let key = char::from_digit(u32::try_from(index + 1).expect("device key index"), 10)
-                        .expect("device key digit");
+                    let key =
+                        char::from_digit(u32::try_from(index + 1).expect("device key index"), 10)
+                            .expect("device key digit");
                     let online = device.status == DeviceStatus::Online;
                     ShellControl {
                         label: format!(
@@ -516,10 +516,11 @@ mod tests {
         }
     }
 
-
     #[test]
     fn real_device_control_drives_terminal_free_primary_flow() {
-        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, QualityPreset};
+        use omnidesk_core::product_shell::{
+            DeviceStatus, DeviceSummary, PrimaryView, QualityPreset,
+        };
 
         let mut shell = ProductShell::new();
         shell.replace_devices(vec![
@@ -586,7 +587,12 @@ mod tests {
         }]);
 
         let devices = presentation_for(&shell);
-        assert!(devices.details.iter().any(|line| line.contains("1 registered")));
+        assert!(
+            devices
+                .details
+                .iter()
+                .any(|line| line.contains("1 registered"))
+        );
 
         shell.begin_connect("desk-1").unwrap();
         shell.decide_permission(PermissionDecision::Allow);
@@ -599,9 +605,19 @@ mod tests {
 
         let session = presentation_for(&shell);
         assert!(session.details.iter().any(|line| line == "Device: desk-1"));
-        assert!(session.details.iter().any(|line| line == "Quality: HighQuality"));
+        assert!(
+            session
+                .details
+                .iter()
+                .any(|line| line == "Quality: HighQuality")
+        );
         assert!(session.details.iter().any(|line| line == "Latency: 25 ms"));
-        assert!(session.details.iter().any(|line| line == "Bitrate: 1200 kbps"));
+        assert!(
+            session
+                .details
+                .iter()
+                .any(|line| line == "Bitrate: 1200 kbps")
+        );
         assert!(session.details.iter().any(|line| line == "FPS: 60"));
     }
 
