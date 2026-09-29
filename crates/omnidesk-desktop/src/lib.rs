@@ -20,6 +20,28 @@ pub struct AccessibleControl {
     pub keyboard_key: char,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceBudget {
+    pub idle_memory_mib: u32,
+    pub idle_cpu_milli_percent: u32,
+}
+
+impl ResourceBudget {
+    #[must_use]
+    pub const fn desktop_baseline() -> Self {
+        Self {
+            idle_memory_mib: 64,
+            idle_cpu_milli_percent: 500,
+        }
+    }
+
+    #[must_use]
+    pub const fn accepts(self, idle_memory_mib: u32, idle_cpu_milli_percent: u32) -> bool {
+        idle_memory_mib <= self.idle_memory_mib
+            && idle_cpu_milli_percent <= self.idle_cpu_milli_percent
+    }
+}
+
 #[must_use]
 pub fn action_for_key(view: PrimaryView, key: char) -> Option<DesktopAction> {
     let key = key.to_ascii_lowercase();
@@ -98,6 +120,14 @@ mod tests {
                     .all(|control| control.keyboard_key.is_ascii())
             );
         }
+    }
+
+    #[test]
+    fn desktop_resource_budget_is_explicit_and_fail_closed() {
+        let budget = ResourceBudget::desktop_baseline();
+        assert!(budget.accepts(64, 500));
+        assert!(!budget.accepts(65, 500));
+        assert!(!budget.accepts(64, 501));
     }
 
     #[test]
