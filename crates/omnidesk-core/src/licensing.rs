@@ -519,11 +519,13 @@ mod tests {
     #[test]
     fn expired_entitlement_fails_closed() {
         let mut value = claims();
+        value.lease_expires_at = 950;
         value.expires_at = 1_000;
-        assert_eq!(
-            evaluate(&value, &context(1_000)),
-            Err(LicenseError::Expired)
-        );
+        let mut ctx = context(1_000);
+        ctx.clock.renewal_due_at = 925;
+        ctx.clock.grace_expires_at = 975;
+
+        assert_eq!(evaluate(&value, &ctx), Err(LicenseError::Expired));
     }
 
     #[test]
