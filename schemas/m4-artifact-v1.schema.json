@@ -3,5 +3,5 @@
   "$id": "urn:kmj:omnidesk:m4:artifact:1.0.0",
   "title": "Artifact entry",
   "type": "object",
-  "$ref": "urn:kmj:omnidesk:m4:realnet-manifest:1.0.0#/$defs/artifact"
+  "$ref": "urn:kmj:omnidesk:m4:realnet-manifest:1.0.0#/$defs/artifactRecord"
 }
