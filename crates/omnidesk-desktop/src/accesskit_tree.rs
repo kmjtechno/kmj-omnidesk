@@ -20,7 +20,7 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
 
 fn control_bounds(index: usize) -> Rect {
     let row = f64::from(u32::try_from(index).expect("control index fits u32"));
-    let y0 = 116.0 + row * 62.0;
+    let y0 = row.mul_add(62.0, 116.0);
     Rect {
         x0: 214.0,
         y0,
