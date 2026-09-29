@@ -70,7 +70,7 @@ pub struct LicenseClaims<'a> {
     pub sequence: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeviceBinding<'a> {
     pub activation_id: &'a str,
     pub device_public_key_fingerprint: &'a str,
