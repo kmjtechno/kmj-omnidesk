@@ -56,7 +56,11 @@ impl Frame {
 
         let expected = usize::try_from(stride)
             .ok()
-            .and_then(|row| usize::try_from(height).ok().and_then(|rows| row.checked_mul(rows)))
+            .and_then(|row| {
+                usize::try_from(height)
+                    .ok()
+                    .and_then(|rows| row.checked_mul(rows))
+            })
             .ok_or(FrameError::FrameTooLarge)?;
         if expected > MAX_FRAME_BYTES {
             return Err(FrameError::FrameTooLarge);
