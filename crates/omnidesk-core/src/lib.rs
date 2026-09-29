@@ -10,6 +10,7 @@ pub mod input;
 pub mod licensing;
 pub mod media;
 pub mod metrics;
+pub mod pipeline;
 pub mod session;
 pub mod transport;
 
