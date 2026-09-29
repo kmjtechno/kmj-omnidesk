@@ -63,7 +63,7 @@ impl StunClient {
         socket.send(&request).map_err(|error| io_error(&error))?;
 
         let mut response = [0_u8; 512];
-        let received = socket.recv(&mut response).map_err(map_receive_error)?;
+        let received = socket.recv(&mut response).map_err(|error| map_receive_error(&error))?;
         parse_binding_response(&response[..received], transaction_id)
     }
 }
@@ -173,10 +173,10 @@ fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr
     }
 }
 
-fn map_receive_error(error: std::io::Error) -> StunError {
+fn map_receive_error(error: &std::io::Error) -> StunError {
     match error.kind() {
         ErrorKind::WouldBlock | ErrorKind::TimedOut => StunError::Timeout,
-        _ => io_error(&error),
+        _ => io_error(error),
     }
 }
 
