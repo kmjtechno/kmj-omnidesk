@@ -16,6 +16,26 @@ pub const PRODUCT_ID: &str = "KMJ_OMNIDESK";
 /// Canonical Main Platform product slug.
 pub const PRODUCT_SLUG: &str = "kmj-omnidesk";
 
+/// Transport-neutral remote-input payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputPayload {
+    KeyDown { key_code: u16 },
+    KeyUp { key_code: u16 },
+    PointerMove { x: i32, y: i32 },
+    PointerButton { button: u8, pressed: bool },
+}
+
+/// One ordered input event bound to the fresh authentication challenge of a session.
+///
+/// Binding every event to the authenticated session nonce prevents a captured event
+/// from an earlier connection from being accepted after reconnect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputEvent {
+    pub session_nonce: [u8; 32],
+    pub sequence: u64,
+    pub payload: InputPayload,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
