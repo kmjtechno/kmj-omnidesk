@@ -328,6 +328,84 @@ const fn temporal_bounds_are_valid(claims: &LicenseClaims<'_>, clock: LocalLicen
     entitlement_order && renewal_window && grace_window
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedEntitlement {
+    pub state: LicenseState,
+    pub payload: SignedEntitlementPayload,
+}
+
+impl VerifiedEntitlement {
+    #[must_use]
+    pub fn has_capability(&self, capability: &str) -> bool {
+        self.payload
+            .capabilities
+            .iter()
+            .any(|value| value == capability)
+    }
+
+    #[must_use]
+    pub const fn permits_resource(&self, kind: ResourceLimitKind, usage: u64) -> bool {
+        self.payload.limits.permits(kind, usage)
+    }
+}
+
+/// Parses, verifies, and evaluates one signed entitlement from the same canonical payload bytes.
+///
+/// This is the preferred client boundary because the claims enforced by policy are derived from
+/// the exact bytes whose signature is verified.
+///
+/// # Errors
+///
+/// Fails closed for oversized/malformed payloads, semantic-shape violations, signature failures,
+/// binding/replay/revocation/time failures, or product/contract mismatches.
+pub fn verify_signed_entitlement(
+    verifier: &dyn SignatureVerifier,
+    canonical_payload: &[u8],
+    signature: &[u8],
+    context: &VerificationContext<'_>,
+) -> Result<VerifiedEntitlement, LicenseError> {
+    if canonical_payload.is_empty() || canonical_payload.len() > MAX_SIGNED_ENTITLEMENT_BYTES {
+        return Err(LicenseError::MalformedPayload);
+    }
+
+    let payload: SignedEntitlementPayload =
+        serde_json::from_slice(canonical_payload).map_err(|_| LicenseError::MalformedPayload)?;
+    if !payload.semantic_shape_is_valid() {
+        return Err(LicenseError::MalformedPayload);
+    }
+
+    let capabilities = payload
+        .capabilities
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let claims = LicenseClaims {
+        protocol_version: &payload.protocol_version,
+        contract_version: &payload.contract_version,
+        kid: &payload.kid,
+        product_id: &payload.product_id,
+        product_slug: &payload.product_slug,
+        activation_id: &payload.activation_id,
+        device_public_key_fingerprint: &payload.device_public_key_fingerprint,
+        installation_id: &payload.installation_id,
+        capabilities: &capabilities,
+        issued_at: payload.issued_at,
+        not_before: payload.not_before,
+        expires_at: payload.expires_at,
+        lease_expires_at: payload.lease_expires_at,
+        sequence: payload.sequence,
+    };
+
+    let state = verify_and_evaluate(
+        verifier,
+        canonical_payload,
+        signature,
+        &claims,
+        context,
+    )?;
+    Ok(VerifiedEntitlement { state, payload })
+}
+
 /// Verifies a signed entitlement and evaluates its local lifecycle state.
 ///
 /// # Errors
@@ -531,6 +609,59 @@ mod tests {
                 },
             ]),
             Err(LicenseKeySetError::DuplicateKeyId)
+        );
+    }
+
+    #[test]
+    fn signed_payload_boundary_binds_verified_bytes_to_enforced_claims_and_limits() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[44_u8; 32]);
+        let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
+            kid: "kid-boundary".to_owned(),
+            public_key: signing_key.verifying_key().to_bytes(),
+            revoked: false,
+        }])
+        .unwrap();
+
+        let payload = br#"{"protocol_version":"KSLP-v1","contract_version":"kmj.omnidesk.license.v1","jti":"jti-000000000001","kid":"kid-boundary","license_id":"license-1","entitlement_id":"entitlement-1","customer_id":"customer-1","organization_id":null,"product_id":"KMJ_OMNIDESK","product_slug":"kmj-omnidesk","plan":"Professional","activation_id":"activation-1","device_public_key_fingerprint":"device-fingerprint","installation_id":"install-1","capabilities":["remote.interactive","file.transfer"],"limits":{"licensed_users":1,"managed_devices":5,"concurrent_sessions":2,"unattended_devices":3,"relay_bytes_monthly":1000,"relay_policy":"direct_preferred"},"iat":900,"nbf":900,"exp":10000,"lease_expires_at":2000,"sequence":2,"nonce":"nonce-00000000001"}"#;
+        let signature = signing_key.sign(payload).to_bytes();
+
+        let verified =
+            verify_signed_entitlement(&verifier, payload, &signature, &context(1_000)).unwrap();
+
+        assert_eq!(verified.state, LicenseState::Active);
+        assert_eq!(verified.payload.plan, LicensePlan::Professional);
+        assert!(verified.has_capability("file.transfer"));
+        assert!(!verified.has_capability("enterprise.sso"));
+        assert!(verified.permits_resource(ResourceLimitKind::ConcurrentSessions, 2));
+        assert!(!verified.permits_resource(ResourceLimitKind::ConcurrentSessions, 3));
+        assert!(verified.permits_resource(ResourceLimitKind::RelayBytesMonthly, 1_000));
+        assert!(!verified.permits_resource(ResourceLimitKind::RelayBytesMonthly, 1_001));
+    }
+
+    #[test]
+    fn signed_payload_boundary_rejects_unknown_fields_and_duplicate_capabilities() {
+        let unknown_field = br#"{"protocol_version":"KSLP-v1","contract_version":"kmj.omnidesk.license.v1","jti":"jti-000000000001","kid":"kid-2026-01","license_id":"license-1","entitlement_id":"entitlement-1","customer_id":"customer-1","organization_id":null,"product_id":"KMJ_OMNIDESK","product_slug":"kmj-omnidesk","plan":"Professional","activation_id":"activation-1","device_public_key_fingerprint":"device-fingerprint","installation_id":"install-1","capabilities":["remote.interactive"],"limits":{"licensed_users":1,"managed_devices":5,"concurrent_sessions":2,"unattended_devices":3,"relay_bytes_monthly":1000,"relay_policy":"direct_preferred"},"iat":900,"nbf":900,"exp":10000,"lease_expires_at":2000,"sequence":2,"nonce":"nonce-00000000001","unexpected":true}"#;
+        assert_eq!(
+            verify_signed_entitlement(
+                &AcceptSignature,
+                unknown_field,
+                b"signature",
+                &context(1_000),
+            ),
+            Err(LicenseError::MalformedPayload)
+        );
+
+        let duplicate_capability = br#"{"protocol_version":"KSLP-v1","contract_version":"kmj.omnidesk.license.v1","jti":"jti-000000000001","kid":"kid-2026-01","license_id":"license-1","entitlement_id":"entitlement-1","customer_id":"customer-1","organization_id":null,"product_id":"KMJ_OMNIDESK","product_slug":"kmj-omnidesk","plan":"Professional","activation_id":"activation-1","device_public_key_fingerprint":"device-fingerprint","installation_id":"install-1","capabilities":["remote.interactive","remote.interactive"],"limits":{"licensed_users":1,"managed_devices":5,"concurrent_sessions":2,"unattended_devices":3,"relay_bytes_monthly":1000,"relay_policy":"direct_preferred"},"iat":900,"nbf":900,"exp":10000,"lease_expires_at":2000,"sequence":2,"nonce":"nonce-00000000001"}"#;
+        assert_eq!(
+            verify_signed_entitlement(
+                &AcceptSignature,
+                duplicate_capability,
+                b"signature",
+                &context(1_000),
+            ),
+            Err(LicenseError::MalformedPayload)
         );
     }
 
