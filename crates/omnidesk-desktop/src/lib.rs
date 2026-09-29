@@ -249,7 +249,7 @@ pub fn control_rects_for(
     }
 
     let panel_x = 192;
-    let panel_y = 32;
+    let panel_y: usize = 32;
     let panel_width = width.saturating_sub(216);
     let detail_y = panel_y
         .saturating_add(68)
