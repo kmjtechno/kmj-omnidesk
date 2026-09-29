@@ -38,26 +38,13 @@ mod tests {
 
     #[test]
     fn rgba_capture_buffer_converts_to_bgra_frame() {
-        let frame = rgba_to_bgra_frame(
-            2,
-            1,
-            vec![
-                10, 20, 30, 255,
-                40, 50, 60, 128,
-            ],
-        )
-        .expect("frame");
+        let frame =
+            rgba_to_bgra_frame(2, 1, vec![10, 20, 30, 255, 40, 50, 60, 128]).expect("frame");
 
         assert_eq!(frame.width(), 2);
         assert_eq!(frame.height(), 1);
         assert_eq!(frame.stride(), 8);
-        assert_eq!(
-            frame.data(),
-            &[
-                30, 20, 10, 255,
-                60, 50, 40, 128,
-            ]
-        );
+        assert_eq!(frame.data(), &[30, 20, 10, 255, 60, 50, 40, 128,]);
     }
 
     #[test]
