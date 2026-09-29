@@ -2,6 +2,8 @@
 
 use omnidesk_core::product_shell::{PermissionDecision, PrimaryView, ProductShell};
 
+pub mod render;
+
 #[cfg(windows)]
 pub mod windows_host;
 
