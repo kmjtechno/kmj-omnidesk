@@ -17,3 +17,31 @@ Sort integer millisecond samples ascending. For p in (0,1], rank = ceil(p*n), va
 Every reference resolves to exactly one declared artifact. Paths must remain inside the package. Declared byte size and SHA-256 must match actual bytes. Aggregate and gate fields are derived outputs and must be independently recomputed.
 
 Validator outcomes are VALID_M4_PASS, VALID_M4_FAIL, or INVALID_MANIFEST. M4 remains in progress until a real representative campaign produces VALID_M4_PASS; synthetic/local CI evidence cannot substitute for this campaign.
+
+
+## Evidence collection helper
+
+The repository includes `scripts/m4_evidence.py`. It does not create synthetic outcomes; it only prepares clean run directories, hashes real evidence files, emits strict artifact entries, and creates deterministic package checksums.
+
+Example:
+
+```bash
+python3 scripts/m4_evidence.py prepare-run \
+  --root evidence/m4-realnet-60 \
+  --run-id M4-T1-R01
+
+python3 scripts/m4_evidence.py artifact \
+  --root evidence/m4-realnet-60 \
+  --file evidence/m4-realnet-60/runs/M4-T1-R01/events.jsonl \
+  --artifact-id artifact-M4-T1-R01-events \
+  --run-id M4-T1-R01 \
+  --kind EVENT_LOG \
+  --content-type application/jsonl \
+  --component omnidesk-agent \
+  --version <exact-build-version>
+
+python3 scripts/m4_evidence.py checksums \
+  --root evidence/m4-realnet-60 > evidence/m4-realnet-60/checksums.sha256
+```
+
+All run outcomes, network observations, authentication results, timings, and failure codes must come from the real endpoints under test. The helper refuses path escape and symlink artifacts and computes SHA-256 from the collected bytes.
