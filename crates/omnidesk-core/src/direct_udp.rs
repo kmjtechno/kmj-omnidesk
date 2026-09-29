@@ -76,7 +76,7 @@ impl DirectProbe {
         socket.send(&request).map_err(|error| io_error(&error))?;
 
         let mut response = [0_u8; PROBE_BYTES];
-        let received = socket.recv(&mut response).map_err(map_receive_error)?;
+        let received = socket.recv(&mut response).map_err(|error| map_receive_error(&error))?;
         if received != PROBE_BYTES || response != request {
             return Err(DirectProbeError::InvalidResponse);
         }
@@ -128,10 +128,10 @@ pub fn encode_probe(session_id: [u8; 16], authentication_nonce: [u8; 32]) -> [u8
     packet
 }
 
-fn map_receive_error(error: std::io::Error) -> DirectProbeError {
+fn map_receive_error(error: &std::io::Error) -> DirectProbeError {
     match error.kind() {
         ErrorKind::WouldBlock | ErrorKind::TimedOut => DirectProbeError::Timeout,
-        _ => io_error(&error),
+        _ => io_error(error),
     }
 }
 
