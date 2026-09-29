@@ -87,9 +87,7 @@ impl<A: InputAdapter> AuthorizedInputDispatcher<A> {
 
 const fn validate(event: InputEvent) -> Result<(), InputError> {
     match event.payload {
-        InputPayload::KeyDown { key_code } | InputPayload::KeyUp { key_code }
-            if key_code == 0 =>
-        {
+        InputPayload::KeyDown { key_code } | InputPayload::KeyUp { key_code } if key_code == 0 => {
             Err(InputError::InvalidKeyCode)
         }
         InputPayload::PointerButton { button, .. } if button == 0 => {
@@ -130,8 +128,7 @@ mod tests {
         let signature = signing_key
             .sign(&peer_auth_message(&public_key, &nonce))
             .to_bytes();
-        let proof =
-            verify_peer_authentication(public_key, nonce, signature).expect("peer proof");
+        let proof = verify_peer_authentication(public_key, nonce, signature).expect("peer proof");
 
         let mut session = Session::default();
         session
@@ -191,7 +188,9 @@ mod tests {
             payload: InputPayload::KeyDown { key_code: 65 },
         };
 
-        dispatcher.dispatch(&session, event).expect("first dispatch");
+        dispatcher
+            .dispatch(&session, event)
+            .expect("first dispatch");
         assert_eq!(
             dispatcher.dispatch(&session, event),
             Err(InputError::StaleSequence)
