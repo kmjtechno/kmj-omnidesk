@@ -38,6 +38,9 @@ jobs:
       - name: M4 REALNET-60 schema conformance gate
         run: python3 scripts/check_m4_schemas.py
 
+      - name: M4 REALNET-60 evidence collector tests
+        run: python3 scripts/test_m4_evidence.py
+
       - name: M4 REALNET-60 semantic validator gate
         run: cargo test -p omnidesk-m4-validator --all-targets
 
