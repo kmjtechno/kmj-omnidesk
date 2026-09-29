@@ -50,3 +50,29 @@ jobs:
           name: benchmark-evidence
           path: artifacts/*.json
           if-no-files-found: error
+
+
+  windows-capture:
+    name: Windows capture gate
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Compile Windows capture path
+        run: cargo check -p omnidesk-core --all-targets
+      - name: Test Windows capture conversion
+        run: cargo test -p omnidesk-core --lib
+      - name: Capture Windows desktop smoke frame
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          cargo run -p omnidesk-core --example windows_capture_smoke --release | Tee-Object -FilePath artifacts/windows-capture-smoke.json
+      - name: Upload Windows capture evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-capture-evidence
+          path: artifacts/windows-capture-smoke.json
+          if-no-files-found: error
