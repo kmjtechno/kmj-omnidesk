@@ -16,7 +16,7 @@ WRAPPERS = {
     "m4-endpoint-v1.schema.json": "urn:kmj:omnidesk:m4:realnet-manifest:1.0.0#/$defs/endpointRecord",
     "m4-direct-attempt-v1.schema.json": "urn:kmj:omnidesk:m4:realnet-manifest:1.0.0#/$defs/directRecord",
     "m4-reconnect-v1.schema.json": "urn:kmj:omnidesk:m4:realnet-manifest:1.0.0#/$defs/reconnectRecord",
-    "m4-artifact-v1.schema.json": "urn:kmj:omnidesk:m4:realnet-manifest:1.0.0#/$defs/artifact",
+    "m4-artifact-v1.schema.json": "urn:kmj:omnidesk:m4:realnet-manifest:1.0.0#/$defs/artifactRecord",
 }
 
 EXPECTED_DEFS = {
@@ -70,7 +70,7 @@ def main() -> None:
 
     direct = defs["directRecord"]
     reconnect = defs["reconnectRecord"]
-    artifact = defs["artifact"]
+    artifact = defs["artifactRecord"]
 
     assert direct["additionalProperties"] is False
     assert reconnect["additionalProperties"] is False
