@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kmj:omnidesk:m4:campaign:1.0.0",
+  "title": "Campaign manifest",
+  "$ref": "urn:kmj:omnidesk:m4:realnet-manifest:1.0.0"
+}
