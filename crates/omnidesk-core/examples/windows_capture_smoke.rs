@@ -2,10 +2,7 @@
 fn main() {
     use std::time::Instant;
 
-    use omnidesk_core::{
-        media::CaptureAdapter,
-        windows_capture::WindowsDesktopCapture,
-    };
+    use omnidesk_core::{media::CaptureAdapter, windows_capture::WindowsDesktopCapture};
 
     let mut capture = WindowsDesktopCapture;
     let started = Instant::now();
@@ -22,5 +19,7 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    println!("{\"schema_version\":1,\"kind\":\"windows_desktop_capture_smoke\",\"status\":\"not_windows\"}");
+    println!(
+        "{\"schema_version\":1,\"kind\":\"windows_desktop_capture_smoke\",\"status\":\"not_windows\"}"
+    );
 }
