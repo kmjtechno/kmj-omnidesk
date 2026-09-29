@@ -625,17 +625,17 @@ mod tests {
         let payload = br#"{"protocol_version":"KSLP-v1","contract_version":"kmj.omnidesk.license.v1","jti":"jti-000000000001","kid":"kid-boundary","license_id":"license-1","entitlement_id":"entitlement-1","customer_id":"customer-1","organization_id":null,"product_id":"KMJ_OMNIDESK","product_slug":"kmj-omnidesk","plan":"Professional","activation_id":"activation-1","device_public_key_fingerprint":"device-fingerprint","installation_id":"install-1","capabilities":["remote.interactive","file.transfer"],"limits":{"licensed_users":1,"managed_devices":5,"concurrent_sessions":2,"unattended_devices":3,"relay_bytes_monthly":1000,"relay_policy":"direct_preferred"},"iat":900,"nbf":900,"exp":10000,"lease_expires_at":2000,"sequence":2,"nonce":"nonce-00000000001"}"#;
         let signature = signing_key.sign(payload).to_bytes();
 
-        let verified =
+        let entitlement =
             verify_signed_entitlement(&verifier, payload, &signature, &context(1_000)).unwrap();
 
-        assert_eq!(verified.state, LicenseState::Active);
-        assert_eq!(verified.payload.plan, LicensePlan::Professional);
-        assert!(verified.has_capability("file.transfer"));
-        assert!(!verified.has_capability("enterprise.sso"));
-        assert!(verified.permits_resource(ResourceLimitKind::ConcurrentSessions, 2));
-        assert!(!verified.permits_resource(ResourceLimitKind::ConcurrentSessions, 3));
-        assert!(verified.permits_resource(ResourceLimitKind::RelayBytesMonthly, 1_000));
-        assert!(!verified.permits_resource(ResourceLimitKind::RelayBytesMonthly, 1_001));
+        assert_eq!(entitlement.state, LicenseState::Active);
+        assert_eq!(entitlement.payload.plan, LicensePlan::Professional);
+        assert!(entitlement.has_capability("file.transfer"));
+        assert!(!entitlement.has_capability("enterprise.sso"));
+        assert!(entitlement.permits_resource(ResourceLimitKind::ConcurrentSessions, 2));
+        assert!(!entitlement.permits_resource(ResourceLimitKind::ConcurrentSessions, 3));
+        assert!(entitlement.permits_resource(ResourceLimitKind::RelayBytesMonthly, 1_000));
+        assert!(!entitlement.permits_resource(ResourceLimitKind::RelayBytesMonthly, 1_001));
     }
 
     #[test]
