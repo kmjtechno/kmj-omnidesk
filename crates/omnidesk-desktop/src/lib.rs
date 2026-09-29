@@ -516,6 +516,95 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn real_device_control_drives_terminal_free_primary_flow() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, QualityPreset};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "desk-1".into(),
+                display_name: "Desk 1".into(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "desk-2".into(),
+                display_name: "Desk 2".into(),
+                status: DeviceStatus::Offline,
+            },
+        ]);
+
+        let controls = controls_for_shell(&shell);
+        assert_eq!(controls[0].action, DesktopAction::ConnectDevice(0));
+        assert!(controls[0].enabled);
+        assert!(!controls[1].enabled);
+
+        assert!(apply_key(&mut shell, '1'));
+        assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+        assert_eq!(shell.selected_device(), Some("desk-1"));
+
+        assert!(apply_key(&mut shell, 'a'));
+        assert_eq!(shell.primary_view(), PrimaryView::Session);
+
+        assert!(apply_key(&mut shell, '1'));
+        assert_eq!(shell.quality_preset(), QualityPreset::DataSaver);
+        assert!(apply_key(&mut shell, '3'));
+        assert_eq!(shell.quality_preset(), QualityPreset::HighQuality);
+
+        assert!(apply_key(&mut shell, 'x'));
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
+    }
+
+    #[test]
+    fn offline_device_keyboard_control_is_fail_closed() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "desk-offline".into(),
+            display_name: "Offline Desk".into(),
+            status: DeviceStatus::Offline,
+        }]);
+
+        assert!(!apply_key(&mut shell, '1'));
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
+        assert_eq!(shell.selected_device(), None);
+    }
+
+    #[test]
+    fn presentation_contains_truthful_device_and_session_details() {
+        use omnidesk_core::product_shell::{
+            ConnectionStats, DeviceStatus, DeviceSummary, QualityPreset,
+        };
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "desk-1".into(),
+            display_name: "Desk 1".into(),
+            status: DeviceStatus::Online,
+        }]);
+
+        let devices = presentation_for(&shell);
+        assert!(devices.details.iter().any(|line| line.contains("1 registered")));
+
+        shell.begin_connect("desk-1").unwrap();
+        shell.decide_permission(PermissionDecision::Allow);
+        shell.set_quality_preset(QualityPreset::HighQuality);
+        shell.update_connection_stats(ConnectionStats {
+            latency_ms: 25,
+            bitrate_kbps: 1200,
+            fps: 60,
+        });
+
+        let session = presentation_for(&shell);
+        assert!(session.details.iter().any(|line| line == "Device: desk-1"));
+        assert!(session.details.iter().any(|line| line == "Quality: HighQuality"));
+        assert!(session.details.iter().any(|line| line == "Latency: 25 ms"));
+        assert!(session.details.iter().any(|line| line == "Bitrate: 1200 kbps"));
+        assert!(session.details.iter().any(|line| line == "FPS: 60"));
+    }
+
     #[test]
     fn permission_prompt_exposes_explicit_allow_and_deny_actions() {
         let controls = controls_for(PrimaryView::PermissionPrompt);
