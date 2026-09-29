@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kmj:omnidesk:m4:artifact:1.0.0",
+  "title": "Artifact entry",
+  "type": "object",
+  "$ref": "urn:kmj:omnidesk:m4:realnet-manifest:1.0.0#/$defs/artifact"
+}
