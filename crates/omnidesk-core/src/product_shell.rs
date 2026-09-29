@@ -23,6 +23,12 @@ pub enum SecurityState {
     Authorized,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionDecision {
+    Allow,
+    Deny,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectError {
     UnknownDevice,
@@ -130,12 +136,23 @@ impl ProductShell {
         Ok(())
     }
 
-    pub fn mark_authorized(&mut self) {
-        if self.selected_device.is_some()
-            && self.security_state == SecurityState::AuthorizationRequired
+    pub fn decide_permission(&mut self, decision: PermissionDecision) {
+        if self.selected_device.is_none()
+            || self.security_state != SecurityState::AuthorizationRequired
         {
-            self.security_state = SecurityState::Authorized;
+            return;
         }
+
+        match decision {
+            PermissionDecision::Allow => {
+                self.security_state = SecurityState::Authorized;
+            }
+            PermissionDecision::Deny => self.disconnect(),
+        }
+    }
+
+    pub fn mark_authorized(&mut self) {
+        self.decide_permission(PermissionDecision::Allow);
     }
 
     pub fn disconnect(&mut self) {
@@ -191,6 +208,34 @@ mod tests {
         );
         assert_eq!(shell.selected_device(), None);
         assert_eq!(shell.security_state(), SecurityState::Disconnected);
+    }
+
+    #[test]
+    fn denied_permission_fails_closed_and_clears_selected_device() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![device("desk-1", DeviceStatus::Online)]);
+        shell.begin_connect("desk-1").unwrap();
+
+        shell.decide_permission(PermissionDecision::Deny);
+
+        assert_eq!(shell.selected_device(), None);
+        assert_eq!(shell.security_state(), SecurityState::Disconnected);
+        assert_eq!(shell.connection_stats(), None);
+    }
+
+    #[test]
+    fn permission_decisions_are_ignored_without_a_pending_prompt() {
+        let mut shell = ProductShell::new();
+        shell.decide_permission(PermissionDecision::Allow);
+        assert_eq!(shell.security_state(), SecurityState::Disconnected);
+
+        shell.replace_devices(vec![device("desk-1", DeviceStatus::Online)]);
+        shell.begin_connect("desk-1").unwrap();
+        shell.decide_permission(PermissionDecision::Allow);
+        assert_eq!(shell.security_state(), SecurityState::Authorized);
+
+        shell.decide_permission(PermissionDecision::Deny);
+        assert_eq!(shell.security_state(), SecurityState::Authorized);
     }
 
     #[test]
