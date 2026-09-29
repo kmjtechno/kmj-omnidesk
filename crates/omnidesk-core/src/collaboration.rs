@@ -63,18 +63,18 @@ pub enum ClipboardSyncError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClipboardSyncState {
-    last_sent_sequence: Option<u64>,
-    last_received_sequence: Option<u64>,
-    last_payload_sha256: Option<[u8; 32]>,
+    sent_sequence: Option<u64>,
+    received_sequence: Option<u64>,
+    payload_sha256: Option<[u8; 32]>,
 }
 
 impl ClipboardSyncState {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            last_sent_sequence: None,
-            last_received_sequence: None,
-            last_payload_sha256: None,
+            sent_sequence: None,
+            received_sequence: None,
+            payload_sha256: None,
         }
     }
 
@@ -95,8 +95,8 @@ impl ClipboardSyncState {
             .map_err(ClipboardSyncError::Validation)?;
 
         let previous = match direction {
-            DataDirection::LocalToRemote => self.last_sent_sequence,
-            DataDirection::RemoteToLocal => self.last_received_sequence,
+            DataDirection::LocalToRemote => self.sent_sequence,
+            DataDirection::RemoteToLocal => self.received_sequence,
         };
         if previous.is_some_and(|previous| sequence <= previous) {
             return Err(ClipboardSyncError::ReplayOrOutOfOrder);
@@ -104,16 +104,16 @@ impl ClipboardSyncState {
 
         let digest: [u8; 32] = Sha256::digest(payload).into();
         match direction {
-            DataDirection::LocalToRemote => self.last_sent_sequence = Some(sequence),
-            DataDirection::RemoteToLocal => self.last_received_sequence = Some(sequence),
+            DataDirection::LocalToRemote => self.sent_sequence = Some(sequence),
+            DataDirection::RemoteToLocal => self.received_sequence = Some(sequence),
         }
-        self.last_payload_sha256 = Some(digest);
+        self.payload_sha256 = Some(digest);
         Ok(digest)
     }
 
     #[must_use]
     pub const fn last_payload_sha256(&self) -> Option<[u8; 32]> {
-        self.last_payload_sha256
+        self.payload_sha256
     }
 }
 
@@ -577,7 +577,7 @@ mod tests {
         let digest = state
             .accept(policy, DataDirection::LocalToRemote, 1, b"hello")
             .unwrap();
-        assert_eq!(state.last_payload_sha256(), Some(digest));
+        assert_eq!(state.payload_sha256(), Some(digest));
         assert_eq!(
             state.accept(policy, DataDirection::LocalToRemote, 1, b"replay"),
             Err(ClipboardSyncError::ReplayOrOutOfOrder)
