@@ -43,7 +43,7 @@ impl MappingObservation {
 }
 
 #[must_use]
-pub const fn classify_mapping(primary: SocketAddr, secondary: SocketAddr) -> MappingBehavior {
+pub fn classify_mapping(primary: SocketAddr, secondary: SocketAddr) -> MappingBehavior {
     if primary == secondary {
         MappingBehavior::EndpointIndependentObserved
     } else {
