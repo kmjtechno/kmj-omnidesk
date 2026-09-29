@@ -635,7 +635,7 @@ mod tests {
                     not_after: u64::MAX,
                     status: LicenseKeyStatus::Active,
                 },
-            ]),
+            ], 1_000),
             Err(LicenseKeySetError::DuplicateKeyId)
         );
     }
