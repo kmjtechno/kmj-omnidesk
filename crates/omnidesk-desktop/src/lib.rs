@@ -58,8 +58,16 @@ mod tests {
         ] {
             let controls = controls_for(view);
             assert!(!controls.is_empty());
-            assert!(controls.iter().all(|control| !control.label.trim().is_empty()));
-            assert!(controls.iter().all(|control| control.keyboard_key.is_ascii()));
+            assert!(
+                controls
+                    .iter()
+                    .all(|control| !control.label.trim().is_empty())
+            );
+            assert!(
+                controls
+                    .iter()
+                    .all(|control| control.keyboard_key.is_ascii())
+            );
         }
     }
 
@@ -84,7 +92,15 @@ mod tests {
     #[test]
     fn permission_prompt_exposes_explicit_allow_and_deny_actions() {
         let controls = controls_for(PrimaryView::PermissionPrompt);
-        assert!(controls.iter().any(|c| c.action == DesktopAction::AllowPermission));
-        assert!(controls.iter().any(|c| c.action == DesktopAction::DenyPermission));
+        assert!(
+            controls
+                .iter()
+                .any(|c| c.action == DesktopAction::AllowPermission)
+        );
+        assert!(
+            controls
+                .iter()
+                .any(|c| c.action == DesktopAction::DenyPermission)
+        );
     }
 }
