@@ -7,6 +7,7 @@
 use std::collections::BTreeSet;
 
 use ed25519_dalek::{Signature, VerifyingKey};
+use serde::Deserialize;
 
 use crate::{PRODUCT_ID, PRODUCT_SLUG};
 
@@ -46,6 +47,98 @@ pub enum LicenseError {
     ReplayOrStaleSequence,
     Revoked,
     ClockRollback,
+    MalformedPayload,
+}
+
+pub const MAX_SIGNED_ENTITLEMENT_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum LicensePlan {
+    #[serde(rename = "Personal_Free")]
+    PersonalFree,
+    Trial,
+    Professional,
+    Business,
+    Enterprise,
+    #[serde(rename = "OEM_Custom")]
+    OemCustom,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct NullableLimit(pub Option<u64>);
+
+impl NullableLimit {
+    #[must_use]
+    pub const fn allows(&self, usage: u64) -> bool {
+        match self.0 {
+            Some(limit) => usage <= limit,
+            None => true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceLimits {
+    pub licensed_users: NullableLimit,
+    pub managed_devices: NullableLimit,
+    pub concurrent_sessions: NullableLimit,
+    pub unattended_devices: NullableLimit,
+    pub relay_bytes_monthly: NullableLimit,
+    pub relay_policy: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResourceLimitKind {
+    LicensedUsers,
+    ManagedDevices,
+    ConcurrentSessions,
+    UnattendedDevices,
+    RelayBytesMonthly,
+}
+
+impl ResourceLimits {
+    #[must_use]
+    pub const fn permits(&self, kind: ResourceLimitKind, usage: u64) -> bool {
+        match kind {
+            ResourceLimitKind::LicensedUsers => self.licensed_users.allows(usage),
+            ResourceLimitKind::ManagedDevices => self.managed_devices.allows(usage),
+            ResourceLimitKind::ConcurrentSessions => self.concurrent_sessions.allows(usage),
+            ResourceLimitKind::UnattendedDevices => self.unattended_devices.allows(usage),
+            ResourceLimitKind::RelayBytesMonthly => self.relay_bytes_monthly.allows(usage),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SignedEntitlementPayload {
+    pub protocol_version: String,
+    pub contract_version: String,
+    pub jti: String,
+    pub kid: String,
+    pub license_id: String,
+    pub entitlement_id: String,
+    pub customer_id: String,
+    pub organization_id: Option<String>,
+    pub product_id: String,
+    pub product_slug: String,
+    pub plan: LicensePlan,
+    pub activation_id: String,
+    pub device_public_key_fingerprint: String,
+    pub installation_id: String,
+    pub capabilities: Vec<String>,
+    pub limits: ResourceLimits,
+    #[serde(rename = "iat")]
+    pub issued_at: u64,
+    #[serde(rename = "nbf")]
+    pub not_before: u64,
+    #[serde(rename = "exp")]
+    pub expires_at: u64,
+    pub lease_expires_at: u64,
+    pub sequence: u64,
+    pub nonce: String,
 }
 
 pub trait SignatureVerifier {
