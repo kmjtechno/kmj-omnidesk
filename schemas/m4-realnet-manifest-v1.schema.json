@@ -1,0 +1,512 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kmj:omnidesk:m4:realnet-manifest:1.0.0",
+  "title": "KMJ OmniDesk M4 REALNET-60 Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "protocol",
+    "campaign_id",
+    "build",
+    "campaign",
+    "runs",
+    "aggregate",
+    "artifacts",
+    "gate"
+  ],
+  "properties": {
+    "schema": {
+      "const": "kmj.omnidesk.m4.realnet-manifest"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "protocol": {
+      "const": "M4-REALNET-60-v1"
+    },
+    "campaign_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "build": {
+      "$ref": "#/$defs/build"
+    },
+    "campaign": {
+      "$ref": "#/$defs/campaign"
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 60,
+      "items": {
+        "$ref": "#/$defs/run"
+      }
+    },
+    "aggregate": {
+      "type": "object"
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "gate": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "git_sha",
+        "version",
+        "artifact_sha256"
+      ],
+      "properties": {
+        "git_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "campaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started_at",
+        "ended_at",
+        "required_valid_runs",
+        "required_valid_runs_per_scenario"
+      ],
+      "properties": {
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "required_valid_runs": {
+          "const": 60
+        },
+        "required_valid_runs_per_scenario": {
+          "const": 10
+        }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "anonymous_id",
+        "network_class",
+        "ipv4_available",
+        "ipv6_available"
+      ],
+      "properties": {
+        "anonymous_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "network_class": {
+          "enum": [
+            "BROADBAND_NAT",
+            "MOBILE_CGNAT",
+            "RESTRICTIVE_WIFI",
+            "PUBLIC_WIFI",
+            "IPV4_ONLY",
+            "IPV6_CAPABLE",
+            "OTHER"
+          ]
+        },
+        "ipv4_available": {
+          "type": "boolean"
+        },
+        "ipv6_available": {
+          "type": "boolean"
+        }
+      }
+    },
+    "direct": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligible",
+        "ineligibility_reason",
+        "candidate_gathering_reached",
+        "candidate_types",
+        "candidate_pairs_attempted",
+        "connected",
+        "authenticated",
+        "bidirectional_probe_passed",
+        "stability_window_passed",
+        "selected_candidate_type",
+        "result",
+        "failure_code",
+        "started_monotonic_ms",
+        "final_decision_monotonic_ms",
+        "connection_time_ms",
+        "resolution_time_ms",
+        "block_evidence_ref"
+      ],
+      "properties": {
+        "eligible": {
+          "type": "boolean"
+        },
+        "ineligibility_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "PROVEN_DIRECT_BLOCKED",
+            "NO_COMPATIBLE_ADDRESS_FAMILY",
+            null
+          ]
+        },
+        "candidate_gathering_reached": {
+          "type": "boolean"
+        },
+        "candidate_types": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "HOST",
+              "SERVER_REFLEXIVE",
+              "PEER_REFLEXIVE",
+              "RELAY",
+              "OTHER"
+            ]
+          }
+        },
+        "candidate_pairs_attempted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "connected": {
+          "type": "boolean"
+        },
+        "authenticated": {
+          "type": "boolean"
+        },
+        "bidirectional_probe_passed": {
+          "type": "boolean"
+        },
+        "stability_window_passed": {
+          "type": "boolean"
+        },
+        "selected_candidate_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "HOST",
+            "SERVER_REFLEXIVE",
+            "PEER_REFLEXIVE",
+            "RELAY",
+            "OTHER",
+            null
+          ]
+        },
+        "result": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INELIGIBLE"
+          ]
+        },
+        "failure_code": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "NAT_NO_VIABLE_PAIR",
+            "UDP_BLOCKED",
+            "DIRECT_TIMEOUT",
+            "ADDRESS_FAMILY_MISMATCH",
+            "SIGNALING_FAILURE",
+            "AUTH_FAILED",
+            "INTEGRITY_FAILED",
+            "PATH_LOST",
+            "LOCAL_NETWORK_LOST",
+            "RECONNECT_TIMEOUT",
+            "PEER_UNREACHABLE",
+            "PROTOCOL_ERROR",
+            null
+          ]
+        },
+        "started_monotonic_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "final_decision_monotonic_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "connection_time_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "resolution_time_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "block_evidence_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "reconnect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligible",
+        "disruption_type",
+        "disruption_verified",
+        "attempt_started",
+        "session_restored",
+        "authenticated_after_restore",
+        "result",
+        "failure_code",
+        "disruption_detected_monotonic_ms",
+        "restored_monotonic_ms",
+        "reconnect_time_ms"
+      ],
+      "properties": {
+        "eligible": {
+          "type": "boolean"
+        },
+        "disruption_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "NETWORK_DROP",
+            "WIFI_TO_MOBILE",
+            "MOBILE_TO_WIFI",
+            "ADDRESS_CHANGE",
+            "PATH_LOSS",
+            null
+          ]
+        },
+        "disruption_verified": {
+          "type": "boolean"
+        },
+        "attempt_started": {
+          "type": "boolean"
+        },
+        "session_restored": {
+          "type": "boolean"
+        },
+        "authenticated_after_restore": {
+          "type": "boolean"
+        },
+        "result": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "failure_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "disruption_detected_monotonic_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "restored_monotonic_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "reconnect_time_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "scenario",
+        "validity",
+        "invalid_reason",
+        "build_sha",
+        "started_at",
+        "ended_at",
+        "endpoint_a",
+        "endpoint_b",
+        "direct",
+        "reconnect",
+        "evidence_refs"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "pattern": "^M4-T[1-6]-R[0-9]{2,}$"
+        },
+        "scenario": {
+          "enum": [
+            "T1_BROADBAND_BROADBAND",
+            "T2_BROADBAND_CGNAT",
+            "T3_CGNAT_CGNAT",
+            "T4_RESTRICTIVE_NETWORK",
+            "T5_IPV4_IPV6",
+            "T6_RECONNECT"
+          ]
+        },
+        "validity": {
+          "enum": [
+            "VALID",
+            "INVALID"
+          ]
+        },
+        "invalid_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "build_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endpoint_a": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "endpoint_b": {
+          "$ref": "#/$defs/endpoint"
+        },
+        "direct": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/direct"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reconnect": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/reconnect"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "relative_path",
+        "kind",
+        "sha256",
+        "size_bytes",
+        "run_id"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "relative_path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\\\.\\\\.(?:/|$)).+$"
+        },
+        "kind": {
+          "enum": [
+            "RUN_JSON",
+            "EVENT_LOG",
+            "CANDIDATE_LOG",
+            "NETWORK_DIAGNOSTIC",
+            "CONTROL_PROBE",
+            "SUMMARY",
+            "CSV",
+            "BUILD_METADATA",
+            "OTHER"
+          ]
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

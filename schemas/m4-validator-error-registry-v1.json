@@ -1,0 +1,211 @@
+{
+  "schema": "kmj.omnidesk.m4.validator-error-registry",
+  "schema_version": "1.0.0",
+  "registry_version": "1.0.0",
+  "validator": "kmj-omnidesk-m4-validator",
+  "severities": [
+    "ERROR",
+    "GATE_FAIL",
+    "WARNING",
+    "INFO"
+  ],
+  "result_precedence": [
+    "INVALID_MANIFEST",
+    "VALID_M4_FAIL",
+    "VALID_M4_PASS"
+  ],
+  "exit_codes": {
+    "VALID_M4_PASS": 0,
+    "VALID_M4_FAIL": 2,
+    "INVALID_MANIFEST": 3,
+    "VALIDATOR_FAILURE": 4
+  },
+  "entries": [
+    {
+      "code": "M4V-E2001",
+      "severity": "ERROR",
+      "category": "RUN_ACCOUNTING",
+      "symbol": "VALID_RUN_COUNT"
+    },
+    {
+      "code": "M4V-E2002",
+      "severity": "ERROR",
+      "category": "RUN_ACCOUNTING",
+      "symbol": "SCENARIO_RUN_COUNT"
+    },
+    {
+      "code": "M4V-E2003",
+      "severity": "ERROR",
+      "category": "RUN_ACCOUNTING",
+      "symbol": "RECONNECT_SAMPLE_COUNT"
+    },
+    {
+      "code": "M4V-E2004",
+      "severity": "ERROR",
+      "category": "RUN_ACCOUNTING",
+      "symbol": "DUPLICATE_RUN_ID"
+    },
+    {
+      "code": "M4V-E2009",
+      "severity": "ERROR",
+      "category": "RUN_ACCOUNTING",
+      "symbol": "BUILD_MISMATCH"
+    },
+    {
+      "code": "M4V-E3001",
+      "severity": "ERROR",
+      "category": "DIRECT_INVARIANT",
+      "symbol": "FALSE_DIRECT_PASS"
+    },
+    {
+      "code": "M4V-E3008",
+      "severity": "ERROR",
+      "category": "DIRECT_INVARIANT",
+      "symbol": "RELAY_COUNTED_DIRECT"
+    },
+    {
+      "code": "M4V-E3009",
+      "severity": "ERROR",
+      "category": "DIRECT_INVARIANT",
+      "symbol": "UNCLASSIFIED_DIRECT_FAILURE"
+    },
+    {
+      "code": "M4V-E4002",
+      "severity": "ERROR",
+      "category": "EXCLUSION_INTEGRITY",
+      "symbol": "BLOCK_EVIDENCE_MISSING"
+    },
+    {
+      "code": "M4V-E4007",
+      "severity": "ERROR",
+      "category": "EXCLUSION_INTEGRITY",
+      "symbol": "ADDRESS_FAMILY_EXCLUSION_CONTRADICTED"
+    },
+    {
+      "code": "M4V-E5002",
+      "severity": "ERROR",
+      "category": "TIMING",
+      "symbol": "DIRECT_DURATION_MISMATCH"
+    },
+    {
+      "code": "M4V-E5005",
+      "severity": "ERROR",
+      "category": "TIMING",
+      "symbol": "RECONNECT_DURATION_MISMATCH"
+    },
+    {
+      "code": "M4V-E7008",
+      "severity": "ERROR",
+      "category": "AGGREGATE_INTEGRITY",
+      "symbol": "DIRECT_RATE_MISMATCH"
+    },
+    {
+      "code": "M4V-E7010",
+      "severity": "ERROR",
+      "category": "AGGREGATE_INTEGRITY",
+      "symbol": "CONNECTION_P50_MISMATCH"
+    },
+    {
+      "code": "M4V-E7011",
+      "severity": "ERROR",
+      "category": "AGGREGATE_INTEGRITY",
+      "symbol": "CONNECTION_P95_MISMATCH"
+    },
+    {
+      "code": "M4V-E8002",
+      "severity": "ERROR",
+      "category": "REFERENCE_INTEGRITY",
+      "symbol": "DANGLING_REFERENCE"
+    },
+    {
+      "code": "M4V-E9001",
+      "severity": "ERROR",
+      "category": "CHECKSUM_INTEGRITY",
+      "symbol": "CHECKSUM_MISMATCH"
+    },
+    {
+      "code": "M4V-E10001",
+      "severity": "ERROR",
+      "category": "SECURITY_INVARIANT",
+      "symbol": "WRONG_PEER_AUTHENTICATED"
+    },
+    {
+      "code": "M4V-E10002",
+      "severity": "ERROR",
+      "category": "SECURITY_INVARIANT",
+      "symbol": "UNAUTHORIZED_SESSION"
+    },
+    {
+      "code": "M4V-E10003",
+      "severity": "ERROR",
+      "category": "SECURITY_INVARIANT",
+      "symbol": "INTEGRITY_FAILURE_AFTER_SUCCESS"
+    },
+    {
+      "code": "M4V-E10004",
+      "severity": "ERROR",
+      "category": "SECURITY_INVARIANT",
+      "symbol": "FALSE_SUCCESS_REPORTED"
+    },
+    {
+      "code": "M4V-G2001",
+      "severity": "GATE_FAIL",
+      "category": "ACCEPTANCE_THRESHOLD",
+      "symbol": "OVERALL_DIRECT_RATE_BELOW_80"
+    },
+    {
+      "code": "M4V-G2002",
+      "severity": "GATE_FAIL",
+      "category": "ACCEPTANCE_THRESHOLD",
+      "symbol": "T1_DIRECT_RATE_BELOW_90"
+    },
+    {
+      "code": "M4V-G2003",
+      "severity": "GATE_FAIL",
+      "category": "ACCEPTANCE_THRESHOLD",
+      "symbol": "T2_DIRECT_RATE_BELOW_80"
+    },
+    {
+      "code": "M4V-G2004",
+      "severity": "GATE_FAIL",
+      "category": "ACCEPTANCE_THRESHOLD",
+      "symbol": "T3_DIRECT_RATE_BELOW_60"
+    },
+    {
+      "code": "M4V-G2005",
+      "severity": "GATE_FAIL",
+      "category": "ACCEPTANCE_THRESHOLD",
+      "symbol": "T5_DIRECT_RATE_BELOW_80"
+    },
+    {
+      "code": "M4V-G2101",
+      "severity": "GATE_FAIL",
+      "category": "ACCEPTANCE_THRESHOLD",
+      "symbol": "CONNECTION_P50_ABOVE_1500_MS"
+    },
+    {
+      "code": "M4V-G2102",
+      "severity": "GATE_FAIL",
+      "category": "ACCEPTANCE_THRESHOLD",
+      "symbol": "CONNECTION_P95_ABOVE_5000_MS"
+    },
+    {
+      "code": "M4V-G2201",
+      "severity": "GATE_FAIL",
+      "category": "ACCEPTANCE_THRESHOLD",
+      "symbol": "RECONNECT_RATE_BELOW_90"
+    },
+    {
+      "code": "M4V-G2202",
+      "severity": "GATE_FAIL",
+      "category": "ACCEPTANCE_THRESHOLD",
+      "symbol": "RECONNECT_P50_ABOVE_2000_MS"
+    },
+    {
+      "code": "M4V-G2203",
+      "severity": "GATE_FAIL",
+      "category": "ACCEPTANCE_THRESHOLD",
+      "symbol": "RECONNECT_P95_ABOVE_5000_MS"
+    }
+  ]
+}
