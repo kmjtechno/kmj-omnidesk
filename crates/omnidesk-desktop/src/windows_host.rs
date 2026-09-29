@@ -8,7 +8,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::{AccessibilityNode, accessibility_snapshot, apply_key};
+use crate::{AccessibilityNode, accessibility_snapshot, apply_key, presentation_for};
 
 struct DesktopHost {
     window: Option<Window>,
@@ -31,8 +31,10 @@ impl Default for DesktopHost {
 impl ApplicationHandler for DesktopHost {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
+            let presentation = presentation_for(&self.shell);
+            let title = format!("{} — {}", presentation.title, presentation.status);
             let attributes = WindowAttributes::default()
-                .with_title("KMJ OmniDesk")
+                .with_title(title)
                 .with_inner_size(winit::dpi::LogicalSize::new(960.0, 640.0));
             self.window = Some(
                 event_loop
@@ -55,6 +57,13 @@ impl ApplicationHandler for DesktopHost {
                     if let Some(key) = text.chars().next() {
                         if apply_key(&mut self.shell, key) {
                             self.accessibility = accessibility_snapshot(&self.shell);
+                            if let Some(window) = self.window.as_ref() {
+                                let presentation = presentation_for(&self.shell);
+                                window.set_title(&format!(
+                                    "{} — {}",
+                                    presentation.title, presentation.status
+                                ));
+                            }
                         }
                     }
                 }
