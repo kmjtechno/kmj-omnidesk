@@ -21,6 +21,19 @@ pub struct AccessibleControl {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessibleRole {
+    Navigation,
+    Button,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AccessibilityNode {
+    pub label: &'static str,
+    pub role: AccessibleRole,
+    pub keyboard_key: char,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisualSystem {
     pub background_rgb: [u8; 3],
     pub surface_rgb: [u8; 3],
@@ -91,6 +104,34 @@ pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
 }
 
 #[must_use]
+pub const fn accessibility_nodes_for(view: PrimaryView) -> &'static [AccessibilityNode] {
+    match view {
+        PrimaryView::Devices => &[AccessibilityNode {
+            label: "Devices",
+            role: AccessibleRole::Navigation,
+            keyboard_key: 'd',
+        }],
+        PrimaryView::PermissionPrompt => &[
+            AccessibilityNode {
+                label: "Allow remote session",
+                role: AccessibleRole::Button,
+                keyboard_key: 'a',
+            },
+            AccessibilityNode {
+                label: "Deny remote session",
+                role: AccessibleRole::Button,
+                keyboard_key: 'n',
+            },
+        ],
+        PrimaryView::Session => &[AccessibilityNode {
+            label: "Disconnect remote session",
+            role: AccessibleRole::Button,
+            keyboard_key: 'x',
+        }],
+    }
+}
+
+#[must_use]
 pub const fn controls_for(view: PrimaryView) -> &'static [AccessibleControl] {
     match view {
         PrimaryView::Devices => &[AccessibleControl {
@@ -142,6 +183,32 @@ mod tests {
                     .all(|control| control.keyboard_key.is_ascii())
             );
         }
+    }
+
+    #[test]
+    fn accessibility_nodes_match_operable_controls() {
+        for view in [
+            PrimaryView::Devices,
+            PrimaryView::PermissionPrompt,
+            PrimaryView::Session,
+        ] {
+            let nodes = accessibility_nodes_for(view);
+            let controls = controls_for(view);
+            assert_eq!(nodes.len(), controls.len());
+            for (node, control) in nodes.iter().zip(controls) {
+                assert_eq!(node.label, control.label);
+                assert_eq!(node.keyboard_key, control.keyboard_key);
+            }
+        }
+        assert_eq!(
+            accessibility_nodes_for(PrimaryView::Devices)[0].role,
+            AccessibleRole::Navigation
+        );
+        assert!(
+            accessibility_nodes_for(PrimaryView::PermissionPrompt)
+                .iter()
+                .all(|node| node.role == AccessibleRole::Button)
+        );
     }
 
     #[test]
