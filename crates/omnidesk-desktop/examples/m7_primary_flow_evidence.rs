@@ -44,10 +44,16 @@ fn main() {
     ]);
 
     assert_eq!(shell.primary_view(), PrimaryView::Devices);
-    assert_eq!(click_first_enabled(&mut shell), DesktopAction::ConnectDevice(0));
+    assert_eq!(
+        click_first_enabled(&mut shell),
+        DesktopAction::ConnectDevice(0)
+    );
     assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
 
-    assert_eq!(click_first_enabled(&mut shell), DesktopAction::AllowPermission);
+    assert_eq!(
+        click_first_enabled(&mut shell),
+        DesktopAction::AllowPermission
+    );
     assert_eq!(shell.primary_view(), PrimaryView::Session);
 
     apply_action(
