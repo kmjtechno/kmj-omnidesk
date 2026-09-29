@@ -587,9 +587,11 @@ mod tests {
             Err(ClipboardSyncError::ReplayOrOutOfOrder)
         );
 
-        assert!(state
-            .accept(policy, DataDirection::RemoteToLocal, 1, b"remote")
-            .is_ok());
+        assert!(
+            state
+                .accept(policy, DataDirection::RemoteToLocal, 1, b"remote")
+                .is_ok()
+        );
     }
 
     #[test]
