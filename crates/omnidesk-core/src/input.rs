@@ -90,9 +90,7 @@ const fn validate(event: InputEvent) -> Result<(), InputError> {
         InputPayload::KeyDown { key_code } | InputPayload::KeyUp { key_code } if key_code == 0 => {
             Err(InputError::InvalidKeyCode)
         }
-        InputPayload::PointerButton { button: 0, .. } => {
-            Err(InputError::InvalidPointerButton)
-        }
+        InputPayload::PointerButton { button: 0, .. } => Err(InputError::InvalidPointerButton),
         _ => Ok(()),
     }
 }
