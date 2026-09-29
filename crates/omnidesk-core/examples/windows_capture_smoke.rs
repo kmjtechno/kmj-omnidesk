@@ -20,7 +20,6 @@ fn main() {
 #[cfg(not(windows))]
 fn main() {
     println!(
-        "{}",
-        "{\"schema_version\":1,\"kind\":\"windows_desktop_capture_smoke\",\"status\":\"not_windows\"}"
+        "{{\"schema_version\":1,\"kind\":\"windows_desktop_capture_smoke\",\"status\":\"not_windows\"}}"
     );
 }
