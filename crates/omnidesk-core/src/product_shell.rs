@@ -127,10 +127,7 @@ mod tests {
 
         assert_eq!(shell.begin_connect("desk-1"), Ok(()));
         assert_eq!(shell.selected_device(), Some("desk-1"));
-        assert_eq!(
-            shell.security_state(),
-            SecurityState::AuthorizationRequired
-        );
+        assert_eq!(shell.security_state(), SecurityState::AuthorizationRequired);
 
         shell.mark_authorized();
         assert_eq!(shell.security_state(), SecurityState::Authorized);
