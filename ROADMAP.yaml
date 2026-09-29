@@ -182,7 +182,7 @@ milestones:
 
   - id: M3
     name: Remote input and session permissions
-    status: in_progress
+    status: complete
     depends_on: [M1]
     objective: Add keyboard and pointer control behind explicit authorization.
     deliverables:
