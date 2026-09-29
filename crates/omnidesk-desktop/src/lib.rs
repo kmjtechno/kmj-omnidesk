@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use omnidesk_core::product_shell::PrimaryView;
+use omnidesk_core::product_shell::{PermissionDecision, PrimaryView, ProductShell};
 
 #[cfg(windows)]
 pub mod windows_host;
@@ -27,6 +27,23 @@ pub fn action_for_key(view: PrimaryView, key: char) -> Option<DesktopAction> {
         .iter()
         .find(|control| control.keyboard_key == key)
         .map(|control| control.action)
+}
+
+pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
+    match action {
+        DesktopAction::FocusDevices => {}
+        DesktopAction::AllowPermission => shell.decide_permission(PermissionDecision::Allow),
+        DesktopAction::DenyPermission => shell.decide_permission(PermissionDecision::Deny),
+        DesktopAction::Disconnect => shell.disconnect(),
+    }
+}
+
+pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
+    let Some(action) = action_for_key(shell.primary_view(), key) else {
+        return false;
+    };
+    apply_action(shell, action);
+    true
 }
 
 #[must_use]
@@ -98,6 +115,26 @@ mod tests {
             action_for_key(PrimaryView::Session, 'X'),
             Some(DesktopAction::Disconnect)
         );
+    }
+
+    #[test]
+    fn keyboard_actions_drive_shell_without_bypassing_permission_state() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, SecurityState};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "desk-1".into(),
+            display_name: "Desk 1".into(),
+            status: DeviceStatus::Online,
+        }]);
+        shell.begin_connect("desk-1").unwrap();
+
+        assert!(!apply_key(&mut shell, 'x'));
+        assert_eq!(shell.security_state(), SecurityState::AuthorizationRequired);
+        assert!(apply_key(&mut shell, 'a'));
+        assert_eq!(shell.security_state(), SecurityState::Authorized);
+        assert!(apply_key(&mut shell, 'x'));
+        assert_eq!(shell.security_state(), SecurityState::Disconnected);
     }
 
     #[test]
