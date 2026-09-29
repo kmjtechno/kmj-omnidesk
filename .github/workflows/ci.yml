@@ -44,6 +44,10 @@ jobs:
         run: |
           cargo run -p omnidesk-core --example connectivity_benchmark --release > artifacts/connectivity-benchmark.json
           cat artifacts/connectivity-benchmark.json
+      - name: Verify local NAT mapping and reconnect matrix
+        run: |
+          cargo run -p omnidesk-core --example nat_reconnect_matrix --release > artifacts/nat-reconnect-matrix.json
+          cat artifacts/nat-reconnect-matrix.json
       - name: Upload benchmark artifacts
         uses: actions/upload-artifact@v4
         with:
