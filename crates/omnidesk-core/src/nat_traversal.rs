@@ -32,7 +32,7 @@ pub enum NatTraversalError {
 
 impl MappingObservation {
     #[must_use]
-    pub fn candidate(self, priority: u32) -> ConnectionCandidate {
+    pub const fn candidate(self, priority: u32) -> ConnectionCandidate {
         ConnectionCandidate {
             kind: CandidateKind::ServerReflexive,
             transport: TransportProtocol::Udp,
