@@ -32,6 +32,15 @@ fn control_bounds(index: usize) -> Rect {
 /// Builds a complete AccessKit tree from the authoritative product-shell state.
 #[must_use]
 pub fn build_accesskit_tree(shell: &ProductShell) -> TreeUpdate {
+    build_accesskit_tree_with_focus(shell, None)
+}
+
+/// Builds the same complete tree while honoring a valid platform-requested focus node.
+#[must_use]
+pub fn build_accesskit_tree_with_focus(
+    shell: &ProductShell,
+    requested_focus: Option<NodeId>,
+) -> TreeUpdate {
     let presentation = presentation_for(shell);
     let controls = controls_for(shell.primary_view());
     let mut child_ids = Vec::with_capacity(controls.len());
@@ -60,11 +69,16 @@ pub fn build_accesskit_tree(shell: &ProductShell) -> TreeUpdate {
     root.set_children(child_ids.clone());
     nodes.insert(0, (ROOT_NODE_ID, root));
 
+    let default_focus = child_ids.first().copied().unwrap_or(ROOT_NODE_ID);
+    let focus = requested_focus
+        .filter(|id| *id == ROOT_NODE_ID || child_ids.contains(id))
+        .unwrap_or(default_focus);
+
     TreeUpdate {
         nodes,
         tree: Some(TreeInfo::new(ROOT_NODE_ID)),
         tree_id: TreeId::ROOT,
-        focus: child_ids.first().copied().unwrap_or(ROOT_NODE_ID),
+        focus,
     }
 }
 
@@ -87,6 +101,16 @@ mod tests {
             Some(DesktopAction::FocusDevices)
         );
         assert_eq!(desktop_action_for_node(&shell, NodeId(2)), None);
+    }
+
+    #[test]
+    fn requested_focus_is_kept_only_when_node_exists() {
+        let shell = ProductShell::new();
+        let valid = build_accesskit_tree_with_focus(&shell, Some(NodeId(1)));
+        assert_eq!(valid.focus, NodeId(1));
+
+        let invalid = build_accesskit_tree_with_focus(&shell, Some(NodeId(99)));
+        assert_eq!(invalid.focus, NodeId(1));
     }
 
     #[test]
