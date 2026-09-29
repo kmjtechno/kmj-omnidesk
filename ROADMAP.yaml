@@ -161,7 +161,7 @@ milestones:
 
   - id: M2
     name: Capture to render pipeline
-    status: pending
+    status: in_progress
     depends_on: [M1]
     objective: Build the first measurable frame pipeline without premature codec lock-in.
     deliverables:
@@ -182,7 +182,7 @@ milestones:
 
   - id: M3
     name: Remote input and session permissions
-    status: pending
+    status: in_progress
     depends_on: [M1]
     objective: Add keyboard and pointer control behind explicit authorization.
     deliverables:
