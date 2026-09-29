@@ -29,6 +29,13 @@ pub enum PermissionDecision {
     Deny,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimaryView {
+    Devices,
+    PermissionPrompt,
+    Session,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectError {
     UnknownDevice,
@@ -94,6 +101,15 @@ impl ProductShell {
     #[must_use]
     pub const fn security_state(&self) -> SecurityState {
         self.security_state
+    }
+
+    #[must_use]
+    pub const fn primary_view(&self) -> PrimaryView {
+        match self.security_state {
+            SecurityState::Disconnected => PrimaryView::Devices,
+            SecurityState::AuthorizationRequired => PrimaryView::PermissionPrompt,
+            SecurityState::Authorized => PrimaryView::Session,
+        }
     }
 
     #[must_use]
@@ -208,6 +224,22 @@ mod tests {
         );
         assert_eq!(shell.selected_device(), None);
         assert_eq!(shell.security_state(), SecurityState::Disconnected);
+    }
+
+    #[test]
+    fn primary_flow_moves_devices_prompt_session_without_terminal_state() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![device("desk-1", DeviceStatus::Online)]);
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
+
+        shell.begin_connect("desk-1").unwrap();
+        assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+
+        shell.decide_permission(PermissionDecision::Allow);
+        assert_eq!(shell.primary_view(), PrimaryView::Session);
+
+        shell.disconnect();
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
     }
 
     #[test]
