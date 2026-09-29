@@ -20,6 +20,29 @@ pub struct AccessibleControl {
     pub keyboard_key: char,
 }
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VisualSystem {
+    pub background_rgb: [u8; 3],
+    pub surface_rgb: [u8; 3],
+    pub foreground_rgb: [u8; 3],
+    pub accent_rgb: [u8; 3],
+    pub danger_rgb: [u8; 3],
+}
+
+impl VisualSystem {
+    #[must_use]
+    pub const fn kmj_black_red() -> Self {
+        Self {
+            background_rgb: [8, 8, 10],
+            surface_rgb: [18, 18, 22],
+            foreground_rgb: [245, 245, 247],
+            accent_rgb: [220, 24, 40],
+            danger_rgb: [255, 59, 48],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResourceBudget {
     pub idle_memory_mib: u32,
@@ -120,6 +143,17 @@ mod tests {
                     .all(|control| control.keyboard_key.is_ascii())
             );
         }
+    }
+
+
+    #[test]
+    fn black_red_visual_system_is_explicit_and_high_contrast() {
+        let visual = VisualSystem::kmj_black_red();
+        assert!(visual.background_rgb.iter().all(|channel| *channel <= 16));
+        assert!(visual.surface_rgb.iter().all(|channel| *channel <= 32));
+        assert!(visual.foreground_rgb.iter().all(|channel| *channel >= 240));
+        assert!(visual.accent_rgb[0] > visual.accent_rgb[1] * 5);
+        assert!(visual.accent_rgb[0] > visual.accent_rgb[2] * 4);
     }
 
     #[test]
