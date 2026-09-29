@@ -23,7 +23,7 @@ pub struct DirectConnectStats {
 }
 
 impl DirectConnectStats {
-    pub fn record(&mut self, succeeded: bool) {
+    pub const fn record(&mut self, succeeded: bool) {
         self.attempts = self.attempts.saturating_add(1);
         if succeeded {
             self.successes = self.successes.saturating_add(1);
@@ -40,7 +40,7 @@ impl DirectConnectStats {
         self.successes
     }
 
-    /// Returns success rate in basis points (0..=10_000) without float drift.
+    /// Returns success rate in basis points (`0..=10_000`) without float drift.
     #[must_use]
     pub fn success_rate_bps(&self) -> u16 {
         if self.attempts == 0 {
@@ -48,7 +48,7 @@ impl DirectConnectStats {
         }
 
         let scaled = u64::from(self.successes) * 10_000 / u64::from(self.attempts);
-        u16::try_from(scaled).expect("success rate is bounded to 10_000 bps")
+        u16::try_from(scaled).unwrap_or(10_000)
     }
 }
 
