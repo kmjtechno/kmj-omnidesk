@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod authentication;
+pub mod collaboration;
 pub mod connectivity;
 pub mod direct_connect;
 pub mod direct_udp;
