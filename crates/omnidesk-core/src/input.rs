@@ -62,8 +62,8 @@ impl<A: InputAdapter> AuthorizedInputDispatcher<A> {
     ///
     /// # Errors
     ///
-    /// Returns a fail-closed error for inactive/unauthorized sessions, stale
-    /// sequence numbers, malformed key/button values, or adapter failure.
+    /// Returns a fail-closed error for inactive/unauthorized sessions, stale session bindings,
+    /// stale sequence numbers, malformed key/button values, or adapter failure.
     pub fn dispatch(&mut self, session: &Session, event: InputEvent) -> Result<(), InputError> {
         session.require_control()?;
 
@@ -229,6 +229,7 @@ mod tests {
             dispatcher.dispatch(
                 &session,
                 InputEvent {
+                    session_nonce: [9_u8; 32],
                     sequence: 1,
                     payload: InputPayload::KeyDown { key_code: 0 },
                 },
@@ -247,6 +248,7 @@ mod tests {
             dispatcher.dispatch(
                 &session,
                 InputEvent {
+                    session_nonce: [9_u8; 32],
                     sequence: 1,
                     payload: InputPayload::PointerMove { x: 1, y: 1 },
                 },
