@@ -44,6 +44,12 @@ pub enum LicenseError {
 }
 
 pub trait SignatureVerifier {
+    /// Verifies the canonical entitlement payload against the selected signing key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed licensing error when the key is unknown/revoked or the
+    /// signature cannot be verified.
     fn verify(
         &self,
         kid: &str,
@@ -98,6 +104,13 @@ pub fn has_capability(claims: &LicenseClaims<'_>, capability: &str) -> bool {
     claims.capabilities.contains(&capability)
 }
 
+/// Verifies a signed entitlement and evaluates its local lifecycle state.
+///
+/// # Errors
+///
+/// Returns a fail-closed licensing error for invalid signatures, contract/product
+/// mismatch, invalid device binding, replay, revocation, invalid time bounds, or
+/// clock rollback.
 pub fn verify_and_evaluate(
     verifier: &dyn SignatureVerifier,
     canonical_payload: &[u8],
