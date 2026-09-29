@@ -24,8 +24,19 @@ pub enum TransportError {
 }
 
 pub trait Transport {
+    /// Returns the currently selected transport path.
     fn path_kind(&self) -> PathKind;
+    /// Sends one bounded transport payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transport is closed or the payload is invalid.
     fn send(&mut self, payload: &[u8]) -> Result<(), TransportError>;
+    /// Receives one complete transport payload when available.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transport is closed or an invalid frame/I/O failure occurs.
     fn receive(&mut self) -> Result<Option<Vec<u8>>, TransportError>;
     fn close(&mut self);
 }
@@ -79,20 +90,30 @@ pub struct TcpLanTransport {
 }
 
 impl TcpLanTransport {
+    /// Opens a bounded-time TCP LAN connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when the peer cannot be connected or configured.
     pub fn connect(address: SocketAddr, timeout: Duration) -> Result<Self, TransportError> {
-        let stream = TcpStream::connect_timeout(&address, timeout).map_err(io_error)?;
+        let stream = TcpStream::connect_timeout(&address, timeout).map_err(|error| io_error(&error))?;
         Self::from_stream(stream)
     }
 
+    /// Wraps an established TCP stream as a LAN transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when low-latency stream configuration fails.
     pub fn from_stream(stream: TcpStream) -> Result<Self, TransportError> {
-        stream.set_nodelay(true).map_err(io_error)?;
+        stream.set_nodelay(true).map_err(|error| io_error(&error))?;
         Ok(Self {
             stream,
             closed: false,
         })
     }
 
-    fn ensure_open(&self) -> Result<(), TransportError> {
+    const fn ensure_open(&self) -> Result<(), TransportError> {
         if self.closed {
             Err(TransportError::Closed)
         } else {
@@ -119,9 +140,9 @@ impl Transport for TcpLanTransport {
         let length = u32::try_from(payload.len()).map_err(|_| TransportError::PayloadTooLarge)?;
         self.stream
             .write_all(&length.to_be_bytes())
-            .map_err(io_error)?;
-        self.stream.write_all(payload).map_err(io_error)?;
-        self.stream.flush().map_err(io_error)
+            .map_err(|error| io_error(&error))?;
+        self.stream.write_all(payload).map_err(|error| io_error(&error))?;
+        self.stream.flush().map_err(|error| io_error(&error))
     }
 
     fn receive(&mut self) -> Result<Option<Vec<u8>>, TransportError> {
@@ -146,7 +167,7 @@ impl Transport for TcpLanTransport {
         }
 
         let mut payload = vec![0_u8; length];
-        self.stream.read_exact(&mut payload).map_err(io_error)?;
+        self.stream.read_exact(&mut payload).map_err(|error| io_error(&error))?;
         Ok(Some(payload))
     }
 
@@ -158,7 +179,7 @@ impl Transport for TcpLanTransport {
     }
 }
 
-fn io_error(error: std::io::Error) -> TransportError {
+fn io_error(error: &std::io::Error) -> TransportError {
     TransportError::Io(error.kind())
 }
 
