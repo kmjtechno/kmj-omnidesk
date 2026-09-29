@@ -16,6 +16,34 @@ pub struct ConnectionMetrics {
     pub attempts: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExportedConnectionMetrics {
+    pub connection_time_ms: u64,
+    pub direct_connect_success_rate_bps: u16,
+    pub reconnect_time_ms: Option<u64>,
+}
+
+impl ConnectionMetrics {
+    #[must_use]
+    pub fn export(self, direct_stats: &DirectConnectStats) -> ExportedConnectionMetrics {
+        ExportedConnectionMetrics {
+            connection_time_ms: duration_ms_ceil(self.connection_time),
+            direct_connect_success_rate_bps: direct_stats.success_rate_bps(),
+            reconnect_time_ms: self.reconnect_time.map(duration_ms_ceil),
+        }
+    }
+}
+
+fn duration_ms_ceil(duration: Duration) -> u64 {
+    let millis = duration.as_millis();
+    let rounded = if duration.subsec_nanos() % 1_000_000 == 0 {
+        millis
+    } else {
+        millis.saturating_add(1)
+    };
+    u64::try_from(rounded).unwrap_or(u64::MAX)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DirectConnectStats {
     attempts: u32,
@@ -104,6 +132,40 @@ mod tests {
             address: format!("127.0.0.1:{port}").parse().expect("socket"),
             priority,
         }
+    }
+
+    #[test]
+    fn exported_metrics_use_stable_millisecond_units_and_rate() {
+        let mut stats = DirectConnectStats::default();
+        stats.record(true);
+        stats.record(true);
+        stats.record(true);
+        stats.record(false);
+
+        let metrics = ConnectionMetrics {
+            connection_time: Duration::from_micros(1_001),
+            reconnect_time: Some(Duration::from_millis(9)),
+            attempts: 4,
+        }
+        .export(&stats);
+
+        assert_eq!(metrics.connection_time_ms, 2);
+        assert_eq!(metrics.direct_connect_success_rate_bps, 7_500);
+        assert_eq!(metrics.reconnect_time_ms, Some(9));
+    }
+
+    #[test]
+    fn exported_metrics_preserve_missing_reconnect() {
+        let metrics = ConnectionMetrics {
+            connection_time: Duration::ZERO,
+            reconnect_time: None,
+            attempts: 0,
+        }
+        .export(&DirectConnectStats::default());
+
+        assert_eq!(metrics.connection_time_ms, 0);
+        assert_eq!(metrics.direct_connect_success_rate_bps, 0);
+        assert_eq!(metrics.reconnect_time_ms, None);
     }
 
     #[test]
