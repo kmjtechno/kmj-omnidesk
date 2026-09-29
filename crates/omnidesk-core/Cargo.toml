@@ -10,5 +10,8 @@ rust-version.workspace = true
 omnidesk-protocol = { path = "../omnidesk-protocol" }
 ed25519-dalek = "2"
 
+[target.'cfg(windows)'.dependencies]
+win-screenshot = "4.0.14"
+
 [lints]
 workspace = true
