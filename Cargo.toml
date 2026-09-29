@@ -4,6 +4,7 @@ members = [
     "crates/omnidesk-core",
     "crates/omnidesk-protocol",
     "crates/omnidesk-desktop",
+    "crates/omnidesk-m4-validator",
 ]
 
 [workspace.package]
