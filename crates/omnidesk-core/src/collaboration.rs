@@ -74,6 +74,9 @@ pub fn sanitize_transfer_path(path: &str) -> Result<String, TransferPathError> {
     if trimmed.is_empty() {
         return Err(TransferPathError::Empty);
     }
+    if trimmed.starts_with('/') {
+        return Err(TransferPathError::Absolute);
+    }
     if trimmed.contains('\\') || trimmed.contains(':') {
         return Err(TransferPathError::PlatformPrefix);
     }
