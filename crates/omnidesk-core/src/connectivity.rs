@@ -6,7 +6,8 @@ use omnidesk_protocol::signaling::{CandidateKind, ConnectionCandidate, Transport
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectivityError {
-    NoDirectCandidate,
+    NoCandidates,
+    RelayOnly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,11 +30,15 @@ impl DirectPathSelector {
     ///
     /// # Errors
     ///
-    /// Returns `ConnectivityError::NoDirectCandidate` when only relay or no
-    /// candidates are available.
+    /// Returns an explicit failure distinguishing empty discovery from a
+    /// discovery result that contains only relay candidates.
     pub fn select(
         candidates: &[ConnectionCandidate],
     ) -> Result<&ConnectionCandidate, ConnectivityError> {
+        if candidates.is_empty() {
+            return Err(ConnectivityError::NoCandidates);
+        }
+
         candidates
             .iter()
             .filter(|candidate| {
@@ -48,7 +53,7 @@ impl DirectPathSelector {
                     u8::from(candidate.transport == TransportProtocol::Udp),
                 )
             })
-            .ok_or(ConnectivityError::NoDirectCandidate)
+            .ok_or(ConnectivityError::RelayOnly)
     }
 }
 
@@ -96,12 +101,20 @@ mod tests {
     }
 
     #[test]
-    fn relay_is_not_silently_selected_as_direct() {
+    fn empty_discovery_is_explicit() {
+        assert_eq!(
+            DirectPathSelector::select(&[]),
+            Err(ConnectivityError::NoCandidates)
+        );
+    }
+
+    #[test]
+    fn relay_only_is_explicit_and_not_selected_as_direct() {
         let relay = candidate(CandidateKind::Relay, TransportProtocol::Udp, 6000, 500);
 
         assert_eq!(
             DirectPathSelector::select(&[relay]),
-            Err(ConnectivityError::NoDirectCandidate)
+            Err(ConnectivityError::RelayOnly)
         );
     }
 }
