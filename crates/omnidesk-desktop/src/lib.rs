@@ -55,6 +55,29 @@ impl VisualSystem {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationModel {
+    pub title: &'static str,
+    pub status: &'static str,
+    pub controls: Vec<AccessibilityNode>,
+    pub visual: VisualSystem,
+}
+
+#[must_use]
+pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
+    let status = match shell.primary_view() {
+        PrimaryView::Devices => "Disconnected",
+        PrimaryView::PermissionPrompt => "Authorization required",
+        PrimaryView::Session => "Secure session active",
+    };
+    PresentationModel {
+        title: "KMJ OmniDesk",
+        status,
+        controls: accessibility_snapshot(shell),
+        visual: VisualSystem::kmj_black_red(),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResourceBudget {
     pub idle_memory_mib: u32,
@@ -188,6 +211,28 @@ mod tests {
                     .all(|control| control.keyboard_key.is_ascii())
             );
         }
+    }
+
+    #[test]
+    fn presentation_model_is_shell_derived_and_never_claims_online_by_default() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary};
+
+        let mut shell = ProductShell::new();
+        let initial = presentation_for(&shell);
+        assert_eq!(initial.title, "KMJ OmniDesk");
+        assert_eq!(initial.status, "Disconnected");
+        assert_eq!(initial.visual, VisualSystem::kmj_black_red());
+
+        shell.replace_devices(vec![DeviceSummary {
+            id: "desk-1".into(),
+            display_name: "Desk 1".into(),
+            status: DeviceStatus::Online,
+        }]);
+        shell.begin_connect("desk-1").unwrap();
+        assert_eq!(presentation_for(&shell).status, "Authorization required");
+
+        shell.decide_permission(PermissionDecision::Allow);
+        assert_eq!(presentation_for(&shell).status, "Secure session active");
     }
 
     #[test]
