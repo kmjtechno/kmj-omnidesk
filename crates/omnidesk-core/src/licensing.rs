@@ -233,10 +233,7 @@ impl Ed25519SignatureVerifier {
     /// # Errors
     ///
     /// Rejects empty/duplicate key identifiers and invalid Ed25519 public keys.
-    pub fn new(
-        keys: Vec<LicensePublicKey>,
-        trusted_time: u64,
-    ) -> Result<Self, LicenseKeySetError> {
+    pub fn new(keys: Vec<LicensePublicKey>, trusted_time: u64) -> Result<Self, LicenseKeySetError> {
         let mut key_ids = BTreeSet::new();
         for key in &keys {
             if key.kid.trim().is_empty() {
@@ -272,9 +269,7 @@ impl SignatureVerifier for Ed25519SignatureVerifier {
             .iter()
             .find(|key| key.kid == kid)
             .filter(|key| key.status != LicenseKeyStatus::Revoked)
-            .filter(|key| {
-                self.trusted_time >= key.not_before && self.trusted_time < key.not_after
-            })
+            .filter(|key| self.trusted_time >= key.not_before && self.trusted_time < key.not_after)
             .ok_or(LicenseError::UnknownOrRevokedKey)?;
 
         let public_key = VerifyingKey::from_bytes(&key.public_key)
@@ -558,13 +553,16 @@ mod tests {
         use ed25519_dalek::{Signer, SigningKey};
 
         let signing_key = SigningKey::from_bytes(&[41_u8; 32]);
-        let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
-            kid: "kid-2026-01".to_owned(),
-            public_key: signing_key.verifying_key().to_bytes(),
-            not_before: 0,
-            not_after: u64::MAX,
-            status: LicenseKeyStatus::Active,
-        }], 1_000)
+        let verifier = Ed25519SignatureVerifier::new(
+            vec![LicensePublicKey {
+                kid: "kid-2026-01".to_owned(),
+                public_key: signing_key.verifying_key().to_bytes(),
+                not_before: 0,
+                not_after: u64::MAX,
+                status: LicenseKeyStatus::Active,
+            }],
+            1_000,
+        )
         .unwrap();
         let payload = b"canonical-license-payload";
         let signature = signing_key.sign(payload).to_bytes();
@@ -585,13 +583,16 @@ mod tests {
         use ed25519_dalek::{Signer, SigningKey};
 
         let signing_key = SigningKey::from_bytes(&[42_u8; 32]);
-        let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
-            kid: "kid-revoked".to_owned(),
-            public_key: signing_key.verifying_key().to_bytes(),
-            not_before: 0,
-            not_after: u64::MAX,
-            status: LicenseKeyStatus::Revoked,
-        }], 1_000)
+        let verifier = Ed25519SignatureVerifier::new(
+            vec![LicensePublicKey {
+                kid: "kid-revoked".to_owned(),
+                public_key: signing_key.verifying_key().to_bytes(),
+                not_before: 0,
+                not_after: u64::MAX,
+                status: LicenseKeyStatus::Revoked,
+            }],
+            1_000,
+        )
         .unwrap();
         let payload = b"canonical";
         let signature = signing_key.sign(payload).to_bytes();
@@ -610,18 +611,22 @@ mod tests {
             .verifying_key()
             .to_bytes();
         assert_eq!(
-            Ed25519SignatureVerifier::new(vec![LicensePublicKey {
-                kid: String::new(),
-                public_key,
-                not_before: 0,
-                not_after: u64::MAX,
-                status: LicenseKeyStatus::Active,
-            }], 1_000),
+            Ed25519SignatureVerifier::new(
+                vec![LicensePublicKey {
+                    kid: String::new(),
+                    public_key,
+                    not_before: 0,
+                    not_after: u64::MAX,
+                    status: LicenseKeyStatus::Active,
+                }],
+                1_000
+            ),
             Err(LicenseKeySetError::EmptyKeyId)
         );
         assert_eq!(
-            Ed25519SignatureVerifier::new(vec![
-                LicensePublicKey {
+            Ed25519SignatureVerifier::new(
+                vec![
+                    LicensePublicKey {
                     kid: "same".to_owned(),
                     public_key,
                     not_before: 0,
@@ -634,8 +639,10 @@ mod tests {
                     not_before: 0,
                     not_after: u64::MAX,
                     status: LicenseKeyStatus::Active,
-                },
-            ], 1_000),
+                    },
+                ],
+                1_000
+            ),
             Err(LicenseKeySetError::DuplicateKeyId)
         );
     }
@@ -645,13 +652,16 @@ mod tests {
         use ed25519_dalek::{Signer, SigningKey};
 
         let signing_key = SigningKey::from_bytes(&[44_u8; 32]);
-        let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
-            kid: "kid-boundary".to_owned(),
-            public_key: signing_key.verifying_key().to_bytes(),
-            not_before: 0,
-            not_after: u64::MAX,
-            status: LicenseKeyStatus::Active,
-        }], 1_000)
+        let verifier = Ed25519SignatureVerifier::new(
+            vec![LicensePublicKey {
+                kid: "kid-boundary".to_owned(),
+                public_key: signing_key.verifying_key().to_bytes(),
+                not_before: 0,
+                not_after: u64::MAX,
+                status: LicenseKeyStatus::Active,
+            }],
+            1_000,
+        )
         .unwrap();
 
         let payload = br#"{"protocol_version":"KSLP-v1","contract_version":"kmj.omnidesk.license.v1","jti":"jti-000000000001","kid":"kid-boundary","license_id":"license-1","entitlement_id":"entitlement-1","customer_id":"customer-1","organization_id":null,"product_id":"KMJ_OMNIDESK","product_slug":"kmj-omnidesk","plan":"Professional","activation_id":"activation-1","device_public_key_fingerprint":"device-fingerprint","installation_id":"install-1","capabilities":["remote.interactive","file.transfer"],"limits":{"licensed_users":1,"managed_devices":5,"concurrent_sessions":2,"unattended_devices":3,"relay_bytes_monthly":1000,"relay_policy":"direct_preferred"},"iat":900,"nbf":900,"exp":10000,"lease_expires_at":2000,"sequence":2,"nonce":"nonce-00000000001"}"#;
