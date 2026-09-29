@@ -182,7 +182,6 @@ pub fn has_capability(claims: &LicenseClaims<'_>, capability: &str) -> bool {
     claims.capabilities.contains(&capability)
 }
 
-
 fn temporal_bounds_are_valid(claims: &LicenseClaims<'_>, clock: LocalLicenseClock) -> bool {
     claims.issued_at <= claims.not_before
         && claims.not_before < claims.lease_expires_at
