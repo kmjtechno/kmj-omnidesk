@@ -54,6 +54,7 @@ pub struct Session {
     peer: Option<PeerIdentity>,
     control_authorized: bool,
     authenticated_public_key: Option<[u8; 32]>,
+    authentication_nonce: Option<[u8; 32]>,
 }
 
 impl Default for Session {
@@ -63,6 +64,7 @@ impl Default for Session {
             peer: None,
             control_authorized: false,
             authenticated_public_key: None,
+            authentication_nonce: None,
         }
     }
 }
@@ -87,6 +89,12 @@ impl Session {
     #[must_use]
     pub const fn authenticated_public_key(&self) -> Option<&[u8; 32]> {
         self.authenticated_public_key.as_ref()
+    }
+
+    /// Returns the fresh authentication challenge bound to this session.
+    #[must_use]
+    pub const fn authentication_nonce(&self) -> Option<&[u8; 32]> {
+        self.authentication_nonce.as_ref()
     }
 
     /// Begins protocol negotiation with a peer.
@@ -124,6 +132,7 @@ impl Session {
     ) -> Result<(), SessionError> {
         self.require_state(SessionState::Negotiating, "authentication_succeeded")?;
         self.authenticated_public_key = Some(*proof.public_key());
+        self.authentication_nonce = Some(*proof.nonce());
         self.state = SessionState::AwaitingAuthorization;
         Ok(())
     }
@@ -176,6 +185,7 @@ impl Session {
         self.control_authorized = false;
         self.peer = None;
         self.authenticated_public_key = None;
+        self.authentication_nonce = None;
         self.state = SessionState::Closed;
     }
 
@@ -238,6 +248,7 @@ mod tests {
             .expect("authenticate");
         assert_eq!(session.state(), SessionState::AwaitingAuthorization);
         assert!(session.authenticated_public_key().is_some());
+        assert_eq!(session.authentication_nonce(), Some(&[9_u8; 32]));
         assert_eq!(
             session.require_control(),
             Err(SessionError::ControlNotAuthorized)
@@ -297,6 +308,7 @@ mod tests {
         assert!(!session.control_authorized());
         assert!(session.peer().is_none());
         assert!(session.authenticated_public_key().is_none());
+        assert!(session.authentication_nonce().is_none());
         assert_eq!(session.require_control(), Err(SessionError::Closed));
     }
 
