@@ -18,11 +18,8 @@ fn main() {
         .iter()
         .enumerate()
         .map(|(index, bytes)| {
-            let descriptor = TransferChunk::from_bytes(
-                u32::try_from(index).unwrap_or(u32::MAX),
-                offset,
-                bytes,
-            );
+            let descriptor =
+                TransferChunk::from_bytes(u32::try_from(index).unwrap_or(u32::MAX), offset, bytes);
             offset = offset.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
             descriptor
         })
