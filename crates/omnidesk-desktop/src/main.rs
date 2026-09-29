@@ -1,4 +1,4 @@
-use omnidesk_core::product_shell::{PrimaryView, ProductShell};
+use omnidesk_core::product_shell::ProductShell;
 use omnidesk_desktop::controls_for;
 
 fn main() {
