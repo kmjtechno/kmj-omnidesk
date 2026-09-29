@@ -57,6 +57,11 @@ jobs:
         run: |
           cargo run -p omnidesk-core --example nat_reconnect_matrix --release > artifacts/nat-reconnect-matrix.json
           cat artifacts/nat-reconnect-matrix.json
+      - name: Verify M7 terminal-free native primary flow
+        run: |
+          cargo run -p omnidesk-desktop --example m7_primary_flow_evidence --release > artifacts/m7-primary-flow.json
+          cat artifacts/m7-primary-flow.json
+          grep -q '"m7_primary_flow":"PASS"' artifacts/m7-primary-flow.json
       - name: Upload benchmark artifacts
         uses: actions/upload-artifact@v4
         with:
