@@ -43,3 +43,6 @@ mod tests {
         assert_eq!(maturity(), Maturity::PreAlpha);
     }
 }
+
+#[cfg(windows)]
+pub mod windows_capture;
