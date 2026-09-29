@@ -627,18 +627,18 @@ mod tests {
             Ed25519SignatureVerifier::new(
                 vec![
                     LicensePublicKey {
-                    kid: "same".to_owned(),
-                    public_key,
-                    not_before: 0,
-                    not_after: u64::MAX,
-                    status: LicenseKeyStatus::Active,
-                },
-                LicensePublicKey {
-                    kid: "same".to_owned(),
-                    public_key,
-                    not_before: 0,
-                    not_after: u64::MAX,
-                    status: LicenseKeyStatus::Active,
+                        kid: "same".to_owned(),
+                        public_key,
+                        not_before: 0,
+                        not_after: u64::MAX,
+                        status: LicenseKeyStatus::Active,
+                    },
+                    LicensePublicKey {
+                        kid: "same".to_owned(),
+                        public_key,
+                        not_before: 0,
+                        not_after: u64::MAX,
+                        status: LicenseKeyStatus::Active,
                     },
                 ],
                 1_000
