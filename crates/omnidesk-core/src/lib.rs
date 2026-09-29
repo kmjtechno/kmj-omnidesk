@@ -14,6 +14,7 @@ pub mod media;
 pub mod metrics;
 pub mod pipeline;
 pub mod session;
+pub mod stun;
 pub mod transport;
 
 pub use omnidesk_protocol::{PRODUCT_ID, PRODUCT_SLUG, PROTOCOL_VERSION};
