@@ -9,10 +9,12 @@ rust-version.workspace = true
 [dependencies]
 omnidesk-core = { path = "../omnidesk-core" }
 font8x8 = "0.3.1"
+accesskit = "0.25.1"
 
 [target.'cfg(windows)'.dependencies]
 winit = "0.30"
 softbuffer = "0.4.8"
+accesskit_winit = { version = "0.34.0", default-features = false, features = ["rwh_06"] }
 
 [lints]
 workspace = true
