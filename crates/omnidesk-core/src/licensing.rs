@@ -182,14 +182,24 @@ pub fn has_capability(claims: &LicenseClaims<'_>, capability: &str) -> bool {
     claims.capabilities.contains(&capability)
 }
 
-fn temporal_bounds_are_valid(claims: &LicenseClaims<'_>, clock: LocalLicenseClock) -> bool {
-    claims.issued_at <= claims.not_before
-        && claims.not_before < claims.lease_expires_at
-        && claims.lease_expires_at <= claims.expires_at
-        && clock.renewal_due_at >= claims.not_before
-        && clock.renewal_due_at <= claims.lease_expires_at
-        && clock.grace_expires_at >= claims.lease_expires_at
-        && clock.grace_expires_at <= claims.expires_at
+const fn temporal_bounds_are_valid(
+    claims: &LicenseClaims<'_>,
+    clock: LocalLicenseClock,
+) -> bool {
+    let issued_at = claims.issued_at;
+    let not_before = claims.not_before;
+    let lease_expires_at = claims.lease_expires_at;
+    let expires_at = claims.expires_at;
+    let renewal_due_at = clock.renewal_due_at;
+    let grace_expires_at = clock.grace_expires_at;
+
+    let entitlement_order =
+        issued_at <= not_before && not_before < lease_expires_at && lease_expires_at <= expires_at;
+    let renewal_window = renewal_due_at >= not_before && renewal_due_at <= lease_expires_at;
+    let grace_window =
+        grace_expires_at >= lease_expires_at && grace_expires_at <= expires_at;
+
+    entitlement_order && renewal_window && grace_window
 }
 
 /// Verifies a signed entitlement and evaluates its local lifecycle state.
