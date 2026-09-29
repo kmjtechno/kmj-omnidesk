@@ -5,6 +5,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod signaling;
+
 /// Current pre-alpha wire-contract version.
 ///
 /// This is deliberately independent from the product release version.
