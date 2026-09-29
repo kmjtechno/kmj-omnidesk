@@ -16,7 +16,6 @@ pub struct ConnectionMetrics {
     pub attempts: u32,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DirectConnectStats {
     attempts: u32,
