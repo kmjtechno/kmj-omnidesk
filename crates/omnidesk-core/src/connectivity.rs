@@ -16,6 +16,43 @@ pub struct ConnectionMetrics {
     pub attempts: u32,
 }
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DirectConnectStats {
+    attempts: u32,
+    successes: u32,
+}
+
+impl DirectConnectStats {
+    pub fn record(&mut self, succeeded: bool) {
+        self.attempts = self.attempts.saturating_add(1);
+        if succeeded {
+            self.successes = self.successes.saturating_add(1);
+        }
+    }
+
+    #[must_use]
+    pub const fn attempts(&self) -> u32 {
+        self.attempts
+    }
+
+    #[must_use]
+    pub const fn successes(&self) -> u32 {
+        self.successes
+    }
+
+    /// Returns success rate in basis points (0..=10_000) without float drift.
+    #[must_use]
+    pub fn success_rate_bps(&self) -> u16 {
+        if self.attempts == 0 {
+            return 0;
+        }
+
+        let scaled = u64::from(self.successes) * 10_000 / u64::from(self.attempts);
+        u16::try_from(scaled).expect("success rate is bounded to 10_000 bps")
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct DirectPathSelector;
 
@@ -68,6 +105,19 @@ mod tests {
             address: format!("127.0.0.1:{port}").parse().expect("socket"),
             priority,
         }
+    }
+
+    #[test]
+    fn direct_connect_success_rate_is_deterministic() {
+        let mut stats = DirectConnectStats::default();
+        stats.record(true);
+        stats.record(false);
+        stats.record(true);
+        stats.record(true);
+
+        assert_eq!(stats.attempts(), 4);
+        assert_eq!(stats.successes(), 3);
+        assert_eq!(stats.success_rate_bps(), 7_500);
     }
 
     #[test]
