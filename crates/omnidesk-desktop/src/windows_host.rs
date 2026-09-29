@@ -1,15 +1,15 @@
 #![cfg(windows)]
 
 use windows::{
-    core::w,
     Win32::{
         Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
         UI::WindowsAndMessaging::{
-            CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassW,
-            TranslateMessage, CW_USEDEFAULT, MSG, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW,
+            CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, MSG,
+            RegisterClassW, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW,
             WS_OVERLAPPEDWINDOW, WS_VISIBLE,
         },
     },
+    core::w,
 };
 
 unsafe extern "system" fn window_proc(
