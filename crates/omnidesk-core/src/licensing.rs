@@ -4,6 +4,10 @@
 //! Production Ed25519 key resolution/signature verification belongs to the reviewed
 //! crypto adapter; policy evaluation remains deterministic and independently testable.
 
+use std::collections::BTreeSet;
+
+use ed25519_dalek::{Signature, VerifyingKey};
+
 use crate::{PRODUCT_ID, PRODUCT_SLUG};
 
 pub const LICENSE_CONTRACT_VERSION: &str = "kmj.omnidesk.license.v1";
@@ -56,6 +60,79 @@ pub trait SignatureVerifier {
         canonical_payload: &[u8],
         signature: &[u8],
     ) -> Result<(), LicenseError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LicensePublicKey {
+    pub kid: String,
+    pub public_key: [u8; 32],
+    pub revoked: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LicenseKeySetError {
+    EmptyKeyId,
+    DuplicateKeyId,
+    InvalidPublicKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ed25519SignatureVerifier {
+    keys: Vec<LicensePublicKey>,
+}
+
+impl Ed25519SignatureVerifier {
+    /// Builds a fail-closed verifier from the currently trusted public keys.
+    ///
+    /// # Errors
+    ///
+    /// Rejects empty/duplicate key identifiers and invalid Ed25519 public keys.
+    pub fn new(keys: Vec<LicensePublicKey>) -> Result<Self, LicenseKeySetError> {
+        let mut key_ids = BTreeSet::new();
+        for key in &keys {
+            if key.kid.trim().is_empty() {
+                return Err(LicenseKeySetError::EmptyKeyId);
+            }
+            if !key_ids.insert(key.kid.as_str()) {
+                return Err(LicenseKeySetError::DuplicateKeyId);
+            }
+            VerifyingKey::from_bytes(&key.public_key)
+                .map_err(|_| LicenseKeySetError::InvalidPublicKey)?;
+        }
+        Ok(Self { keys })
+    }
+
+    #[must_use]
+    pub fn key_count(&self) -> usize {
+        self.keys.len()
+    }
+}
+
+impl SignatureVerifier for Ed25519SignatureVerifier {
+    fn verify(
+        &self,
+        kid: &str,
+        canonical_payload: &[u8],
+        signature: &[u8],
+    ) -> Result<(), LicenseError> {
+        let key = self
+            .keys
+            .iter()
+            .find(|key| key.kid == kid)
+            .filter(|key| !key.revoked)
+            .ok_or(LicenseError::UnknownOrRevokedKey)?;
+
+        let public_key = VerifyingKey::from_bytes(&key.public_key)
+            .map_err(|_| LicenseError::UnknownOrRevokedKey)?;
+        let signature_bytes: [u8; 64] = signature
+            .try_into()
+            .map_err(|_| LicenseError::InvalidSignature)?;
+        let signature = Signature::from_bytes(&signature_bytes);
+
+        public_key
+            .verify_strict(canonical_payload, &signature)
+            .map_err(|_| LicenseError::InvalidSignature)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,6 +305,83 @@ mod tests {
             claims,
             context,
         )
+    }
+
+    #[test]
+    fn ed25519_verifier_accepts_known_key_and_rejects_tampering() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[41_u8; 32]);
+        let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
+            kid: "kid-2026-01".to_owned(),
+            public_key: signing_key.verifying_key().to_bytes(),
+            revoked: false,
+        }])
+        .unwrap();
+        let payload = b"canonical-license-payload";
+        let signature = signing_key.sign(payload).to_bytes();
+
+        assert_eq!(verifier.verify("kid-2026-01", payload, &signature), Ok(()));
+        assert_eq!(
+            verifier.verify("kid-2026-01", b"tampered", &signature),
+            Err(LicenseError::InvalidSignature)
+        );
+        assert_eq!(
+            verifier.verify("unknown", payload, &signature),
+            Err(LicenseError::UnknownOrRevokedKey)
+        );
+    }
+
+    #[test]
+    fn revoked_signing_key_fails_closed() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[42_u8; 32]);
+        let verifier = Ed25519SignatureVerifier::new(vec![LicensePublicKey {
+            kid: "kid-revoked".to_owned(),
+            public_key: signing_key.verifying_key().to_bytes(),
+            revoked: true,
+        }])
+        .unwrap();
+        let payload = b"canonical";
+        let signature = signing_key.sign(payload).to_bytes();
+
+        assert_eq!(
+            verifier.verify("kid-revoked", payload, &signature),
+            Err(LicenseError::UnknownOrRevokedKey)
+        );
+    }
+
+    #[test]
+    fn duplicate_or_empty_key_ids_are_rejected() {
+        use ed25519_dalek::SigningKey;
+
+        let public_key = SigningKey::from_bytes(&[43_u8; 32])
+            .verifying_key()
+            .to_bytes();
+        assert_eq!(
+            Ed25519SignatureVerifier::new(vec![LicensePublicKey {
+                kid: String::new(),
+                public_key,
+                revoked: false,
+            }]),
+            Err(LicenseKeySetError::EmptyKeyId)
+        );
+        assert_eq!(
+            Ed25519SignatureVerifier::new(vec![
+                LicensePublicKey {
+                    kid: "same".to_owned(),
+                    public_key,
+                    revoked: false,
+                },
+                LicensePublicKey {
+                    kid: "same".to_owned(),
+                    public_key,
+                    revoked: false,
+                },
+            ]),
+            Err(LicenseKeySetError::DuplicateKeyId)
+        );
     }
 
     #[test]
