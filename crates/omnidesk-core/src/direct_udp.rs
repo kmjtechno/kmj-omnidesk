@@ -88,6 +88,32 @@ impl DirectProbe {
             },
         })
     }
+
+    /// Measures an initial direct probe followed by a fresh-nonce reconnect.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first direct-probe failure and never fabricates a reconnect
+    /// metric when the second reachability proof does not complete.
+    pub fn connect_then_reconnect(
+        &self,
+        candidate: &ConnectionCandidate,
+        session_id: [u8; 16],
+        initial_nonce: [u8; 32],
+        reconnect_nonce: [u8; 32],
+    ) -> Result<DirectProbeResult, DirectProbeError> {
+        let initial = self.connect(candidate, session_id, initial_nonce)?;
+        let reconnected = self.connect(candidate, session_id, reconnect_nonce)?;
+
+        Ok(DirectProbeResult {
+            peer: candidate.address,
+            metrics: ConnectionMetrics {
+                connection_time: initial.metrics.connection_time,
+                reconnect_time: Some(reconnected.metrics.connection_time),
+                attempts: 2,
+            },
+        })
+    }
 }
 
 #[must_use]
@@ -161,6 +187,43 @@ mod tests {
         assert_eq!(result.metrics.attempts, 1);
         assert_eq!(result.metrics.reconnect_time, None);
         responder.join().expect("responder");
+    }
+
+    #[test]
+    fn reconnect_uses_fresh_nonce_and_exports_reconnect_time() {
+        let peer = UdpSocket::bind("127.0.0.1:0").expect("bind peer");
+        peer.set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("peer timeout");
+        let address = peer.local_addr().expect("peer address");
+
+        let responder = thread::spawn(move || {
+            let mut observed = Vec::new();
+            for _ in 0..2 {
+                let mut request = [0_u8; PROBE_BYTES];
+                let (received, source) = peer.recv_from(&mut request).expect("receive probe");
+                assert_eq!(received, PROBE_BYTES);
+                observed.push(request);
+                peer.send_to(&request, source).expect("echo probe");
+            }
+            observed
+        });
+
+        let probe = DirectProbe::new(Duration::from_secs(2));
+        let result = probe
+            .connect_then_reconnect(
+                &candidate(address),
+                [1_u8; 16],
+                [2_u8; 32],
+                [3_u8; 32],
+            )
+            .expect("connect and reconnect");
+        let observed = responder.join().expect("responder");
+
+        assert_eq!(result.metrics.attempts, 2);
+        assert!(result.metrics.reconnect_time.is_some());
+        assert_ne!(observed[0], observed[1]);
+        assert_eq!(&observed[0][22..54], &[2_u8; 32]);
+        assert_eq!(&observed[1][22..54], &[3_u8; 32]);
     }
 
     #[test]
