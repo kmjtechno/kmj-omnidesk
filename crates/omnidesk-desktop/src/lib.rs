@@ -20,7 +20,6 @@ pub struct AccessibleControl {
     pub keyboard_key: char,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisualSystem {
     pub background_rgb: [u8; 3],
@@ -144,7 +143,6 @@ mod tests {
             );
         }
     }
-
 
     #[test]
     fn black_red_visual_system_is_explicit_and_high_contrast() {
