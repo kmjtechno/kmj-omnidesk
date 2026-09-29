@@ -39,6 +39,7 @@ pub enum LicenseError {
     ContractMismatch,
     ProductMismatch,
     DeviceBindingMismatch,
+    InvalidTemporalBounds,
     NotYetValid,
     Expired,
     LeaseExpired,
@@ -181,6 +182,22 @@ pub fn has_capability(claims: &LicenseClaims<'_>, capability: &str) -> bool {
     claims.capabilities.contains(&capability)
 }
 
+const fn temporal_bounds_are_valid(claims: &LicenseClaims<'_>, clock: LocalLicenseClock) -> bool {
+    let issued_at = claims.issued_at;
+    let not_before = claims.not_before;
+    let lease_expires_at = claims.lease_expires_at;
+    let expires_at = claims.expires_at;
+    let renewal_due_at = clock.renewal_due_at;
+    let grace_expires_at = clock.grace_expires_at;
+
+    let entitlement_order =
+        issued_at <= not_before && not_before < lease_expires_at && lease_expires_at <= expires_at;
+    let renewal_window = renewal_due_at >= not_before && renewal_due_at <= lease_expires_at;
+    let grace_window = grace_expires_at >= lease_expires_at && grace_expires_at <= expires_at;
+
+    entitlement_order && renewal_window && grace_window
+}
+
 /// Verifies a signed entitlement and evaluates its local lifecycle state.
 ///
 /// # Errors
@@ -218,10 +235,13 @@ pub fn verify_and_evaluate(
     if claims.sequence <= context.last_accepted_sequence {
         return Err(LicenseError::ReplayOrStaleSequence);
     }
+    if !temporal_bounds_are_valid(claims, context.clock) {
+        return Err(LicenseError::InvalidTemporalBounds);
+    }
     if context.clock.now < context.clock.last_trusted_server_time {
         return Err(LicenseError::ClockRollback);
     }
-    if context.clock.now < claims.not_before {
+    if context.clock.now < claims.issued_at || context.clock.now < claims.not_before {
         return Err(LicenseError::NotYetValid);
     }
     if context.clock.now >= claims.expires_at {
@@ -455,13 +475,57 @@ mod tests {
     }
 
     #[test]
-    fn expired_entitlement_fails_closed() {
+    fn malformed_temporal_bounds_fail_closed() {
         let mut value = claims();
-        value.expires_at = 1_000;
+        value.lease_expires_at = value.expires_at + 1;
         assert_eq!(
             evaluate(&value, &context(1_000)),
-            Err(LicenseError::Expired)
+            Err(LicenseError::InvalidTemporalBounds)
         );
+
+        let value = claims();
+        let mut ctx = context(1_000);
+        ctx.clock.renewal_due_at = value.lease_expires_at + 1;
+        assert_eq!(
+            evaluate(&value, &ctx),
+            Err(LicenseError::InvalidTemporalBounds)
+        );
+
+        let mut ctx = context(1_000);
+        ctx.clock.grace_expires_at = value.expires_at + 1;
+        assert_eq!(
+            evaluate(&value, &ctx),
+            Err(LicenseError::InvalidTemporalBounds)
+        );
+
+        let mut value = claims();
+        value.issued_at = value.not_before + 1;
+        assert_eq!(
+            evaluate(&value, &context(1_000)),
+            Err(LicenseError::InvalidTemporalBounds)
+        );
+    }
+
+    #[test]
+    fn entitlement_cannot_become_active_before_issue_time() {
+        let mut value = claims();
+        value.issued_at = 950;
+        value.not_before = 950;
+        let mut ctx = context(940);
+        ctx.clock.last_trusted_server_time = 900;
+        assert_eq!(evaluate(&value, &ctx), Err(LicenseError::NotYetValid));
+    }
+
+    #[test]
+    fn expired_entitlement_fails_closed() {
+        let mut value = claims();
+        value.lease_expires_at = 950;
+        value.expires_at = 1_000;
+        let mut ctx = context(1_000);
+        ctx.clock.renewal_due_at = 925;
+        ctx.clock.grace_expires_at = 975;
+
+        assert_eq!(evaluate(&value, &ctx), Err(LicenseError::Expired));
     }
 
     #[test]
