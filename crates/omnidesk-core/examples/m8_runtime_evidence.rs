@@ -5,7 +5,7 @@ use omnidesk_core::collaboration::{
 };
 
 fn main() {
-    let chunks = vec![
+    let chunks = [
         b"alpha".to_vec(),
         b"beta".to_vec(),
         b"gamma".to_vec(),
