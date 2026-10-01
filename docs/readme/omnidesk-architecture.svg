@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs><marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#ff263d"/></marker></defs>
+<rect width="1600" height="900" fill="#060708"/>
+<text x="80" y="105" font-family="Arial" font-size="62" font-weight="800" fill="#fff">How <tspan fill="#ff263d">KMJ OmniDesk</tspan> connects</text>
+<text x="80" y="150" font-family="Arial" font-size="25" fill="#aeb5c0">Direct-first session data. Main Platform handles licensing, not remote desktop traffic.</text>
+<g font-family="Arial">
+  <g transform="translate(90 280)"><rect width="360" height="250" rx="26" fill="#101318" stroke="#ff263d" stroke-width="2"/><text x="34" y="58" font-size="30" font-weight="700" fill="#fff">Operator device</text><text x="34" y="100" font-size="19" fill="#aeb5c0">KMJ OmniDesk client</text><rect x="34" y="135" width="292" height="74" rx="14" fill="#171b21"/><text x="58" y="180" font-size="20" fill="#fff">Capture / input / control</text></g>
+  <g transform="translate(1150 280)"><rect width="360" height="250" rx="26" fill="#101318" stroke="#ff263d" stroke-width="2"/><text x="34" y="58" font-size="30" font-weight="700" fill="#fff">Remote device</text><text x="34" y="100" font-size="19" fill="#aeb5c0">KMJ OmniDesk host</text><rect x="34" y="135" width="292" height="74" rx="14" fill="#171b21"/><text x="58" y="180" font-size="20" fill="#fff">Session endpoint</text></g>
+  <path d="M450 340 H1150" stroke="#1ee37a" stroke-width="8"/>
+  <text x="650" y="320" font-size="28" font-weight="700" fill="#1ee37a">Encrypted direct P2P — preferred</text>
+  <g transform="translate(610 430)"><rect width="380" height="120" rx="20" fill="#14181e" stroke="#ff263d"/><text x="42" y="48" font-size="25" font-weight="700" fill="#fff">KMJ Relay</text><text x="42" y="83" font-size="18" fill="#aeb5c0">Encrypted fallback only when needed</text></g>
+  <path d="M450 445 C540 445 540 490 610 490" fill="none" stroke="#ff263d" stroke-width="4" stroke-dasharray="12 10" marker-end="url(#a)"/>
+  <path d="M990 490 C1060 490 1060 445 1150 445" fill="none" stroke="#ff263d" stroke-width="4" stroke-dasharray="12 10" marker-end="url(#a)"/>
+  <g transform="translate(540 650)"><rect width="520" height="150" rx="24" fill="#0d1116" stroke="#2e75ff"/><text x="38" y="48" font-size="27" font-weight="700" fill="#fff">KMJ Main Platform</text><text x="38" y="82" font-size="19" fill="#aeb5c0">Billing • licensing • activation • entitlement</text><text x="38" y="115" font-size="18" fill="#72b7ff">Not the normal session data path</text></g>
+  <path d="M270 530 C270 700 540 700 540 700" fill="none" stroke="#2e75ff" stroke-width="3" stroke-dasharray="9 9" marker-end="url(#a)"/>
+  <path d="M1330 530 C1330 700 1060 700 1060 700" fill="none" stroke="#2e75ff" stroke-width="3" stroke-dasharray="9 9" marker-end="url(#a)"/>
+</g>
+</svg>

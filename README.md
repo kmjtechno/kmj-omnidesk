@@ -1,57 +1,198 @@
+<div align="center">
+
 # KMJ OmniDesk
 
-> **Access without distance.**
+### Direct-first remote access built for speed, resilience, and measurable trust.
 
-KMJ OmniDesk is KMJ TECHNO's next-generation remote access platform, engineered for extremely low latency, low bandwidth consumption, minimal infrastructure overhead, and a premium cross-platform experience.
+[![CI](https://github.com/kmjtechno/kmj-omnidesk/actions/workflows/ci.yml/badge.svg)](https://github.com/kmjtechno/kmj-omnidesk/actions/workflows/ci.yml)
+[![GitHub stars](https://img.shields.io/github/stars/kmjtechno/kmj-omnidesk?style=flat&logo=github)](https://github.com/kmjtechno/kmj-omnidesk/stargazers)
+[![Rust](https://img.shields.io/badge/core-Rust-000000?logo=rust)](https://www.rust-lang.org/)
+[![Status](https://img.shields.io/badge/status-pre--alpha-ff263d)](#current-status)
+[![Security](https://img.shields.io/badge/security-fail--closed-ff263d)](#security-first)
+
+**Remote access should stay fast when the network gets difficult.**
+
+[Architecture](#architecture) · [Verified status](#current-status) · [Engineering](#build-with-us) · [Roadmap](./ROADMAP.yaml) · [Security](./SECURITY.md)
+
+</div>
+
+![KMJ OmniDesk hero](./docs/readme/omnidesk-hero.svg)
 
 > [!IMPORTANT]
-> **Development status:** Pre-alpha. This private repository is under active development. Performance, security, platform support, pricing, and availability claims remain unverified until they pass the corresponding release gates.
+> **KMJ OmniDesk is pre-alpha.** There is no public production release yet. The visuals in this README are product/concept illustrations; verified implementation status is listed explicitly below. Performance, platform, pricing, and availability claims are not treated as complete until their release gates pass.
 
-## Product principles
+## Why KMJ OmniDesk
 
-- **Direct-first connectivity** — encrypted peer-to-peer sessions are preferred; relay is a fallback, not the default data path.
-- **Minimal server load** — KMJ infrastructure handles identity, discovery, authorization, licensing, signaling, and fallback relay only where required.
-- **Slow-network resilience** — adaptive bitrate, frame rate, resolution, region updates, congestion response, and reconnect behavior are first-class engineering targets.
-- **Native performance** — a Rust-first core with platform-native capture, input, and hardware media acceleration where available.
-- **Security by design** — authenticated encrypted sessions, explicit permissions, device trust, auditability, and fail-closed authorization.
-- **Premium UX** — a lightweight native interface aligned with the KMJ Main Platform black-and-red visual language without trading performance for decoration.
-- **Commercially governed** — trials, plans, activations, and entitlements are controlled by the KMJ Main Platform.
+Most remote-access products become expensive or inefficient when every session depends on central infrastructure. OmniDesk is being engineered around a different rule:
 
-## Target architecture
+> **Use the direct encrypted path whenever it is safe and possible. Use relay only when it is actually needed.**
+
+That architecture is intended to reduce unnecessary server bandwidth, improve responsiveness, and keep the product viable on constrained or unstable networks—without weakening authentication, authorization, or licensing controls.
+
+| Principle | What it means in OmniDesk |
+| --- | --- |
+| **Direct-first** | Authenticated encrypted P2P is preferred; relay is fallback. |
+| **Low-bandwidth by design** | Weak-network behavior is treated as a first-class engineering problem. |
+| **Fail-closed security** | Unknown, stale, replayed, revoked, malformed, or unverified state is rejected. |
+| **Lightweight native UX** | The desktop shell is measured against explicit CPU/memory budgets. |
+| **Evidence over claims** | CI, schemas, deterministic test vectors, and real-network campaigns gate milestone status. |
+| **Commercially governable** | KMJ Main Platform owns billing/licensing; it does not become the normal session data path. |
+
+![KMJ OmniDesk capabilities](./docs/readme/omnidesk-features.svg)
+
+## Current status
+
+The project is moving quickly, but the README intentionally separates **verified implementation** from **in-progress** and **planned** work.
+
+### Verified / implemented
+
+- Native Windows desktop shell with the KMJ black/red visual system.
+- Keyboard and mouse interaction paths.
+- OS-level accessibility integration through AccessKit.
+- Device selection, permission flow, session controls, quality controls, and connection statistics.
+- Fail-closed offline-device handling.
+- Enforced desktop resource budget in CI.
+- Clipboard policy and replay-safe clipboard synchronization state.
+- Integrity-checked resumable file transfer checkpoints.
+- Deterministic weak-network resume evidence.
+- Remote-audio permission lifecycle model.
+- Multi-monitor selection model.
+- Bounded reboot/reconnect state.
+- KSLP-v1 client licensing contract.
+- Real Ed25519 entitlement verification.
+- Exact-payload parse → signature verification → policy evaluation.
+- Product/device/install binding, sequence/replay protection, revocation handling, and clock rollback detection.
+- Signed plan, capability, and resource-limit enforcement.
+- ACTIVE / ROLLOVER / REVOKED verification-key states with trusted-time validity windows.
+- Committed cryptographic and lifecycle test vectors executed in CI.
+
+### In progress
+
+- **M4 — Internet direct connectivity:** the REALNET-60 evidence system is implemented; the remaining gate is the real public-network 60-run campaign across representative NAT/CGNAT/restrictive scenarios.
+- **M9 — Production licensing integration:** the client enforcement path is hardened; production Main Platform signer/KMS integration and cross-service proof remain gated.
+
+### Planned after dependency gates
+
+Relay hardening, adaptive media/quality, commercial activation, unattended-service integration, packaging/updating, final security/performance hardening, and release readiness.
+
+See the machine-readable execution source of truth: **[ROADMAP.yaml](./ROADMAP.yaml)**.
+
+## Architecture
+
+![KMJ OmniDesk architecture](./docs/readme/omnidesk-architecture.svg)
 
 ```text
-                         KMJ Main Platform
-                    identity / licensing / policy
-                              |
-                              v
-+----------------+      signaling/discovery      +----------------+
-| OmniDesk Host  | <---------------------------> | OmniDesk Client|
-| capture/input  |                               | decode/control |
-+-------+--------+                               +--------+-------+
-        |                                                 |
-        +========== encrypted direct P2P session =========+
-                              |
-                    only when direct fails
-                              v
-                       +-------------+
-                       | KMJ Relay   |
-                       | fallback    |
-                       +-------------+
+                   KMJ Main Platform
+           billing / licensing / entitlement
+                        │
+                        │ HTTPS control only
+                        ▼
+┌────────────────┐   signaling/discovery   ┌────────────────┐
+│ Operator       │ ◄─────────────────────► │ Remote device  │
+│ OmniDesk       │                         │ OmniDesk       │
+└───────┬────────┘                         └───────┬────────┘
+        │                                          │
+        └════ authenticated encrypted direct ═════┘
+                         │
+                  direct unavailable
+                         ▼
+                    KMJ Relay
+                encrypted fallback
 ```
 
-The control plane must not become the normal screen/audio data path. Relay bandwidth is consumed only when direct connectivity cannot be established or policy requires relay.
+**Architectural rule:** KMJ Main Platform is the commercial authority for billing, plans, licensing, activation, renewal, and revocation. It must **not** become the normal screen/audio/session-data path.
 
-## Planned capability set
+## What OmniDesk is being built to deliver
 
-**Remote session:** desktop viewing and keyboard/mouse control, attended/unattended access, multi-monitor, clipboard, resumable file transfer, remote audio, reboot/reconnect, and adaptive quality controls.
+### Remote session
 
-**Connectivity/performance:** NAT traversal, direct-connect preference, QUIC/UDP-oriented transport with robust fallback, hardware encode/decode, adaptive AV1/HEVC/H.264 subject to platform capability and licensing review, dirty-region optimization, low-bandwidth mode, and measurable relay fallback.
+- Desktop viewing and keyboard/mouse control
+- Attended and unattended access
+- Multi-monitor workflows
+- Clipboard synchronization
+- Resumable file transfer
+- Remote audio
+- Reboot/reconnect
+- Adaptive quality controls
 
-**Security/enterprise:** authenticated encrypted sessions, one-time authorization, trusted devices, unattended-access policy, MFA/SSO integration, RBAC, organization policy, audit history, privacy controls, enterprise deployment, and managed-device direction.
+### Connectivity and performance
 
-## Commercial authority
+- NAT traversal and direct-path preference
+- Explicit direct/relay metrics
+- Reconnect state and recovery
+- Low-bandwidth operating modes
+- Hardware encode/decode where platform support allows
+- Reproducible resource and latency gates
 
-KMJ Main Platform is the authoritative commercial control plane for OmniDesk. Planned commercial states include Personal/Free, Trial, Professional, Business, Enterprise, and OEM/Custom. Trial and paid capabilities must be entitlement-driven rather than hard-coded into the client.
+### Enterprise and security direction
+
+- Device trust and explicit authorization
+- Signed entitlement enforcement
+- MFA/SSO/RBAC direction
+- Organization policy
+- Auditability
+- Managed-device deployment direction
+- Key rotation and revocation
+- Commercial controls through KMJ Main Platform
+
+## Security first
+
+OmniDesk treats remote control as a privileged security boundary.
+
+The project uses fail-closed behavior for authentication, permissions, entitlement verification, replay protection, revoked keys, stale sequence numbers, temporal inconsistencies, malformed signed payloads, and device binding.
+
+Production signing keys, master secrets, private KMS/HSM material, and commercial authority **must never be stored in this repository or shipped in the client**.
+
+Read:
+
+- [SECURITY.md](./SECURITY.md)
+- [Threat model](./docs/THREAT_MODEL.md)
+- [Protocol rules](./docs/PROTOCOL.md)
+- [Licensing architecture](./docs/LICENSING.md)
+
+## REALNET-60: proving direct connectivity
+
+OmniDesk does not mark Internet direct-connect complete from localhost or synthetic tests.
+
+M4 uses a defined real-network campaign:
+
+| Scenario | Required VALID runs |
+| --- | ---: |
+| Broadband NAT ↔ Broadband NAT | 10 |
+| Broadband NAT ↔ 5G/CGNAT | 10 |
+| CGNAT ↔ CGNAT | 10 |
+| Broadband ↔ restrictive network | 10 |
+| IPv4 NAT ↔ IPv6-capable endpoint | 10 |
+| Direct session → disruption → reconnect | 10 |
+| **Total** | **60** |
+
+The repo already contains strict schemas, a semantic validator, evidence collection helpers, checksum validation, deterministic local gates, and CI enforcement. **Real public-network evidence is still required before M4 can be declared complete.**
+
+See [docs/M4_REALNET_60.md](./docs/M4_REALNET_60.md).
+
+## Lightweight by policy
+
+The native desktop experience is not allowed to become heavy just because the UI becomes more polished.
+
+The Windows desktop CI currently enforces:
+
+- working set **≤ 64 MiB**
+- idle CPU **≤ 500 milli-percent (0.5%)**
+
+These are engineering gates, not marketing estimates.
+
+## Commercial model
+
+KMJ OmniDesk is designed to become a sustainable commercial product while retaining a strong entry experience.
+
+Planned commercial families include:
+
+- Personal / Free
+- Trial
+- Professional
+- Business
+- Enterprise
+- OEM / Custom
 
 ```text
 product_slug: kmj-omnidesk
@@ -59,55 +200,94 @@ product_id:   KMJ_OMNIDESK
 authority:    KMJ Main Platform
 ```
 
-## Performance gates
+Commercial access will remain entitlement-driven. **No client-side hard-coded “premium unlock” is accepted.** Public purchasing will stay disabled until the corresponding production licensing and release gates are verified.
 
-No superlative performance claim is valid until measured. Release candidates will be tested across controlled bandwidth, latency, jitter, packet loss, CPU/GPU, memory, connection time, reconnect time, and relay utilization.
+For company/product enquiries: **https://kmjtechno.com**
 
-| Metric | Direction |
-| --- | --- |
-| Interactive latency | Minimize |
-| Session connection time | Minimize |
-| Static/office bandwidth | Minimize |
-| CPU/GPU overhead | Minimize |
-| Relay utilization | Minimize |
-| Network-disruption recovery | Maximize reliability |
-| Visual clarity per transmitted bit | Maximize |
+## Developer quick start
 
-## Repository direction
+### Prerequisites
+
+- Rust stable toolchain
+- Git
+- Windows for the current native desktop host
+
+### Verify the workspace
+
+```bash
+git clone https://github.com/kmjtechno/kmj-omnidesk.git
+cd kmj-omnidesk
+
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets
+```
+
+On Windows, the native desktop package can then be exercised from the workspace as development progresses.
+
+> Do not treat a successful local run as release evidence. The repository CI and milestone-specific acceptance gates remain authoritative.
+
+## Repository map
 
 ```text
-crates/       Rust core libraries
-apps/         Native desktop/client applications
-services/     Signaling and relay components
-protocol/     Versioned wire contracts and schemas
-docs/         Architecture, security, UX, and performance decisions
-tests/        Integration, network-impairment, and security tests
+crates/       Rust core and desktop libraries
+apps/         Application entry points
+services/     Signaling / relay direction
+protocol/     Versioned wire and licensing contracts
+schemas/      Strict evidence / validation schemas
+docs/         Architecture, security, UX, licensing, M4 evidence
+scripts/      Deterministic evidence and CI helpers
+tests/        Integration and security tests
 benchmarks/   Reproducible performance gates
 ```
 
-Sensitive commercial authority, signing material, production secrets, and KMJ Main Platform private keys **must never be stored in this repository**.
+## Build with us
 
-## Release discipline
+KMJ OmniDesk is being engineered as a **human + AI collaborative codebase**.
 
-A feature is not complete because it compiles. A release gate requires relevant tests plus measurable performance and security evidence. Customer-facing availability remains fail-closed until a signed release is accepted.
+Contributions produced with ChatGPT, Claude, Codex, Gemini, local coding agents, or other AI systems are welcome **only when they meet the same engineering bar as human-written code**:
 
-## Canonical execution map
+1. no bypassing CI;
+2. no fabricated benchmark or test evidence;
+3. no weakening security gates to get green;
+4. no production secrets;
+5. deterministic tests for new contracts and critical behavior;
+6. exact-head green before merge;
+7. milestone status changes only after the declared acceptance gates are actually satisfied.
 
-Engineering work is governed by [`ROADMAP.yaml`](./ROADMAP.yaml). Architecture decisions live in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), protocol/authorization ordering in [`docs/PROTOCOL.md`](./docs/PROTOCOL.md), and release-blocking security assumptions in [`docs/THREAT_MODEL.md`](./docs/THREAT_MODEL.md). Commercial licensing is locked by [`docs/LICENSING.md`](./docs/LICENSING.md), the machine-readable [`KSLP-v1 contract`](./protocol/licensing/omnidesk-licensing-v1.yaml), and the versioned [`OpenAPI boundary`](./protocol/licensing/openapi-v1.yaml).
+That means AI can increase development speed—but it does not get a special pass on correctness.
 
-**Rule:** roadmap status changes only after the milestone's declared acceptance gates are verified. Time targets never convert an unverified milestone into a completed milestone.
+## Engineering discipline
 
-## Current milestone — M0 Foundation / Pre-alpha
+A feature is not “done” because it compiles.
 
-1. Establish repository and architecture contracts.
-2. Bootstrap the Rust workspace and CI quality gates.
-3. Implement a local/LAN authenticated session proof.
-4. Measure capture → encode → transport → decode.
-5. Add input/control behind explicit authorization.
-6. Add direct internet connectivity and relay fallback.
-7. Integrate KMJ Main Platform licensing through versioned contracts.
-8. Benchmark weak-network behavior before public performance claims.
+A change is considered merge-ready only when the relevant format, lint, test, platform, resource, security, schema, and evidence gates pass on the exact commit being merged.
 
----
+Core references:
 
-**KMJ TECHNO** · KMJ OmniDesk · Private development repository
+- [ROADMAP.yaml](./ROADMAP.yaml)
+- [Architecture](./docs/ARCHITECTURE.md)
+- [Protocol](./docs/PROTOCOL.md)
+- [Threat model](./docs/THREAT_MODEL.md)
+- [Licensing](./docs/LICENSING.md)
+- [REALNET-60](./docs/M4_REALNET_60.md)
+
+## Help make OmniDesk better
+
+If the project direction is useful to you:
+
+- ⭐ **Star the repository** to help more developers discover it.
+- 🐛 Open reproducible issues for bugs and edge cases.
+- 🧪 Contribute network, accessibility, security, and performance test cases.
+- 💡 Propose improvements with measurable acceptance criteria.
+- 🔐 Report security-sensitive findings through the repository security process rather than public exploit details.
+
+<div align="center">
+
+### Access without distance.
+
+**KMJ TECHNO · Innovate · Build · Scale**
+
+[Star KMJ OmniDesk](https://github.com/kmjtechno/kmj-omnidesk/stargazers) · [View roadmap](./ROADMAP.yaml) · [KMJ TECHNO](https://kmjtechno.com)
+
+</div>
