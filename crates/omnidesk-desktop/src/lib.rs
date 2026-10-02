@@ -420,7 +420,7 @@ mod tests {
             PrimaryView::Session,
         ] {
             let controls = controls_for(view);
-            assert!(!controls.is_empty());
+            assert_ne!(controls.len(), 0);
             assert!(
                 controls
                     .iter()
