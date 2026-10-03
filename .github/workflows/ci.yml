@@ -99,7 +99,14 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
+      # `omnidesk-desktop/src/windows_host.rs` is `#![cfg(windows)]`, so the
+      # Linux clippy job never compiles it and Windows-only lints silently
+      # rot. Gate them here.
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy (covers Windows-only code)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Compile Windows capture path
         run: cargo check -p omnidesk-core --all-targets
       - name: Test Windows capture conversion
