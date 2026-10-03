@@ -128,6 +128,7 @@ Mirrors the threat model's format. Each is stated so a test can refute it.
 | P1 | Session content — screen, input, clipboard, file, audio — is never transmitted to the control plane |
 | P2 | No log, error message, or crash report contains peer identity, entitlement claims, or session content |
 | P3 | Clipboard and transfer state are cleared when a session ends or is revoked, and retained state never contains clipboard or file content |
+| P8 | A peer-supplied string cannot carry control characters or exceed a bounded length |
 | P4 | A relay receives ciphertext and a session id, never plaintext and never a stable user identifier |
 | P5 | Clipboard sync is disabled unless explicitly permitted, and the denial is visible to the user |
 | P6 | No telemetry is sent that a user cannot disable, or that is required for the product to function |
@@ -146,11 +147,11 @@ plane's contract, not to this client.
 |---|---|---|---|
 | PR-1 | High | No logging framework, so the log-content invariant was unenforced and could regress silently | **Resolved** — `log_scrubber` makes a log record structurally incapable of carrying an identifier |
 | PR-2 | Medium | Entitlement claims enable control-plane correlation of a returning installation | Accepted, documented above |
-| PR-3 | Medium | `PeerIdentity` accepts arbitrary strings, so its contents are unconstrained | Open |
+| PR-3 | Medium | `PeerIdentity` accepts arbitrary strings, so its contents are unconstrained | **Resolved** — bounded to 64 bytes of printable ASCII, enforced at construction |
 | PR-4 | Low | Ciphertext length leaks activity size through the relay | Accepted, documented above |
 | PR-5 | Low | Signaling necessarily exposes correlatable network addresses | Accepted, inherent to NAT traversal |
 | PR-6 | Low | Client activity is inferable from `last_trusted_server_time` | Accepted, inherent to lease validation |
-| PR-7 | Low | `ClipboardSyncState` has no clear or reset, so its sequence numbers and digest survive session end | Open — the retained state is a hash, not content, which limits the impact |
+| PR-7 | Low | `ClipboardSyncState` had no clear or reset, so its sequence numbers and digest survived session end | **Resolved** — `clear()` drops all state; the retained state was a hash, not content, which bounded the impact |
 
 M11's exit criteria require `critical_findings_zero` and
 `high_findings_zero_or_explicitly_block_release`. PR-1 was the only High

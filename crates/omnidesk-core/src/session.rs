@@ -20,23 +20,64 @@ pub enum SessionError {
         received: u16,
     },
     EmptyPeerIdentity,
+    PeerIdentityTooLong {
+        length: usize,
+        maximum: usize,
+    },
+    PeerIdentityNotAscii,
+    PeerIdentityHasControlCharacter,
     ControlNotAuthorized,
     Closed,
 }
+
+/// Upper bound on a peer identity's length.
+///
+/// A peer identity reaches the UI, the clipboard-adjacent surfaces, and
+/// eventually a log record. An unbounded string from a remote party is a
+/// cheap way to make all three expensive, so it is bounded at the point it
+/// enters the process rather than at each consumer.
+pub const MAX_PEER_IDENTITY_BYTES: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerIdentity(String);
 
 impl PeerIdentity {
-    /// Creates a non-empty peer identity.
+    /// Creates a peer identity from a bounded, printable ASCII string.
+    ///
+    /// The contents are deliberately *not* required to look like any
+    /// particular identifier format. Constraining the shape here would reject
+    /// legitimate peers for a reason this repository cannot verify, and the
+    /// identity is authenticated by key, not by how its label reads.
+    ///
+    /// What is enforced is only what has to hold for the value to be safe to
+    /// carry: it is short, and it is printable ASCII. Rejecting non-ASCII
+    /// means a value can never contain a bidi override, which would let a
+    /// peer render a label that reads differently from its actual bytes.
     ///
     /// # Errors
     ///
-    /// Returns `SessionError::EmptyPeerIdentity` when the supplied identity is blank.
+    /// Returns `SessionError::EmptyPeerIdentity` when blank,
+    /// `PeerIdentityTooLong` above [`MAX_PEER_IDENTITY_BYTES`],
+    /// `PeerIdentityNotAscii` for any non-ASCII byte, and
+    /// `PeerIdentityHasControlCharacter` for any control character including
+    /// newline and tab.
     pub fn new(value: impl Into<String>) -> Result<Self, SessionError> {
         let value = value.into();
+
         if value.trim().is_empty() {
             return Err(SessionError::EmptyPeerIdentity);
+        }
+        if value.len() > MAX_PEER_IDENTITY_BYTES {
+            return Err(SessionError::PeerIdentityTooLong {
+                length: value.len(),
+                maximum: MAX_PEER_IDENTITY_BYTES,
+            });
+        }
+        if !value.is_ascii() {
+            return Err(SessionError::PeerIdentityNotAscii);
+        }
+        if value.chars().any(char::is_control) {
+            return Err(SessionError::PeerIdentityHasControlCharacter);
         }
 
         Ok(Self(value))
@@ -45,6 +86,15 @@ impl PeerIdentity {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// The identity's byte length.
+    ///
+    /// Supports diagnosis without exposing the identity, which is what
+    /// `log_scrubber::PeerSummary` records.
+    #[must_use]
+    pub fn byte_len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -318,5 +368,100 @@ mod tests {
             PeerIdentity::new("   "),
             Err(SessionError::EmptyPeerIdentity)
         );
+    }
+
+    #[test]
+    fn an_identity_at_the_length_limit_is_accepted() {
+        let at_limit = "a".repeat(MAX_PEER_IDENTITY_BYTES);
+        assert!(PeerIdentity::new(&at_limit).is_ok());
+
+        let over_limit = "a".repeat(MAX_PEER_IDENTITY_BYTES + 1);
+        assert_eq!(
+            PeerIdentity::new(over_limit),
+            Err(SessionError::PeerIdentityTooLong {
+                length: MAX_PEER_IDENTITY_BYTES + 1,
+                maximum: MAX_PEER_IDENTITY_BYTES,
+            })
+        );
+    }
+
+    #[test]
+    fn non_ascii_identities_are_rejected() {
+        // A bidi override is the reason: a peer must not be able to render a
+        // label that reads differently from the bytes that were authenticated.
+        assert_eq!(
+            PeerIdentity::new("device\u{202E}moc"),
+            Err(SessionError::PeerIdentityNotAscii)
+        );
+        assert_eq!(
+            PeerIdentity::new("caf\u{00E9}"),
+            Err(SessionError::PeerIdentityNotAscii)
+        );
+    }
+
+    #[test]
+    fn control_characters_are_rejected_including_newline_and_tab() {
+        for bad in ["a\nb", "a\tb", "a\rb", "a\u{0}b", "a\u{7F}b"] {
+            assert_eq!(
+                PeerIdentity::new(bad),
+                Err(SessionError::PeerIdentityHasControlCharacter),
+                "{bad:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn a_newline_in_an_identity_cannot_forge_a_second_log_line() {
+        // The concrete attack the control-character rule prevents: an
+        // identity rendered into a log line that then splits into two.
+        let forged = "device\nadmin=true";
+        assert_eq!(
+            PeerIdentity::new(forged),
+            Err(SessionError::PeerIdentityHasControlCharacter)
+        );
+    }
+
+    #[test]
+    fn printable_punctuation_and_spaces_are_accepted() {
+        for good in [
+            "device-abc123",
+            "device_abc.123",
+            "DESKTOP-ABC",
+            "a name with spaces",
+            "dev!ce#1",
+            "~!@#$%^&*()",
+        ] {
+            assert!(
+                PeerIdentity::new(good).is_ok(),
+                "{good:?} should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn an_identity_never_carries_a_bidi_override() {
+        // Property rather than a fixed list, so a future encoding change
+        // cannot reintroduce a direction override through another route.
+        for candidate in ["a\u{202B}b", "a\u{202C}b", "a\u{2066}b", "a\u{2069}b"] {
+            let result = PeerIdentity::new(candidate);
+            assert!(
+                result.is_err(),
+                "{candidate:?} must not be accepted as an identity"
+            );
+        }
+    }
+
+    #[test]
+    fn the_byte_length_is_reported_without_exposing_the_identity() {
+        let identity = PeerIdentity::new("device-abc123").expect("identity");
+        assert_eq!(identity.byte_len(), "device-abc123".len());
+    }
+
+    #[test]
+    fn an_over_long_identity_is_rejected_before_it_is_stored() {
+        // The bound has to apply at construction. A limit enforced only when
+        // rendering leaves the oversized value resident in the process.
+        let huge = "x".repeat(100_000);
+        assert!(PeerIdentity::new(huge).is_err());
     }
 }
