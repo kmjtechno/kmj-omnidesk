@@ -340,9 +340,21 @@ fn policy_a_document_can_narrow_but_cannot_widen() {
 
 /// Mutation: add `allow`, `permit`, `allow_all`, or `enable` to the policy
 /// setters.
+///
+/// Second mutation: drop the `.replace("\r\n", "\n")` and check out on
+/// Windows. The block delimiters stop matching, the scan reads nothing, and
+/// every `!contains` assertion below still passes -- this is how it reached
+/// CI in the first place. The length assertion at the end is what makes that
+/// failure loud instead of silent.
 #[test]
 fn policy_the_document_type_has_no_widening_operation() {
-    let source = include_str!("mod.rs");
+    // Normalized because `include_str!` reports the file exactly as it sits on
+    // disk, and this is checked out with CRLF on Windows. Matching raw `\n}\n`
+    // made the scan silently skip the block there -- the test still ran, so it
+    // reported nothing wrong, but it was no longer looking at the code. A
+    // security check that quietly stops reading its own subject is worse than
+    // one that fails.
+    let source = include_str!("mod.rs").replace("\r\n", "\n");
 
     // Scoped to the policy block, because the rest of the module legitimately
     // contains `UnattendedAccess::issue` and `AuthorizationContext::granted`.
@@ -360,6 +372,17 @@ fn policy_the_document_type_has_no_widening_operation() {
             "policy document grew a widening operation: {forbidden}"
         );
     }
+
+    // The scan above proves the absence of four known names. It does not prove
+    // the block was actually read: a pattern that fails to match returns
+    // nothing and every `!contains` check still passes. So assert the block is
+    // non-trivial, which fails loudly if the delimiters ever stop matching.
+    assert!(
+        block.len() > 200,
+        "the PolicyDocument block was only {} bytes -- the scan is not \
+         reading the code it claims to check",
+        block.len()
+    );
 }
 
 /// Mutation: change `PolicyDocument::forbid` to skip the `contains` check, or
