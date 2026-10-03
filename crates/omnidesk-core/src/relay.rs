@@ -239,7 +239,14 @@ pub trait RelayService {
     ) -> Result<(), RelayError> {
         // Fail closed: an unauthorized session must not produce traffic at
         // all, so the check precedes both forwarding and metering.
-        if authorization == RelayAuthorization::ViewOnlyNoControl && frame.ciphertext.is_empty() {
+        //
+        // The check is on the authorization alone, not on it *and* the frame.
+        // The first version read `ViewOnlyNoControl && frame.ciphertext
+        // .is_empty()`, which admits a viewer's non-empty frames -- the exact
+        // fail-open this comment claims not to be. A deny rule that can be
+        // satisfied by an unrelated property of the payload is not a deny
+        // rule.
+        if authorization == RelayAuthorization::ViewOnlyNoControl {
             return Err(RelayError::AuthorizationDenied);
         }
 
@@ -316,24 +323,41 @@ pub fn meter_relay_session(
     duration: Duration,
     authorization: RelayAuthorization,
 ) -> Result<(), RelayError> {
+    // M5's `relay_cannot_grant_control_permission`: a path that reached no
+    // usable connection is refused whatever the authorization says, because
+    // there is no session to attribute the outcome to. This is checked first
+    // so an authorization token cannot make an unreachable path billable --
+    // the first version of this function checked only the path, which meant
+    // the authorization parameter was accepted and then ignored.
+    if decision == RelayPathDecision::NoPathAvailable {
+        return Err(RelayError::AuthorizationDenied);
+    }
+
+    // A viewer-only session forwarded relay traffic; that is legitimate, but
+    // it must never be counted as a control session. There is no control
+    // counter to decrement, because control was never inferred from usage in
+    // the first place -- `grants_control` reads the authorization, not the
+    // meter. Stated here rather than as an empty `if` block, which read like
+    // a check that had been removed by accident.
     match decision {
-        // A failed attempt that reached no path is not a relayed session and
-        // must not be billed as one.
-        RelayPathDecision::NoPathAvailable => return Err(RelayError::AuthorizationDenied),
-        RelayPathDecision::DirectPreferred => {
-            usage.record_direct_session();
-        }
-        RelayPathDecision::FellBackToRelay => {
-            usage.record_relay_session(duration);
+        RelayPathDecision::DirectPreferred => usage.record_direct_session(),
+        RelayPathDecision::FellBackToRelay => usage.record_relay_session(duration),
+        RelayPathDecision::NoPathAvailable => {
+            // Unreachable: refused above. Kept so the match is exhaustive over
+            // the enum rather than silently ignoring a future variant.
+            unreachable!("NoPathAvailable is refused before the meter is touched")
         }
     }
 
-    if authorization == RelayAuthorization::ViewOnlyNoControl {
-        // A viewer-only session forwarded relay traffic; that is legitimate,
-        // but it must never be counted as a control session. Nothing to do
-        // here beyond documenting that control is not inferred from usage.
-    }
-
+    // `authorization` is part of the signature so a caller cannot record a
+    // relay outcome without declaring who authorized it, even though no
+    // current variant is refused for its value: the enum has no third
+    // "unauthorized" variant to check. Read it so the parameter is not
+    // silently ignored, which is how the first version ended up.
+    debug_assert!(
+        !authorization.grants_control() || decision != RelayPathDecision::NoPathAvailable,
+        "NoPathAvailable must be refused whatever the authorization grants"
+    );
     Ok(())
 }
 
@@ -506,13 +530,87 @@ mod tests {
 
         let mut relay = RefusingRelay;
         let mut usage = RelayUsageMetrics::default();
+        // Non-empty ciphertext, deliberately. The first version of this test
+        // used an empty payload, and the check it was written for read
+        // `ViewOnlyNoControl && ciphertext.is_empty()` -- so it passed for the
+        // wrong reason, and the same fail-open that let a viewer's real
+        // traffic through still satisfied it. A test for an authorization
+        // rule must not depend on the payload it happens to carry.
         let frame = RelayFrame {
             session_id: [9_u8; 16],
-            ciphertext: b"",
+            ciphertext: b"\x01\x02\x03viewer-traffic",
         };
 
         assert_eq!(
             relay.forward_authorized(frame, RelayAuthorization::ViewOnlyNoControl, &mut usage,),
+            Err(RelayError::AuthorizationDenied)
+        );
+        assert_eq!(usage.relayed_bytes(), 0);
+    }
+
+    /// Mutation: add `&& frame.ciphertext.is_empty()` to the authorization
+    /// check in `forward_authorized`.
+    ///
+    /// The regression test for a real fail-open, and the reason it exists
+    /// separately rather than as another assertion above: the failure was not
+    /// that a viewer *could* relay, but that a viewer could relay whenever
+    /// they had something to say. An empty-frame denial hides exactly that,
+    /// because a viewer carrying real traffic is the ordinary case.
+    #[test]
+    fn a_viewers_real_traffic_is_refused_not_only_their_empty_frames() {
+        struct CountingRelay(Cell<u32>);
+
+        impl RelayService for CountingRelay {
+            fn forward(&mut self, _frame: RelayFrame<'_>) -> Result<(), RelayError> {
+                self.0.set(self.0.get() + 1);
+                Ok(())
+            }
+        }
+
+        for payload in [&b""[..], b"\x01\x02\x03", &[0xFF_u8; 512]] {
+            let mut relay = CountingRelay(Cell::new(0));
+            let mut usage = RelayUsageMetrics::default();
+            let frame = RelayFrame {
+                session_id: [3_u8; 16],
+                ciphertext: payload,
+            };
+
+            assert_eq!(
+                relay.forward_authorized(frame, RelayAuthorization::ViewOnlyNoControl, &mut usage),
+                Err(RelayError::AuthorizationDenied),
+                "{payload:?} must be refused whatever it contains"
+            );
+            assert_eq!(relay.0.get(), 0, "nothing may reach the relay");
+            assert_eq!(usage.relayed_bytes(), 0, "nothing may be billed");
+        }
+    }
+
+    /// Mutation: drop the authorization check from `forward_authorized` and
+    /// rely on `forward` alone.
+    ///
+    /// M5's `authorization_failure_is_fail_closed` says a refusal must
+    /// produce neither traffic nor billing. Checking only after forwarding
+    /// would let both happen, so the *order* is the property, not the
+    /// condition.
+    #[test]
+    fn the_authorization_check_precedes_forwarding_rather_than_joining_it() {
+        struct ExplodingRelay;
+
+        impl RelayService for ExplodingRelay {
+            fn forward(&mut self, _frame: RelayFrame<'_>) -> Result<(), RelayError> {
+                panic!("an unauthorized frame reached forward()");
+            }
+        }
+
+        let mut relay = ExplodingRelay;
+        let mut usage = RelayUsageMetrics::default();
+        let frame = RelayFrame {
+            session_id: [4_u8; 16],
+            ciphertext: b"\xde\xad\xbe\xef",
+        };
+
+        assert_eq!(
+            relay.forward_authorized(frame, RelayAuthorization::ViewOnlyNoControl, &mut usage),
             Err(RelayError::AuthorizationDenied)
         );
         assert_eq!(usage.relayed_bytes(), 0);
