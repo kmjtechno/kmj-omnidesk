@@ -122,7 +122,7 @@ member (`../../...`) is rejected before extraction, not sanitised after.
 
 ### U8 — Uninstall leaves no updater able to run
 
-See [uninstall cleanup](#uninstall-and-cleanup) below.
+See [uninstall cleanup](#update-and-uninstall-cleanup) below.
 
 ### U9 — Update metadata is fetched over an authenticated channel
 
@@ -175,6 +175,7 @@ unrepresentable.
 | U5 | `StagedUpdate::stage` | Implemented and tested |
 | U6 | whole module | Enforced by construction and by a source-level test |
 | U7 | `ArchiveMember::validate`, `InstallPlan::target_paths` | Implemented and tested |
+| U8 | `uninstall.rs`: `UninstallPlan::confirm_clean` | Implemented and tested |
 | U9 | `verify_and_parse` | Implemented and tested |
 
 Three properties constrain the shape of the code rather than a branch in it:
@@ -227,6 +228,85 @@ The last point is a real constraint on installer design, not just a cleanup
 step. It means the install root has to be declared and respected from the
 first build, before uninstall cleanup exists.
 
+#### What is implemented for U8
+
+`crates/omnidesk-core/src/uninstall.rs`. Until this, U8 was the one property
+in this document specified only in prose — the sentence saying an updater that
+survives is a persistence mechanism, with nothing behind it.
+
+The model is in-memory and takes its "what is still present" answer as input,
+rather than touching the filesystem. That is a limitation worth stating plainly:
+**this does not delete anything.** It decides whether a claimed removal is
+complete, and refuses to certify one that is not. A caller that passes an empty
+`surviving` list without enumerating the machine will be told the uninstall is
+clean, and nothing here can detect that.
+
+Three properties are enforced, and each fails closed:
+
+**Containment is segment-boundary, not string-prefix.** `/opt/kmj-backup` starts
+with `/opt/kmj` and is a different directory. A prefix check that treated it as
+inside the root would make the uninstaller delete a neighbour's files, which is
+the failure U8's last bullet exists to prevent. `normalize` collapses `.` but
+deliberately does **not** resolve `..`: resolving it would turn
+`/opt/kmj/../../etc/passwd` into `/etc/passwd`, which is refused — but refused
+by accident, and a traversal that lands back inside the root would then be
+accepted on a technicality.
+
+**The residue check covers paths the plan never recorded.** Checking only what
+the installer wrote would miss a scheduled task or autostart entry the product
+created and forgot. `confirm_clean` therefore examines everything reported as
+surviving, and reports outside-the-root survival as a failure rather than as
+"uninstalled with warnings" — an installer that wrote outside its own root is a
+design bug, and reporting it as a warning is how it becomes permanent.
+
+**User data is reported, never removed.** `OwnedPath::user_owned` marks a path
+the uninstaller keeps. It is reported separately from residue, because "it
+survived" and "you were supposed to remove it" are different failures and
+conflating them hides the first behind the second.
+
+29 tests, each naming the single edit that would make it pass while the property
+is broken. All 28 mutations were applied and caught.
+
+Two of those mutations are worth recording, because both were initially
+reported as either caught or structural when they were something else:
+
+- A mutation collapsing all four `ResidueKind` names to one string **survived**.
+  The test compared the four names to each other, which catches a collapse to
+  fewer than four but not a rename to a different unique string — which is the
+  edit a careless rename actually makes. The test now compares each name to its
+  exact expected string.
+- The mutation harness itself was wrong twice. It reported 4 mutations as
+  "apply failed" when it was matching line-by-line and `rustfmt` had wrapped the
+  patterns across two lines, so they were never actually tested; and one run
+  reported a compile error as a caught mutation when the replacement text
+  referenced a helper that did not exist. Both were found by running a mutation
+  by hand, which is the only reason they were found.
+
+One clause in `is_plausible_root` — comparing the normalized root against `"/"`
+— was removed rather than kept. A mutation dropping it survived with every test
+green, because the length check refuses the same inputs. That is a clause that
+cannot change an answer, and a security check that reads as if it does is worse
+than one that does not.
+
+#### What U8 still does not have
+
+**No filesystem access, so no deletion and no discovery.** Everything this
+module checks was handed to it. A real uninstaller has to enumerate a machine
+to know what survived — scanning the autostart directories, the task scheduler,
+the credential store — and that enumeration is the part that actually does the
+work and can still get it wrong. This module verifies an answer; it does not
+produce one.
+
+**No platform paths.** `ResidueKind` names categories, not locations. On Windows
+the autostart entries are registry values and startup-folder shortcuts; on Linux
+they are XDG autostart `.desktop` files; on macOS they are launchd plists. None
+of that is here, and the residue a platform leaks is exactly the kind this
+cannot see.
+
+**M12's status does not change.** `uninstall_cleanup` needs a real installer to
+run a real uninstall against, and `signature_verification_pass` needs
+production signing keys. Both are still unmet.
+
 ## Verification, before release
 
 Corresponding to U1-U9, an update-integrity test must demonstrate:
@@ -247,9 +327,14 @@ sounds. The same rule the M8 resume gate violated applies here: a check that
 does not assert cannot fail, and a check that cannot fail is not a gate.
 
 Of the eight, U1, U2, U3, U4, U5, U7, and U9 have 42 tests in
-`update_path.rs`. U6 is tested by a test that reads the module's own source and
-fails if it names a configuration source, which is the closest honest test for
-a property that is enforced by absence.
+`update_path.rs`, and U8 has 29 in `uninstall.rs`. U6 is tested by a test that
+reads the module's own source and fails if it names a configuration source,
+which is the closest honest test for a property that is enforced by absence.
+
+U8 was previously the one property here with no code behind it at all. Its row
+above described a required test that did not exist, which the "a property with
+no test above is not met" rule was written to prevent and which had been
+violated in the document's own table.
 
 Every one of those tests was checked to fail when the behaviour it covers is
 removed. One of them, `u1_an_unparsable_unsigned_manifest_is_refused_on_signature_not_parse`,

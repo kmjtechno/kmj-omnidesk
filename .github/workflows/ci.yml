@@ -55,6 +55,14 @@ jobs:
       # drop them from CI.
       - name: M12 update integrity gate
         run: cargo test -p omnidesk-core update_path --lib
+      # U8. `docs/UPDATE_INTEGRITY.md` specified U8 in prose with no code and
+      # no test, so the only property that said "an uninstalled updater is a
+      # persistence mechanism" was the sentence saying it. Gated by name
+      # because a rename would otherwise drop it into the general test step,
+      # where the containment check — the part that protects user data — would
+      # fail silently rather than loudly.
+      - name: M12 uninstall residue gate
+        run: cargo test -p omnidesk-core uninstall --lib
       - name: Signed entitlement fuzz smoke
         run: |
           # cargo-fuzz targets need sanitizer support, which requires nightly.
