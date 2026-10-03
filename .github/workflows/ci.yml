@@ -125,6 +125,13 @@ jobs:
       # matrix needs real multi-hardware runs and does not have them.
       - name: M13 performance matrix admissibility gate
         run: python3 scripts/test_m13_matrix.py
+      # M14. All seven commercial-release gates were referenced nowhere in the
+      # repository, so the milestone was satisfied by nothing in particular.
+      # This gates the checker that requires every gate to be enforced or
+      # explicitly signed off. It does NOT gate a release -- M14 needs signing
+      # keys and a human authority that this repository does not have.
+      - name: M14 commercial release gate
+        run: python3 scripts/test_release_gate.py
 
       - name: M4 REALNET-60 semantic validator gate
         run: cargo test -p omnidesk-m4-validator --all-targets
