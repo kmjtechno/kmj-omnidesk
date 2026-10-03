@@ -43,6 +43,12 @@ jobs:
         run: |
           python3 scripts/scan_secrets.py
           python3 scripts/test_scan_secrets.py
+      # M12. These scripts check the update-integrity properties that can be
+      # verified offline -- downgrade, digest, channel, platform, and
+      # uninstall residue. They do NOT verify signatures; the manifest must
+      # declare who did, and a manifest that cannot say is rejected.
+      - name: Release manifest integrity gate tests
+        run: python3 scripts/test_verify_release_manifest.py
       - name: Signed entitlement fuzz smoke
         run: |
           # cargo-fuzz targets need sanitizer support, which requires nightly.
