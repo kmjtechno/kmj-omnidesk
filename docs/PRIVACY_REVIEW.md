@@ -97,11 +97,16 @@ session content.
 
 This is true partly by accident — the feature is absent, not enforced.
 
-**Decision: the log-scrubbing invariant below is required before any logging
-framework is added.** An absent subsystem is not a control, and
-[THREAT_MODEL.md](THREAT_MODEL.md)'s "sensitive payload contents are excluded
-from normal logs" is currently unfalsifiable because there are no logs to
-inspect.
+**Decision: redaction is by type, not by pattern, and it is in place before
+the logger.** `log_scrubber` gives values whose type marks them sensitive a
+`Debug`/`Display` impl that prints `[redacted]`, and builds log records from a
+closed set of value kinds — metric, flag, static state name, redacted length.
+A record cannot hold an arbitrary string, so the "excluded from logs"
+invariant is now constructible rather than aspirational.
+
+Pattern-matching identities was rejected deliberately: it misses new formats
+and leaks anything that does not match, and a filter that fails open is worse
+than none because it implies a control that is not there.
 
 ### 5. On disk
 
@@ -139,7 +144,7 @@ plane's contract, not to this client.
 
 | # | Severity | Finding | Status |
 |---|---|---|---|
-| PR-1 | High | No logging framework, so the log-content invariant is unenforced and could regress silently | Open — needs a scrubbing layer before logging exists |
+| PR-1 | High | No logging framework, so the log-content invariant was unenforced and could regress silently | **Resolved** — `log_scrubber` makes a log record structurally incapable of carrying an identifier |
 | PR-2 | Medium | Entitlement claims enable control-plane correlation of a returning installation | Accepted, documented above |
 | PR-3 | Medium | `PeerIdentity` accepts arbitrary strings, so its contents are unconstrained | Open |
 | PR-4 | Low | Ciphertext length leaks activity size through the relay | Accepted, documented above |
@@ -148,8 +153,11 @@ plane's contract, not to this client.
 | PR-7 | Low | `ClipboardSyncState` has no clear or reset, so its sequence numbers and digest survive session end | Open — the retained state is a hash, not content, which limits the impact |
 
 M11's exit criteria require `critical_findings_zero` and
-`high_findings_zero_or_explicitly_block_release`. PR-1 is that High finding. It
-is unresolved, so M11 stays `pending`.
+`high_findings_zero_or_explicitly_block_release`. PR-1 was the only High
+finding and is now resolved by `log_scrubber`.
+
+The criterion that remains unmet is `threat_model_reviewed`, which needs a
+reviewer who is not the author. M11 stays `pending` on that, not on a finding.
 
 ## What is not covered
 

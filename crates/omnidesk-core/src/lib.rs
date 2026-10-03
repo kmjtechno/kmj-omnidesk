@@ -13,6 +13,7 @@ pub mod direct_connect;
 pub mod direct_udp;
 pub mod input;
 pub mod licensing;
+pub mod log_scrubber;
 pub mod media;
 pub mod metrics;
 pub mod nat_traversal;
