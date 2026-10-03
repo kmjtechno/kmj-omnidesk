@@ -130,6 +130,29 @@ jobs:
         run: |
           cargo run -p omnidesk-core --example connectivity_benchmark --release > artifacts/connectivity-benchmark.json
           cat artifacts/connectivity-benchmark.json
+      # M13. Emits the metrics it can measure honestly and `null` for the four
+      # it cannot, so `m13_matrix.py verify` refuses the artifact. That refusal
+      # is the gate working: a matrix that quietly filled in a CPU figure or
+      # reported a loopback memcpy as `bandwidth_kbps` would be the exact
+      # failure the milestone's rules exist to prevent.
+      - name: Measure release-candidate network matrix
+        run: |
+          cargo run -p omnidesk-core --example rc_matrix_benchmark --release > artifacts/rc-matrix.json
+          cat artifacts/rc-matrix.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open("artifacts/rc-matrix.json"))
+          assert d["metrics_emitted"] < d["metrics_required_by_m13"], \
+              "every metric is claimed -- that should require a producer for each"
+          unavailable = ("cpu_percent", "gpu_percent", "ram_mb")
+          for row in d["profiles"]:
+              missing = [k for k in unavailable if row[k] is None]
+              assert missing == list(unavailable), \
+                  f"unavailable metrics must stay explicitly null, got {missing}"
+              assert "bandwidth_kbps" not in row, \
+                  "bandwidth_kbps is a shaped-link metric; loopback must not claim it"
+          print("rc-matrix: PASS (incomplete by design; refusal is the expected outcome)")
+          PY
       - name: Verify local NAT mapping and reconnect matrix
         run: |
           cargo run -p omnidesk-core --example nat_reconnect_matrix --release > artifacts/nat-reconnect-matrix.json
