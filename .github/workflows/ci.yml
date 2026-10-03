@@ -88,6 +88,19 @@ jobs:
       # name, so a rename drops this gate loudly rather than quietly.
       - name: M5 relay confidentiality and fail-closed gate
         run: cargo test -p omnidesk-core relay::tests --lib
+      # M5 evidence. The gate above proves the relay's *code* behaves; it says
+      # nothing about whether a relay has ever been run, which is what M5's
+      # three exit criteria actually ask. Those criteria were referenced
+      # nowhere in the repository, so "pending" and "done" were
+      # indistinguishable from the outside. This gates the checker that makes
+      # the difference visible.
+      #
+      # It does NOT require M5 to pass -- it cannot, and that refusal is the
+      # expected outcome. What it requires is that every criterion and gate M5
+      # declares be enforced here or explicitly admitted as unobserveable, so
+      # the milestone cannot silently stop asking.
+      - name: M5 relay evidence admissibility gate
+        run: python3 scripts/test_m5_evidence.py
       # M6. `no_unverified_fastest_claim` is an M6 exit criterion and the
       # degradation ladder is the thing that keeps it honest -- a controller
       # that skips a rung is not "adaptive", it is a discontinuity the user
