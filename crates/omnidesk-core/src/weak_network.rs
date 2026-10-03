@@ -280,7 +280,7 @@ impl AdaptiveQualityController {
     /// Dimensions are rounded down to even values so a scaled frame keeps the
     /// byte alignment the BGRA stride assumes.
     #[must_use]
-    pub fn scaled_dimensions(self, source_width: u32, source_height: u32) -> (u32, u32) {
+    pub fn scaled_dimensions(&self, source_width: u32, source_height: u32) -> (u32, u32) {
         let percent = self.level.resolution_percent();
         let width = source_width.saturating_mul(u32::from(percent)) / 100;
         let height = source_height.saturating_mul(u32::from(percent)) / 100;
@@ -290,7 +290,7 @@ impl AdaptiveQualityController {
     /// Whether this level is the minimum and should be treated as a
     /// last-resort mode.
     #[must_use]
-    pub const fn is_low_bandwidth_mode(self) -> bool {
+    pub const fn is_low_bandwidth_mode(&self) -> bool {
         matches!(self.level, QualityLevel::Minimal)
     }
 }
