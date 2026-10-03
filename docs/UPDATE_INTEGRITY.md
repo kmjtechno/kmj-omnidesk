@@ -1,0 +1,197 @@
+# Update Integrity Design — Pre-alpha
+
+This document is the design for the `update_integrity_design` deliverable of
+M11. It specifies what must be true before an update can be applied, and what
+must never be true.
+
+It is a design, not an implementation. Nothing here describes shipping code.
+Where a mechanism is named, it is because the design has to commit to
+something checkable, not because that mechanism has been built.
+
+## Why this exists
+
+An update channel is the one place where OmniDesk asks a machine to run new
+code with the user's privileges. Every other trust boundary in
+[THREAT_MODEL.md](THREAT_MODEL.md) can fail into "the session is broken"; this
+one fails into "the machine is now running the attacker's build."
+
+The threat model already lists malicious update and downgrade as a primary
+threat. This document turns that into requirements.
+
+## What an attacker wants
+
+Stated as goals, because each one implies a different check:
+
+1. **Run their code.** Get an unsigned or self-signed build accepted.
+2. **Run older code.** Downgrade to a version with a known vulnerability.
+3. **Run someone else's build.** Substitute a legitimately signed build
+   intended for a different channel, customer, or architecture.
+4. **Split the channel.** Serve build *N* to some machines and *N+1* to
+   others, then exploit the ones left behind.
+5. **Subvert verification.** Disable, patch out, or bypass the check itself.
+6. **Roll back silently.** Restore an old build after a security fix,
+   presenting it as a normal update.
+
+Goals 4 and 5 are the ones that a naive "check the signature" design misses.
+
+## Required properties
+
+These are release-blocking. Each is phrased so a test could refute it.
+
+### U1 — Artifacts are signed, and unsigned artifacts never execute
+
+Every distributed artifact carries a detached signature over its exact bytes.
+The client verifies before extracting, before writing, and before executing.
+A verification failure is terminal: no fallback, no retry from the same source
+treated as "probably fine."
+
+Signature verification happens in code that does not also parse, extract, or
+apply the update. A parser reachable before verification is a parser an
+attacker can crash or exploit with unauthenticated bytes.
+
+### U2 — Signatures are anchored to a key compiled into the client
+
+The trust anchor is a public key baked into the shipped binary. Not
+downloaded, not read from the filesystem, not from a registry value, not from
+the update server. A client that fetches its own trust anchor can be told to
+trust anything.
+
+Key rotation is a build-time change with an overlap window: the shipped binary
+carries both the old and new key, and a later build drops the old one. An
+out-of-band emergency rotation requires a binary that already trusts the new
+key. That limit is real and is accepted rather than papered over with a
+server-side override, because a server-side override is U6.
+
+### U3 — Downgrade to a vulnerable version is refused
+
+Every build carries a monotonically increasing version. An update is rejected
+if it is not strictly newer than the running build.
+
+Monotonic, not date-based. A build number that can be reused, or a clock the
+client trusts, reintroduces downgrade.
+
+This is stricter than it first appears: it also forbids reinstalling an
+identical build, and forbids a legitimate emergency rollback to a *newer*
+build id that ships older code. The rule is on the identifier, and the
+identifier is the thing that has to be defended.
+
+### U4 — Signature alone is not sufficient; the release manifest is signed
+
+The artifact signature proves *someone with the release key signed these
+bytes*. It does not prove that signing was authorized.
+
+A signed manifest, also under U2's anchor, states per artifact:
+
+- version;
+- target platform and architecture;
+- release channel;
+- SHA-256 of the artifact;
+- minimum permitted client version.
+
+The client checks the artifact hash against the manifest, and the manifest
+against its expectations, before applying anything.
+
+Without the manifest, a compromised release-signing host can produce a
+perfectly valid signature over a malicious build, and U1 passes while the
+machine is still compromised.
+
+### U5 — Channels are segregated and the client pins its channel
+
+Channel (stable, beta) is part of the signed manifest. A stable client will not
+apply a beta build, and a beta client will not silently become stable.
+
+Cross-channel leakage is how U4's "someone else's build" is delivered to a
+machine that will accept it.
+
+### U6 — There is no server-side switch that disables verification
+
+No configuration, environment variable, registry key, command-line flag, or
+remote setting may lower or bypass update verification.
+
+Every such switch is an attacker goal (U5, sub-goal 5) with a documented name.
+If a support workflow needs one, the answer is a new signed build.
+
+The same applies to the client refusing to start or refusing to run: a client
+that cannot run without phoning home to check whether it may run has moved the
+trust decision to the server and reintroduces the problem.
+
+### U7 — The update path cannot write outside its intended location
+
+The installer writes to a known set of paths. Path traversal in an archive
+member (`../../...`) is rejected before extraction, not sanitised after.
+
+### U8 — Uninstall leaves no updater able to run
+
+See [uninstall cleanup](#uninstall-and-cleanup) below.
+
+### U9 — Update metadata is fetched over an authenticated channel
+
+Metadata is served over HTTPS with a pinned trust chain equivalent to U2's, or
+over a channel whose authenticity the artifact signature already provides.
+Metadata is treated as untrusted input regardless: a hostile server must not be
+able to cause anything worse than "no update available."
+
+Because U1-U4 make metadata advisory, a fully hostile metadata server results
+in the client staying on its current build. That is the intended failure.
+
+## What is deliberately not claimed
+
+- This design does not name a specific signature algorithm or key format.
+  Choosing between them is a decision with its own review, and choosing badly
+  is expensive to undo.
+- It does not describe a transparency or revocation service. Such a service is
+  useful for the *browser* problem; for a desktop client whose trust anchor is
+  compiled in, revocation is handled by shipping a new build. Assuming a
+  revocation endpoint would be assuming a channel that must itself be trusted.
+- It does not claim the current pre-alpha build implements any of this. It
+  does not. There is no updater.
+
+## Update and uninstall cleanup
+
+`uninstall_cleanup` is M12, but it is inseparable from this document: an
+updater that survives its own uninstall is a persistence mechanism.
+
+### U8 — after uninstall, nothing remains that can install or launch
+
+Specifically:
+
+- the scheduled task or service that checks for updates is removed;
+- no auto-start entry for the updater or the application remains;
+- no credentials, cached entitlements, or tokens remain in app-owned paths;
+- install and update directories are removed;
+- files outside the declared install root are left alone — an installer that
+  writes outside its own root cannot clean up after itself, and deleting
+  outside that root to compensate risks destroying user data.
+
+The last point is a real constraint on installer design, not just a cleanup
+step. It means the install root has to be declared and respected from the
+first build, before uninstall cleanup exists.
+
+## Verification, before release
+
+Corresponding to U1-U9, an update-integrity test must demonstrate:
+
+| Property | Test |
+|---|---|
+| U1 | Unsigned and tampered artifacts are refused, on every platform |
+| U2 | A trust anchor read from disk is ignored in favour of the compiled-in one |
+| U3 | Older and equal versions are refused |
+| U4 | A correctly signed artifact absent from the manifest is refused |
+| U5 | A stable client refuses a beta manifest and a beta artifact |
+| U6 | No configuration can disable verification |
+| U7 | A traversing archive member is rejected pre-extraction |
+| U8 | After uninstall, no updater task, service, or autostart entry remains |
+
+A property with no test above is not met, however convincing the design
+sounds. The same rule the M8 resume gate violated applies here: a check that
+does not assert cannot fail, and a check that cannot fail is not a gate.
+
+## Open questions
+
+Carried forward rather than guessed at:
+
+- Signature algorithm and key format (see above).
+- Emergency rotation when no shipped binary trusts the new key.
+- Whether channel pin is user-selectable. It must not be: U5 is a
+  release-blocking property, and a user-selectable channel is U6 by another
+  name. Recording the tension rather than resolving it silently.
