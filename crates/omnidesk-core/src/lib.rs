@@ -11,6 +11,7 @@ pub mod collaboration;
 pub mod connectivity;
 pub mod direct_connect;
 pub mod direct_udp;
+pub mod enterprise;
 pub mod input;
 pub mod licensing;
 pub mod log_scrubber;

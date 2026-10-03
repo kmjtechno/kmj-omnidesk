@@ -69,6 +69,11 @@ jobs:
         run: cargo test -p omnidesk-core --test licensing_vectors
       - name: M9 signed entitlement boundary gate
         run: cargo test -p omnidesk-core signed_payload_boundary --lib
+      # M10. Tenant-boundary and privilege-escalation properties fail silently:
+      # a removed check makes the code more permissive, and every other test
+      # still passes. Gated by name so a rename cannot quietly drop them.
+      - name: M10 enterprise authorization and audit gate
+        run: cargo test -p omnidesk-core enterprise --lib
       - name: Verify M8 runtime evidence
         run: |
           mkdir -p artifacts
