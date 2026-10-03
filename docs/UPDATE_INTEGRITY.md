@@ -143,8 +143,68 @@ in the client staying on its current build. That is the intended failure.
   useful for the *browser* problem; for a desktop client whose trust anchor is
   compiled in, revocation is handled by shipping a new build. Assuming a
   revocation endpoint would be assuming a channel that must itself be trusted.
-- It does not claim the current pre-alpha build implements any of this. It
-  does not. There is no updater.
+- It does not claim the current pre-alpha build implements any of this as a
+  shipping updater. It does not. There is no updater, no installer, and no
+  release-signing service. What exists is the verification core described under
+  [What is implemented](#what-is-implemented) below.
+
+## What is implemented
+
+`crates/omnidesk-core/src/update_path.rs` implements the part of this design
+that can be built and refuted without an installer, a signing service, or a
+network. It is M12's `safe_update_path` deliverable.
+
+The API is shaped as a chain of types where each step consumes the previous
+step's output:
+
+```text
+TrustAnchor -> VerifiedArtifact -> VerifiedManifest -> StagedUpdate -> InstallPlan
+```
+
+There is no way to name an `InstallPlan` without a `VerifiedArtifact`, and no
+way to produce a `VerifiedArtifact` without a signature verified against a
+compiled-in key. Skipping a check is not a branch that can be flipped; it is
+unrepresentable.
+
+| Property | Where | State |
+|---|---|---|
+| U1 | `TrustAnchor::verify`, `UnverifiedManifest::verify_and_parse` | Implemented and tested |
+| U2 | `TrustAnchor`, `TrustAnchorSet` | Implemented and tested |
+| U3 | `StagedUpdate::check_client_floor` | Implemented and tested |
+| U4 | `StagedUpdate::stage` | Implemented and tested |
+| U5 | `StagedUpdate::stage` | Implemented and tested |
+| U6 | whole module | Enforced by construction and by a source-level test |
+| U7 | `ArchiveMember::validate`, `InstallPlan::target_paths` | Implemented and tested |
+| U9 | `verify_and_parse` | Implemented and tested |
+
+Three properties constrain the shape of the code rather than a branch in it:
+
+- **U6 has no configuration surface.** Nothing in the module reads an
+  environment variable, a config file, a registry value, or a command-line
+  flag. `EXPECTED_CHANNEL` and `EXPECTED_PLATFORM` are constants, so a
+  user-selectable channel is impossible rather than merely discouraged. A test
+  reads the module's own source and fails if it names any configuration source.
+- **U2's anchor has no setter.** `TrustAnchor` is not `Deserialize`, has no
+  public field, and no constructor from bytes. Rotation is a new build carrying
+  `TrustAnchorSet::new(primary, Some(rollover))`.
+- **U1 parses nothing before verifying.** `UnverifiedManifest` holds opaque
+  bytes; `ManifestBody::parse` is called only after a signature check returns
+  `Ok`. A parser reachable before verification is a parser an attacker can
+  attack with unauthenticated bytes.
+
+### Not implemented, and why
+
+- **Extraction.** `StagedUpdate` holds a validated member list, not extracted
+  files. Doing real extraction needs an archive parser, and U1 forbids a parser
+  reachable before verification. U7's traversal check runs over member *names*,
+  which is where it has to run regardless.
+- **The shipping signature algorithm.** `TrustAnchor` wraps
+  `ed25519-dalek::VerifyingKey` because that crate is already a dependency and
+  is a sound implementation. That is a starting point, not the design's answer
+  to the open question above, and it is not a claim that the choice is made.
+- **U1's end-to-end path.** Verifying a signature is implemented; running a real
+  installer that verifies one, writes the files, and rolls back on failure is
+  not. `signature_verification_pass` cannot honestly be reported until it is.
 
 ## Update and uninstall cleanup
 
@@ -185,6 +245,19 @@ Corresponding to U1-U9, an update-integrity test must demonstrate:
 A property with no test above is not met, however convincing the design
 sounds. The same rule the M8 resume gate violated applies here: a check that
 does not assert cannot fail, and a check that cannot fail is not a gate.
+
+Of the eight, U1, U2, U3, U4, U5, U7, and U9 have 42 tests in
+`update_path.rs`. U6 is tested by a test that reads the module's own source and
+fails if it names a configuration source, which is the closest honest test for
+a property that is enforced by absence.
+
+Every one of those tests was checked to fail when the behaviour it covers is
+removed. One of them, `u1_an_unparsable_unsigned_manifest_is_refused_on_signature_not_parse`,
+was written specifically because the first version of the manifest parser
+rejected a manifest it should have accepted: an unknown member containing a
+nested object was split at its first `}`, and the fields inside it came back
+looking like top-level fields. The ordering test was what distinguished "the
+parser is wrong" from "verification ran first".
 
 ## Open questions
 

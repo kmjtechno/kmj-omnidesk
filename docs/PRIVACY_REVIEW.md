@@ -119,6 +119,34 @@ outputs go to CI artifact JSON, which contains timings and sizes, not content.
 transfer state are the two things most likely to be added to disk, and both
 are session content.
 
+### 6. Into the update path
+
+M12's update path is the first place this codebase handles a filesystem write,
+so it was checked against P2 and P3 like everything else.
+
+The write targets in an `InstallPlan` are absolute paths, and an install root
+can be a user name or an organisation path. That makes them exactly the kind of
+value P2 forbids in a log record, and it is tempting to log them.
+
+`InstallPlan::to_safe_record` therefore builds a `SafeRecord` and cannot include
+them: the builder accepts a metric, a flag, or a `&'static str` state name, and
+has no method that takes a `String`. A test asserts the rendered record
+contains neither the install root nor any member path. The record carries only
+the version, the channel, the platform, and two counts.
+
+An error message is the other route. A rejected archive member name is
+attacker-controlled, so `truncate_for_report` bounds it before it reaches an
+error, and a test asserts the bound holds — an attacker cannot put 4 KB of their
+own text into a log line by naming a file `../../aaaa...`.
+
+**Decision: the update path's log and error surface is bounded and typed.** A
+test pins both, so adding a raw-string accessor to `SafeRecordBuilder` would
+break the gate rather than silently reopen the leak.
+
+**Not yet applicable.** The updater does not run, so none of this is exercised
+in production. It is the shape the code is written to, not a control that has
+been observed working.
+
 ## Required invariants
 
 Mirrors the threat model's format. Each is stated so a test can refute it.

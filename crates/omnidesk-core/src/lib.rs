@@ -24,6 +24,7 @@ pub mod relay;
 pub mod session;
 pub mod stun;
 pub mod transport;
+pub mod update_path;
 pub mod weak_network;
 pub mod weak_network_reconnect;
 
