@@ -41,10 +41,13 @@ So the gap is specific: the CI gate proves the evidence generator executed, and
 end-to-end resume assertion that the reassembled stream matches the original and
 that corruption is rejected does not exist on main.
 
-## Recommendation
+## Resolution
 
-Do not delete `autopilot/m8-deterministic-resume` until its test has been
-reviewed and either merged or consciously replaced.
+The test has been restored to `crates/omnidesk-core/tests/m8_weak_network_resume.rs`
+and gated in CI. It was checked before adoption by mutating
+`TransferChunk::verifies` to always return `true`; the test failed as it
+should, confirming it actually exercises integrity rejection rather than
+passing vacuously.
 
-The remaining 50 can be deleted once a reviewer agrees with the content
-comparison above.
+`autopilot/m8-deterministic-resume` no longer holds unique content and can be
+deleted along with the rest.

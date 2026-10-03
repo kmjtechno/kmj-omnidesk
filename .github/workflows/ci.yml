@@ -69,6 +69,11 @@ jobs:
           cat artifacts/m8-weak-network-resume.json
           grep -q '"m8_weak_network_resume":"PASS"' artifacts/m8-weak-network-resume.json
           grep -q '"evidence_type":"deterministic_synthetic_impairment"' artifacts/m8-weak-network-resume.json
+      # The example above proves only that the fixture ran -- it asserts
+      # nothing about resume correctness. This asserts what actually matters:
+      # that a corrupted chunk is rejected and a resumed transfer completes.
+      - name: M8 weak-network resume integrity gate
+        run: cargo test -p omnidesk-core --test m8_weak_network_resume
 
       - name: M4 REALNET-60 schema conformance gate
         run: python3 scripts/check_m4_schemas.py
