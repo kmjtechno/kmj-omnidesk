@@ -1,0 +1,32 @@
+[package]
+name = "omnidesk-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "LicenseRef-KMJ-Proprietary"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+omnidesk-core = { path = "../crates/omnidesk-core" }
+
+[[bin]]
+name = "signed_entitlement"
+path = "fuzz_targets/signed_entitlement.rs"
+test = false
+doc = false
+
+# Fuzzing intentionally builds with debug assertions and overflow checks so a
+# wraparound or out-of-bounds index becomes a finding rather than silent UB.
+# The workspace's `unsafe_code = "forbid"` does not cover this separate crate,
+# but no `unsafe` is written here either.
+[profile.release]
+debug = 1
+debug-assertions = true
+overflow-checks = true
+
+[workspace]
+members = ["."]

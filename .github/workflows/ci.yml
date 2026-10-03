@@ -35,6 +35,20 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --workspace --all-targets --all-features
+      # M11 assurance gates. These were previously stated policy in
+      # SECURITY.md/ROADMAP.yaml with nothing enforcing them.
+      - name: Dependency audit
+        uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Secret scan
+        run: |
+          python3 scripts/scan_secrets.py
+          python3 scripts/test_scan_secrets.py
+      - name: Signed entitlement fuzz smoke
+        run: |
+          # cargo-fuzz targets need sanitizer support, which requires nightly.
+          rustup toolchain install nightly --profile minimal
+          cargo install cargo-fuzz --locked
+          bash scripts/run_fuzz_smoke.sh 120
       - name: M8 collaboration security and resume gate
         run: cargo test -p omnidesk-core collaboration::tests --lib
       - name: M9 licensing crypto and policy gate
