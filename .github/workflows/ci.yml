@@ -110,6 +110,14 @@ jobs:
       - name: M4 REALNET-60 evidence collector tests
         run: python3 scripts/test_m4_evidence.py
 
+      # M13. `no_cherry_picked_results` and
+      # `comparative_claims_require_reproducible_comparable_tests` were rules
+      # in benchmarks/network-profiles.yaml with nothing checking them. This
+      # gates the checker that enforces them, not the matrix itself -- the
+      # matrix needs real multi-hardware runs and does not have them.
+      - name: M13 performance matrix admissibility gate
+        run: python3 scripts/test_m13_matrix.py
+
       - name: M4 REALNET-60 semantic validator gate
         run: cargo test -p omnidesk-m4-validator --all-targets
 
