@@ -301,16 +301,22 @@ const fn align_down(value: u32) -> u32 {
 }
 
 /// One profile's reproducible outcome.
+///
+/// No public fields, and no `Default`. Every value is measured by
+/// [`evaluate_samples`]; a caller that could write `worst_single_step: 7`
+/// directly would be able to make [`Self::degradation_was_progressive`] a
+/// self-fulfilling claim rather than a measurement, which is the whole thing
+/// the M6 criterion is meant to rule out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProfileOutcome {
     /// Index into [`QualityLevel::ALL`].
-    pub final_level: usize,
+    final_level: usize,
     /// Rungs stepped down over the run.
-    pub step_downs: u32,
+    step_downs: u32,
     /// Rungs stepped up over the run.
-    pub step_ups: u32,
-    /// Largest single-step drop in rungs. Must never exceed 1.
-    pub worst_single_step: u32,
+    step_ups: u32,
+    /// Largest single-step drop in rungs. Never exceeds 1.
+    worst_single_step: u32,
 }
 
 impl ProfileOutcome {
@@ -323,6 +329,28 @@ impl ProfileOutcome {
     #[must_use]
     pub const fn degradation_was_progressive(self) -> bool {
         self.worst_single_step <= 1
+    }
+
+    #[must_use]
+    pub const fn final_level(&self) -> usize {
+        self.final_level
+    }
+
+    /// Rungs stepped down over the run.
+    #[must_use]
+    pub const fn step_downs(&self) -> u32 {
+        self.step_downs
+    }
+
+    /// Rungs stepped up over the run.
+    #[must_use]
+    pub const fn step_ups(&self) -> u32 {
+        self.step_ups
+    }
+
+    #[must_use]
+    pub const fn worst_single_step(&self) -> u32 {
+        self.worst_single_step
     }
 }
 
@@ -441,9 +469,20 @@ mod tests {
                 outcome, again,
                 "{name}: the same profile must produce the same outcome twice"
             );
+            // The measured worst step is checked directly rather than only
+            // through `degradation_was_progressive()`. Asserting the predicate
+            // alone means a predicate that unconditionally returned `true`
+            // would pass this test: the controller's actual drops would go
+            // unchecked. The pair makes both halves load-bearing.
+            assert!(
+                outcome.worst_single_step() <= 1,
+                "{name}: dropped {} rungs in one sample",
+                outcome.worst_single_step()
+            );
             assert!(
                 outcome.degradation_was_progressive(),
-                "{name}: no single sample may drop more than one rung"
+                "{name}: the worst single step of {} must not be catastrophic",
+                outcome.worst_single_step()
             );
             // Whatever the profile, the rung in force must actually fit the
             // link that is being described. This is the check that would have
@@ -453,6 +492,35 @@ mod tests {
                 "{name}: settled at {level:?}, which the link cannot carry"
             );
         }
+    }
+
+    /// The predicate must be able to say *no*.
+    ///
+    /// Mutation: change `self.worst_single_step <= 1` to `<= 99` and this
+    /// test is the only one that notices, because every other test asserts
+    /// the predicate is `true` for a real profile and so cannot tell an
+    /// honest `true` from a hard-coded one.
+    #[test]
+    fn a_multi_rung_drop_is_reported_as_catastrophic() {
+        // Built inside the module so the fields stay private to callers.
+        let catastrophic = ProfileOutcome {
+            final_level: 0,
+            step_downs: 1,
+            step_ups: 0,
+            worst_single_step: 2,
+        };
+        assert!(
+            !catastrophic.degradation_was_progressive(),
+            "a 2-rung single step is catastrophic by definition and must not verify"
+        );
+
+        let progressive = ProfileOutcome {
+            final_level: 0,
+            step_downs: 1,
+            step_ups: 0,
+            worst_single_step: 1,
+        };
+        assert!(progressive.degradation_was_progressive());
     }
 
     #[test]

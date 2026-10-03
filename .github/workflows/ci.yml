@@ -74,6 +74,18 @@ jobs:
       # still passes. Gated by name so a rename cannot quietly drop them.
       - name: M10 enterprise authorization and audit gate
         run: cargo test -p omnidesk-core enterprise --lib
+      # M5. The relay's three security gates fail silently: deleting the
+      # authorization check makes the relay forward a session it was not
+      # granted, and no unrelated test notices. `relay` is also the module
+      # name, so a rename drops this gate loudly rather than quietly.
+      - name: M5 relay confidentiality and fail-closed gate
+        run: cargo test -p omnidesk-core relay::tests --lib
+      # M6. `no_unverified_fastest_claim` is an M6 exit criterion and the
+      # degradation ladder is the thing that keeps it honest -- a controller
+      # that skips a rung is not "adaptive", it is a discontinuity the user
+      # sees as a stall.
+      - name: M6 weak network degradation gate
+        run: cargo test -p omnidesk-core weak_network --lib
       - name: Verify M8 runtime evidence
         run: |
           mkdir -p artifacts
