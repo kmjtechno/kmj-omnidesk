@@ -20,6 +20,39 @@ use crate::{
     render::render_shell,
 };
 
+/// Converts a window-logical coordinate to whole pixels.
+///
+/// Winit can report sub-pixel or out-of-range cursor positions (negative
+/// when a drag leaves the window, and fractional under DPI scaling). A bare
+/// `as usize` cast saturates negatives to `0` and truncates toward zero,
+/// which silently remaps a pointer to the wrong control. This keeps the
+/// value in range instead, so hit testing stays fail-closed.
+// `value` is proven finite and non-negative by the guard below, then clamped
+// to `MAX_PIXEL_CEILING`, so the cast is in range by construction.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "non-finite and negative coordinates are rejected before the cast"
+)]
+fn to_pixel(value: f64) -> Option<usize> {
+    if !value.is_finite() || value < 0.0 {
+        return None;
+    }
+    // Clamping in `f64` before the single conversion keeps this total for
+    // every finite input without depending on `TryFrom<f64>`, which std
+    // does not provide.
+    Some(value.floor().min(MAX_PIXEL_CEILING) as usize)
+}
+
+/// Largest pixel offset the native host will ever hit-test against, as the
+/// integer the pointer hit test consumes. Test-only; the runtime path
+/// clamps against [`MAX_PIXEL_CEILING`].
+#[cfg(test)]
+const MAX_PIXEL_OFFSET: usize = u32::MAX as usize;
+
+/// Same bound expressed as `f64`, so clamping can happen before conversion.
+const MAX_PIXEL_CEILING: f64 = u32::MAX as f64;
+
 struct DesktopHost {
     // Drop platform adapters/surfaces before the window and context that provide their handles.
     surface: Option<Surface<OwnedDisplayHandle, Arc<Window>>>,
@@ -110,7 +143,7 @@ impl DesktopHost {
             .expect("native render buffer presentation must succeed");
     }
 
-    fn handle_accesskit_action(&mut self, request: accesskit::ActionRequest) {
+    fn handle_accesskit_action(&mut self, request: &accesskit::ActionRequest) {
         match request.action {
             Action::Focus => {
                 if desktop_action_for_node(&self.shell, request.target_node).is_some() {
@@ -177,8 +210,10 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor_position =
-                    Some((position.x.max(0.0) as usize, position.y.max(0.0) as usize));
+                self.cursor_position = match (to_pixel(position.x), to_pixel(position.y)) {
+                    (Some(x), Some(y)) => Some((x, y)),
+                    _ => None,
+                };
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
@@ -218,7 +253,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         match event.window_event {
             AccessKitWindowEvent::InitialTreeRequested => self.update_accessibility_tree(),
             AccessKitWindowEvent::ActionRequested(request) => {
-                self.handle_accesskit_action(request);
+                self.handle_accesskit_action(&request);
             }
             AccessKitWindowEvent::AccessibilityDeactivated => {
                 self.accessibility_focus = None;
@@ -232,10 +267,61 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
 /// # Errors
 ///
 /// Returns the event-loop error when the native host cannot start or run.
+///
+/// # Panics
+///
+/// Panics when no usable graphics context can be created for the host
+/// window. This is a startup-only precondition: a missing or unusable
+/// display/GPU context is not a recoverable session state, so failing
+/// loudly at launch is preferred over running a shell that cannot render.
 pub fn run() -> Result<(), winit::error::EventLoopError> {
     let event_loop = EventLoop::<AccessKitEvent>::with_user_event().build()?;
     let context = Context::new(event_loop.owned_display_handle())
         .expect("native render context creation must succeed");
     let event_loop_proxy = event_loop.create_proxy();
     event_loop.run_app(&mut DesktopHost::new(context, event_loop_proxy))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_PIXEL_OFFSET, to_pixel};
+
+    #[test]
+    fn whole_pixel_coordinates_pass_through_unchanged() {
+        assert_eq!(to_pixel(0.0), Some(0));
+        assert_eq!(to_pixel(1.0), Some(1));
+        assert_eq!(to_pixel(960.0), Some(960));
+    }
+
+    #[test]
+    fn fractional_coordinates_floor_to_the_pixel_below() {
+        // A bare `as usize` cast truncates toward zero; 12.7 must not be
+        // reported as pixel 12 being the hit target.
+        assert_eq!(to_pixel(12.7), Some(12));
+        assert_eq!(to_pixel(12.999), Some(12));
+        assert_eq!(to_pixel(0.5), Some(0));
+    }
+
+    #[test]
+    fn negative_coordinates_are_rejected_not_clamped_to_origin() {
+        // `(-4.0f64) as usize` saturates to 0, which would remap a drag that
+        // left the window onto the top-left control. Rejecting keeps
+        // hit testing fail-closed.
+        assert_eq!(to_pixel(-4.0), None);
+        assert_eq!(to_pixel(-0.5), None);
+        assert_eq!(to_pixel(f64::NEG_INFINITY), None);
+    }
+
+    #[test]
+    fn non_finite_coordinates_are_rejected() {
+        assert_eq!(to_pixel(f64::NAN), None);
+        assert_eq!(to_pixel(f64::INFINITY), None);
+        assert_eq!(to_pixel(f64::NEG_INFINITY), None);
+    }
+
+    #[test]
+    fn huge_coordinates_clamp_instead_of_wrapping() {
+        assert_eq!(to_pixel(f64::MAX), Some(MAX_PIXEL_OFFSET));
+        assert_eq!(to_pixel(1e30), Some(MAX_PIXEL_OFFSET));
+    }
 }

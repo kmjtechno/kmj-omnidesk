@@ -35,6 +35,71 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --workspace --all-targets --all-features
+      # M2. Both `no_unbounded_frame_queue` and
+      # `static_frame_suppression_verified` fail silently: dropping the
+      # capacity check makes the queue unbounded, and dropping the suppressor
+      # makes it resend frames the user cannot see changing. Neither failure
+      # breaks an unrelated test, so they are gated by name.
+      - name: M2 bounded frame queue and static suppression gate
+        run: |
+          cargo test -p omnidesk-core frame_queue --lib
+          cargo test -p omnidesk-core media::tests --lib
+      # M3. All four security gates are fail-closed refusals, and a removed
+      # refusal makes the code more permissive rather than less -- so a
+      # regression here shows up as a test that still passes while the
+      # dispatcher accepts what it used to reject.
+      - name: M3 authorized input and rejection gate
+        run: cargo test -p omnidesk-core input::tests --lib
+      # M11 assurance gates. These were previously stated policy in
+      # SECURITY.md/ROADMAP.yaml with nothing enforcing them.
+      - name: Dependency audit
+        uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Secret scan
+        run: |
+          python3 scripts/scan_secrets.py
+          python3 scripts/test_scan_secrets.py
+      # M12. These scripts check the update-integrity properties that can be
+      # verified offline -- downgrade, digest, channel, platform, and
+      # uninstall residue. They do NOT verify signatures; the manifest must
+      # declare who did, and a manifest that cannot say is rejected.
+      - name: Release manifest integrity gate tests
+        run: python3 scripts/test_verify_release_manifest.py
+      # M12 `safe_update_path`. The update path is the one place the product
+      # asks a machine to run new code, so U1-U9 are gated by name rather than
+      # left inside the general `cargo test` step where a rename can quietly
+      # drop them from CI.
+      - name: M12 update integrity gate
+        run: cargo test -p omnidesk-core update_path --lib
+      # U8. `docs/UPDATE_INTEGRITY.md` specified U8 in prose with no code and
+      # no test, so the only property that said "an uninstalled updater is a
+      # persistence mechanism" was the sentence saying it. Gated by name
+      # because a rename would otherwise drop it into the general test step,
+      # where the containment check — the part that protects user data — would
+      # fail silently rather than loudly.
+      - name: M12 uninstall residue gate
+        run: cargo test -p omnidesk-core uninstall --lib
+      # U8 mutation verification. The test above proves the uninstall tests
+      # pass; this proves they would *notice* if the containment logic stopped
+      # working. A containment check that no test can fail is an assertion of
+      # intent, and these harnesses had existed with nothing running them --
+      # the same defect as M1's authenticated-LAN test: a real check that no
+      # CI step invoked.
+      - name: U8 uninstall mutation verification gate
+        run: python3 scripts/verify_uninstall_mutations.py
+      # M5/M14 mutation verification, same reason. `verify_m5_evidence.py`
+      # computes integrity problems and class errors; if a regression made it
+      # compute them and then ignore them, the M5 admissibility test suite would
+      # still be green, because that suite tests the function and not the wiring.
+      - name: M5 evidence mutation verification gate
+        run: python3 scripts/verify_m5_evidence_mutations.py
+      - name: M14 release gate mutation verification gate
+        run: python3 scripts/verify_release_gate_mutations.py
+      - name: Signed entitlement fuzz smoke
+        run: |
+          # cargo-fuzz targets need sanitizer support, which requires nightly.
+          rustup toolchain install nightly --profile minimal
+          cargo install cargo-fuzz --locked
+          bash scripts/run_fuzz_smoke.sh 120
       - name: M8 collaboration security and resume gate
         run: cargo test -p omnidesk-core collaboration::tests --lib
       - name: M9 licensing crypto and policy gate
@@ -43,6 +108,55 @@ jobs:
         run: cargo test -p omnidesk-core --test licensing_vectors
       - name: M9 signed entitlement boundary gate
         run: cargo test -p omnidesk-core signed_payload_boundary --lib
+      # M10. Tenant-boundary and privilege-escalation properties fail silently:
+      # a removed check makes the code more permissive, and every other test
+      # still passes. Gated by name so a rename cannot quietly drop them.
+      - name: M10 enterprise authorization and audit gate
+        run: cargo test -p omnidesk-core enterprise --lib
+      # M5/M6/M13. A test named `..._is_deterministic` asserts that the same
+      # input gives the same output twice. That is satisfied by an
+      # implementation that is deterministically *wrong*: in `relay.rs`, both a
+      # wrong ratio denominator and a missing round-up ceiling left
+      # `relay_ratio_and_session_minutes_are_deterministic` green, because
+      # neither changes the output between two identical calls. This applies
+      # the edits that survive such a test and requires something to notice.
+      #
+      # A mutation the check could not apply is reported, not skipped.
+      - name: Determinism test evidence gate
+        run: python3 scripts/audit_determinism_tests.py
+      # M5. The relay's three security gates fail silently: deleting the
+      # authorization check makes the relay forward a session it was not
+      # granted, and no unrelated test notices. `relay` is also the module
+      # name, so a rename drops this gate loudly rather than quietly.
+      - name: M5 relay confidentiality and fail-closed gate
+        run: cargo test -p omnidesk-core relay::tests --lib
+      # M5 evidence. The gate above proves the relay's *code* behaves; it says
+      # nothing about whether a relay has ever been run, which is what M5's
+      # three exit criteria actually ask. Those criteria were referenced
+      # nowhere in the repository, so "pending" and "done" were
+      # indistinguishable from the outside. This gates the checker that makes
+      # the difference visible.
+      #
+      # It does NOT require M5 to pass -- it cannot, and that refusal is the
+      # expected outcome. What it requires is that every criterion and gate M5
+      # declares be enforced here or explicitly admitted as unobserveable, so
+      # the milestone cannot silently stop asking.
+      - name: M5 relay evidence admissibility gate
+        run: python3 scripts/test_m5_evidence.py
+      # M6. `no_unverified_fastest_claim` is an M6 exit criterion and the
+      # degradation ladder is the thing that keeps it honest -- a controller
+      # that skips a rung is not "adaptive", it is a discontinuity the user
+      # sees as a stall.
+      - name: M6 weak network degradation gate
+        run: cargo test -p omnidesk-core weak_network --lib
+      # M1. `authenticated_LAN_session_proof` was an exit criterion of a
+      # milestone marked `complete`, and the test that proves it has existed
+      # the whole time without ever running in CI -- it was inside
+      # `tests/authenticated_lan.rs`, which no named step invoked. A milestone
+      # can be `complete` and still have its central claim unchecked, which is
+      # precisely why `complete` cannot be the end of the story.
+      - name: M1 authenticated LAN session gate
+        run: cargo test -p omnidesk-core --test authenticated_lan
       - name: Verify M8 runtime evidence
         run: |
           mkdir -p artifacts
@@ -55,12 +169,42 @@ jobs:
           cat artifacts/m8-weak-network-resume.json
           grep -q '"m8_weak_network_resume":"PASS"' artifacts/m8-weak-network-resume.json
           grep -q '"evidence_type":"deterministic_synthetic_impairment"' artifacts/m8-weak-network-resume.json
+      # The example above proves only that the fixture ran -- it asserts
+      # nothing about resume correctness. This asserts what actually matters:
+      # that a corrupted chunk is rejected and a resumed transfer completes.
+      - name: M8 weak-network resume integrity gate
+        run: cargo test -p omnidesk-core --test m8_weak_network_resume
 
       - name: M4 REALNET-60 schema conformance gate
         run: python3 scripts/check_m4_schemas.py
 
       - name: M4 REALNET-60 evidence collector tests
         run: python3 scripts/test_m4_evidence.py
+
+      # M13. `no_cherry_picked_results` and
+      # `comparative_claims_require_reproducible_comparable_tests` were rules
+      # in benchmarks/network-profiles.yaml with nothing checking them. This
+      # gates the checker that enforces them, not the matrix itself -- the
+      # matrix needs real multi-hardware runs and does not have them.
+      - name: M13 performance matrix admissibility gate
+        run: python3 scripts/test_m13_matrix.py
+      # M14. All seven commercial-release gates were referenced nowhere in the
+      # repository, so the milestone was satisfied by nothing in particular.
+      # This gates the checker that requires every gate to be enforced or
+      # explicitly signed off. It does NOT gate a release -- M14 needs signing
+      # keys and a human authority that this repository does not have.
+      - name: M14 commercial release gate
+        run: python3 scripts/test_release_gate.py
+      # Roadmap-wide. Twelve of fifteen milestones declared criteria that
+      # appeared nowhere in the tree, and the first run of this checker found
+      # 43 of them -- including seven that pointed at scripts which had never
+      # been written. This gates the checker that requires every declared gate
+      # to name real enforcement, in either direction, so removing a gate from
+      # ROADMAP.yaml is reported rather than silent.
+      - name: Roadmap gate admissibility gate
+        run: |
+          python3 scripts/test_roadmap_admissibility.py
+          python3 scripts/verify_m0_repository.py
 
       - name: M4 REALNET-60 semantic validator gate
         run: cargo test -p omnidesk-m4-validator --all-targets
@@ -74,6 +218,29 @@ jobs:
         run: |
           cargo run -p omnidesk-core --example connectivity_benchmark --release > artifacts/connectivity-benchmark.json
           cat artifacts/connectivity-benchmark.json
+      # M13. Emits the metrics it can measure honestly and `null` for the four
+      # it cannot, so `m13_matrix.py verify` refuses the artifact. That refusal
+      # is the gate working: a matrix that quietly filled in a CPU figure or
+      # reported a loopback memcpy as `bandwidth_kbps` would be the exact
+      # failure the milestone's rules exist to prevent.
+      - name: Measure release-candidate network matrix
+        run: |
+          cargo run -p omnidesk-core --example rc_matrix_benchmark --release > artifacts/rc-matrix.json
+          cat artifacts/rc-matrix.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open("artifacts/rc-matrix.json"))
+          assert d["metrics_emitted"] < d["metrics_required_by_m13"], \
+              "every metric is claimed -- that should require a producer for each"
+          unavailable = ("cpu_percent", "gpu_percent", "ram_mb")
+          for row in d["profiles"]:
+              missing = [k for k in unavailable if row[k] is None]
+              assert missing == list(unavailable), \
+                  f"unavailable metrics must stay explicitly null, got {missing}"
+              assert "bandwidth_kbps" not in row, \
+                  "bandwidth_kbps is a shaped-link metric; loopback must not claim it"
+          print("rc-matrix: PASS (incomplete by design; refusal is the expected outcome)")
+          PY
       - name: Verify local NAT mapping and reconnect matrix
         run: |
           cargo run -p omnidesk-core --example nat_reconnect_matrix --release > artifacts/nat-reconnect-matrix.json
@@ -99,7 +266,14 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
+      # `omnidesk-desktop/src/windows_host.rs` is `#![cfg(windows)]`, so the
+      # Linux clippy job never compiles it and Windows-only lints silently
+      # rot. Gate them here.
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy (covers Windows-only code)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Compile Windows capture path
         run: cargo check -p omnidesk-core --all-targets
       - name: Test Windows capture conversion

@@ -16,6 +16,8 @@ Sort integer millisecond samples ascending. For p in (0,1], rank = ceil(p*n), va
 ## Evidence integrity
 Every reference resolves to exactly one declared artifact. Paths must remain inside the package. Declared byte size and SHA-256 must match actual bytes. Aggregate and gate fields are derived outputs and must be independently recomputed.
 
+Release-candidate benchmark evidence is governed separately by [PERFORMANCE_MATRIX.md](PERFORMANCE_MATRIX.md); the run-id grammar below encodes M4's six-topology campaign and does not fit a benchmark sweep.
+
 Validator outcomes are VALID_M4_PASS, VALID_M4_FAIL, or INVALID_MANIFEST. M4 remains in progress until a real representative campaign produces VALID_M4_PASS; synthetic/local CI evidence cannot substitute for this campaign.
 
 
