@@ -380,6 +380,28 @@ def m14_gates_from_roadmap(roadmap_path: Path) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     release = load_json(Path(args.release), "release")
+    if release is None:
+        # `load_json` returns None rather than raising so that one missing
+        # document fails its own gate and the others still report. Honouring
+        # that here is the difference between "the release manifest is
+        # missing" and a traceback from `None.get`. An unreadable manifest
+        # used to crash before a single gate spoke, which is the same failure
+        # the docstring on `load_json` was written to prevent -- just reached
+        # from a different door.
+        print(
+            json.dumps(
+                {
+                    "release": "<unreadable>",
+                    "gates": {},
+                    "admissible": False,
+                    "problems": [
+                        f"release: cannot read the release manifest at {args.release}",
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return 1
     roadmap_gates = m14_gates_from_roadmap(Path(args.roadmap))
     report = evaluate(release, roadmap_gates)
     print(json.dumps(report, indent=2))
