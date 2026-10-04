@@ -94,6 +94,14 @@ jobs:
         run: python3 scripts/verify_m5_evidence_mutations.py
       - name: M14 release gate mutation verification gate
         run: python3 scripts/verify_release_gate_mutations.py
+      # M10 enterprise mutation verification, same reason. Every test in
+      # `enterprise/tests.rs` carries a `Mutation:` docstring naming the edit
+      # that should make it fail, and until this step existed nothing ever
+      # applied those edits -- they were comments. A removed authorization
+      # check makes the code *more* permissive, so every unrelated test still
+      # passes and the suite reports green.
+      - name: M10 enterprise mutation verification gate
+        run: python3 scripts/verify_enterprise_mutations.py
       - name: Signed entitlement fuzz smoke
         run: |
           # cargo-fuzz targets need sanitizer support, which requires nightly.
