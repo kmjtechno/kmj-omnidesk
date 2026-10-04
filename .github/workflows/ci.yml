@@ -113,6 +113,17 @@ jobs:
       # still passes. Gated by name so a rename cannot quietly drop them.
       - name: M10 enterprise authorization and audit gate
         run: cargo test -p omnidesk-core enterprise --lib
+      # M5/M6/M13. A test named `..._is_deterministic` asserts that the same
+      # input gives the same output twice. That is satisfied by an
+      # implementation that is deterministically *wrong*: in `relay.rs`, both a
+      # wrong ratio denominator and a missing round-up ceiling left
+      # `relay_ratio_and_session_minutes_are_deterministic` green, because
+      # neither changes the output between two identical calls. This applies
+      # the edits that survive such a test and requires something to notice.
+      #
+      # A mutation the check could not apply is reported, not skipped.
+      - name: Determinism test evidence gate
+        run: python3 scripts/audit_determinism_tests.py
       # M5. The relay's three security gates fail silently: deleting the
       # authorization check makes the relay forward a session it was not
       # granted, and no unrelated test notices. `relay` is also the module
