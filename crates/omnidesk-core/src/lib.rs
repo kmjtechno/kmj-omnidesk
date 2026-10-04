@@ -8,10 +8,12 @@
 pub mod adaptive_session;
 pub mod authentication;
 pub mod collaboration;
+pub mod commercial_gate;
 pub mod connectivity;
 pub mod direct_connect;
 pub mod direct_udp;
 pub mod enterprise;
+pub mod frame_queue;
 pub mod input;
 pub mod licensing;
 pub mod log_scrubber;

@@ -35,6 +35,21 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --workspace --all-targets --all-features
+      # M2. Both `no_unbounded_frame_queue` and
+      # `static_frame_suppression_verified` fail silently: dropping the
+      # capacity check makes the queue unbounded, and dropping the suppressor
+      # makes it resend frames the user cannot see changing. Neither failure
+      # breaks an unrelated test, so they are gated by name.
+      - name: M2 bounded frame queue and static suppression gate
+        run: |
+          cargo test -p omnidesk-core frame_queue --lib
+          cargo test -p omnidesk-core media::tests --lib
+      # M3. All four security gates are fail-closed refusals, and a removed
+      # refusal makes the code more permissive rather than less -- so a
+      # regression here shows up as a test that still passes while the
+      # dispatcher accepts what it used to reject.
+      - name: M3 authorized input and rejection gate
+        run: cargo test -p omnidesk-core input::tests --lib
       # M11 assurance gates. These were previously stated policy in
       # SECURITY.md/ROADMAP.yaml with nothing enforcing them.
       - name: Dependency audit
@@ -107,6 +122,14 @@ jobs:
       # sees as a stall.
       - name: M6 weak network degradation gate
         run: cargo test -p omnidesk-core weak_network --lib
+      # M1. `authenticated_LAN_session_proof` was an exit criterion of a
+      # milestone marked `complete`, and the test that proves it has existed
+      # the whole time without ever running in CI -- it was inside
+      # `tests/authenticated_lan.rs`, which no named step invoked. A milestone
+      # can be `complete` and still have its central claim unchecked, which is
+      # precisely why `complete` cannot be the end of the story.
+      - name: M1 authenticated LAN session gate
+        run: cargo test -p omnidesk-core --test authenticated_lan
       - name: Verify M8 runtime evidence
         run: |
           mkdir -p artifacts
@@ -145,6 +168,16 @@ jobs:
       # keys and a human authority that this repository does not have.
       - name: M14 commercial release gate
         run: python3 scripts/test_release_gate.py
+      # Roadmap-wide. Twelve of fifteen milestones declared criteria that
+      # appeared nowhere in the tree, and the first run of this checker found
+      # 43 of them -- including seven that pointed at scripts which had never
+      # been written. This gates the checker that requires every declared gate
+      # to name real enforcement, in either direction, so removing a gate from
+      # ROADMAP.yaml is reported rather than silent.
+      - name: Roadmap gate admissibility gate
+        run: |
+          python3 scripts/test_roadmap_admissibility.py
+          python3 scripts/verify_m0_repository.py
 
       - name: M4 REALNET-60 semantic validator gate
         run: cargo test -p omnidesk-m4-validator --all-targets
