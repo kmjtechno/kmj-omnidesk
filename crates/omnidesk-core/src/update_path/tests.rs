@@ -1055,3 +1055,117 @@ fn an_anchor_set_always_has_at_least_one_key() {
     assert_eq!(with_rollover.len(), 2);
     assert!(!with_rollover.is_empty());
 }
+
+// --- sha256_hex: the exported digest helper had no test and no caller ------
+//
+// `sha256_hex` is `pub`, documented as "hashes bytes the way the manifest
+// digests are computed", and referenced by nothing -- not by the staging path,
+// which uses the private `VerifiedManifest` digests, and not by these tests,
+// which carry their own `sha_hex` helper built on the private `hex`. So the
+// claim in its own docstring was untested and, as it happens, unused.
+//
+// It is kept and tested rather than deleted because it is the natural entry
+// point for anything that needs to compute a manifest digest from outside this
+// module, and deleting it would leave the next caller to re-derive SHA-256
+// against a published hex alphabet -- which is exactly what it prevents.
+//
+// The expectations are the FIPS 180-4 published vectors, not values produced by
+// this implementation. That distinction is the point: a test whose expected
+// value came from the code under test can only detect it becoming differently
+// wrong.
+///
+/// Mutation: return `hex(&[0u8; 32])`. Fails on every vector below.
+#[test]
+fn sha256_matches_the_published_test_vectors() {
+    assert_eq!(
+        sha256_hex(b""),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
+    assert_eq!(
+        sha256_hex(b"abc"),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+    assert_eq!(
+        sha256_hex(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+        "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+    );
+    // The million-'a' vector, which exercises the multi-block path that the
+    // three short inputs above never reach. Boxed: a million-byte stack array
+    // is a clippy `large_stack_arrays` denial, and the input is large enough
+    // that heap is the right home for it anyway.
+    assert_eq!(
+        sha256_hex(&vec![b'a'; 1_000_000]),
+        "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+    );
+}
+
+/// A digest a manifest can be written with: 64 lowercase hex characters.
+///
+/// A manifest spelling a digest in uppercase, or one byte short, must not
+/// compare equal to a computed one. `verify_artifact` never calls this
+/// function, so nothing downstream would notice a change in its output shape.
+///
+/// Mutation: uppercase the result. Fails.
+/// Mutation: emit one nibble for bytes below `0x10`. Fails.
+#[test]
+fn a_digest_is_sixty_four_lowercase_hex_characters() {
+    for input in [&b""[..], b"a", b"omnidesk", &[0x00, 0x0f, 0xf0, 0xff][..]] {
+        let digest = sha256_hex(input);
+        assert_eq!(digest.len(), 64, "a SHA-256 digest is 32 bytes of hex");
+        assert!(
+            digest
+                .chars()
+                .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+            "digest must be lowercase hex, got {digest:?}"
+        );
+    }
+}
+
+/// The complement of the vectors above: it must *separate* inputs.
+///
+/// A digest that ignored its input, or read only the first block, would match
+/// every short vector while accepting a substituted artifact. This says the
+/// function depends on every byte, which matching a constant would not.
+///
+/// Mutation: hash `bytes[..1]` only. Fails.
+/// Mutation: hash `bytes[..32]`, truncating longer inputs. Fails.
+#[test]
+fn a_digest_depends_on_every_byte_of_its_input() {
+    let base = sha256_hex(b"omnidesk-2026.10.0");
+    let mut payload = *b"omnidesk-2026.10.0-xxxxxxxxxxxxxxxxxxxxxxx";
+    for index in 0..payload.len() {
+        payload[index] ^= 0x01;
+        assert_ne!(
+            sha256_hex(&payload),
+            base,
+            "flipping byte {index} must change the digest"
+        );
+        payload[index] ^= 0x01;
+    }
+    assert_ne!(sha256_hex(b"ab"), sha256_hex(b"abc"));
+}
+
+/// `sha256_hex` and the private `hex`-based helper must agree.
+///
+/// They are two spellings of the same digest, and only the private one is on
+/// any code path. If they diverged -- a different alphabet, a different
+/// nibble order -- then a digest computed with the public function would not
+/// match a manifest built with the private one, and nothing in this file would
+/// catch it because nothing calls `sha256_hex`.
+///
+/// Mutation: swap the nibble order in `hex`. Fails.
+#[test]
+fn the_public_and_private_digest_helpers_agree() {
+    for input in [
+        &b""[..],
+        b"abc",
+        b"omnidesk",
+        &[0x00, 0x0f, 0xf0, 0xff, 0x7f][..],
+    ] {
+        assert_eq!(
+            sha256_hex(input),
+            sha_hex(input),
+            "the two digest helpers must produce the same string"
+        );
+    }
+}
