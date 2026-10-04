@@ -106,10 +106,10 @@ one under the same name, because the name is taken.
 
 ## Verification
 
-41 tests, each naming the single edit that would let the gate pass while it is
-broken. All 30 mutations were applied and caught.
+46 tests, each naming the single edit that would let the gate pass while it is
+broken. All 34 mutations were applied and caught.
 
-Four survived the first run, and in every case the harness and the tests
+Five survived the first run, and in every case the harness and the tests
 disagreed:
 
 - **Both forward coverage checks were reported as covered but were not.** The
@@ -143,6 +143,43 @@ The complement test
 (`test_a_run_observing_every_gate_with_admissible_evidence_satisfies_the_report`)
 exists because without it, a tool that refused every report forever would pass
 every other test in the file.
+
+## A later finding: `or {}` over a load that can fail
+
+Found while auditing the M14 release gate, which has the same helper shape.
+
+`load_json_or_empty` ended in `load_json(...) or {}`. `load_json` returns `None`
+rather than raising, so one unreadable document fails only its own gate — but
+`or {}` collapsed two different situations into one value:
+
+- no document was named, which is legitimate and optional, and
+- a document *was* named and could not be read.
+
+Two defects followed, both verified by hand before the fix.
+
+**The `--impairment` guard was dead code.** The caller read
+
+    impairment = load_json_or_empty(args.impairment)
+    if impairment is None:
+        fail(...)
+
+but the function was incapable of returning `None`, so that branch could never
+fire. A `link_forced_observed` run was recorded with `impairment: {}` and
+`"recorded": true`. `verify` rejects such an entry later — but the operator got
+a success at the moment they could still act, and a failure minutes afterwards
+naming no cause.
+
+**`--environment` was lost silently.** That caller had no guard at all, so a
+corrupt environment file was recorded as `{}` with no message at all. This
+ledger is evidence someone will later be asked to trust, and recording "the
+environment metadata could not be read" as "there was no environment" is a
+false statement about a real machine.
+
+The general form, worth applying to every optional document load here: keep
+*not named*, *named and readable*, and *named and unreadable* distinct, and
+make the third a refusal that names the path. A default over a load that can
+fail turns a recorded failure into a recorded absence, and the second is
+indistinguishable from the first to whoever reads the ledger later.
 
 ## What this does not deliver
 
