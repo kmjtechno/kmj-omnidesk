@@ -120,9 +120,39 @@ fn tenant_an_audit_query_returns_only_the_named_tenants_events() {
 /// Mutation: drop the domain-separation prefix from the tenant handle digest.
 #[test]
 fn tenant_handles_are_unique_and_stable() {
+    // The cross-kind assertions below were added when the mutation harness
+    // applied this docstring and it survived: the first two hold with or
+    // without the prefix. A docstring naming an edit the test cannot notice is
+    // the same defect as no docstring -- it reads like evidence.
     let acme = tenant("acme");
     assert_eq!(acme.audit_handle(), tenant("acme").audit_handle());
     assert_ne!(acme.audit_handle(), tenant("globex").audit_handle());
+    // Domain separation is what the pair above cannot see. Two distinct
+    // tenants hash to two distinct digests whether or not a prefix is mixed
+    // in, so dropping the prefix leaves both assertions passing. What the
+    // prefix buys is that a tenant and a thing of another kind whose id is the
+    // same string do not land on the same handle -- otherwise an event about
+    // one is indistinguishable from an event about the other.
+    assert_ne!(acme.audit_handle(), principal("acme").audit_handle());
+    assert_ne!(
+        acme.audit_handle(),
+        DeviceProof::new("acme", "attestation", NOW)
+            .expect("proof")
+            .audit_handle()
+    );
+    // Pinned by value, because the assertions above cannot fail for this
+    // mutation. Every one of them is an inequality between two SHA-256
+    // digests, and SHA-256 of the same bytes without a prefix is still a
+    // digest no other input produces -- so dropping the prefix leaves them all
+    // green while the thing the prefix is *for* is gone. What makes the prefix
+    // observable is that the handle is a stable published value: an auditor
+    // correlating against an external store is matching on this exact string,
+    // and a handle that changes when the derivation is refactored breaks every
+    // correlation already recorded against it.
+    //
+    // That is a stronger claim than "unique", and it is the one the privacy
+    // guarantee actually rests on, so it is the one asserted.
+    assert_eq!(acme.audit_handle(), "12ddd5913bae1479");
 }
 
 /// Mutation: make `TenantId::Debug` print `self.0` instead of the handle.
@@ -146,9 +176,15 @@ fn tenant_a_blank_tenant_is_refused() {
     }
 }
 
-/// Mutation: change `MAX_TENANT_ID_BYTES` from 64 to 1024.
+/// Mutation: change `MAX_TENANT_ID_BYTES` from 64 to 8.
 #[test]
 fn tenant_an_overlong_tenant_is_refused() {
+    // The bound is spelled out rather than derived. A test that builds its
+    // input from `MAX_TENANT_ID_BYTES + 1` moves with the constant, so raising
+    // the constant leaves it passing -- which is how this docstring's mutation
+    // survived the harness the first time it was applied. A bound nobody can
+    // move is a bound nobody can test.
+    assert_eq!(MAX_TENANT_ID_BYTES, 64);
     let long = "a".repeat(MAX_TENANT_ID_BYTES + 1);
     assert_eq!(
         TenantId::new(long),
@@ -380,13 +416,28 @@ fn escalation_the_administrative_classification_is_not_the_ceiling() {
     }
 }
 
-/// Mutation: give `Administrator::permissions` only `DeviceList`.
+/// Mutation: delete every entry from `Administrator::permissions` except
+/// `PrincipalManage`.
 #[test]
 fn escalation_a_role_holds_exactly_its_declared_permissions() {
-    assert!(
-        Role::Administrator
-            .permissions()
-            .contains(&Permission::PrincipalManage)
+    // Pinned by value. Three spot-checks are what the harness found this test
+    // lacking: deleting the seven entries a mutation would remove still leaves
+    // `PrincipalManage` present, so every assertion below passed against a role
+    // table that had been gutted. A spot-check says three permissions are
+    // right; only the whole list says what the role holds.
+    assert_eq!(
+        Role::Administrator.permissions(),
+        [
+            Permission::DeviceList,
+            Permission::SessionStart,
+            Permission::SessionAttach,
+            Permission::UnattendedGrant,
+            Permission::PolicyEdit,
+            Permission::DeviceManage,
+            Permission::PrincipalManage,
+            Permission::AuditRead,
+            Permission::SelfService,
+        ]
     );
     assert!(
         !Role::Operator
@@ -1439,9 +1490,27 @@ fn audit_a_device_handle_is_stable_and_hides_the_device_id() {
          from a tenant"
     );
     assert!(!proof.audit_handle().contains("laptop-1"));
+    // The assertion above is satisfied by a handle that returns the device id
+    // in some other encoding, and it cannot see the device/principal prefix at
+    // all. This one can see both: a principal is the third kind that shares the
+    // id space, and a device handle that collides with a principal handle is
+    // the same indistinguishability the tenant check above guards against.
+    assert_ne!(
+        proof.audit_handle(),
+        principal("laptop-1").audit_handle(),
+        "the device prefix is missing, so this handle cannot tell a device \
+         from a principal"
+    );
+    assert_eq!(proof.audit_handle().len(), 16);
+    // Pinned by value, for the same reason as the tenant and principal
+    // handles: every assertion above is an inequality or a substring check,
+    // and none of them can fail if the domain-separation prefix is dropped.
+    assert_eq!(proof.audit_handle(), "223cbfebc4a9117a");
+    assert_eq!(other.audit_handle(), "0141d80c3ff8ad2f");
 }
 
-/// Mutation: remove `PrincipalId::audit_handle`, or make it return the id.
+/// Mutation: make `PrincipalId::audit_handle` return `self.0`, or drop its
+/// domain-separation prefix.
 #[test]
 fn audit_principal_handles_are_unique_and_stable() {
     assert_eq!(
@@ -1452,9 +1521,29 @@ fn audit_principal_handles_are_unique_and_stable() {
         principal("ann").audit_handle(),
         principal("bob").audit_handle()
     );
+    // The two assertions above hold for a handle that returns the principal id
+    // outright, which is what the first half of this docstring names. This
+    // pair is what rules that out: an id in the clear is the thing the handle
+    // exists to prevent, and a handle that is merely *unique* is not yet
+    // pseudonymous. The domain-separation check against a tenant is here for
+    // the same reason the tenant one is -- the uniqueness assertions above
+    // cannot see it.
+    assert!(!principal("ann").audit_handle().contains("ann"));
+    assert_ne!(
+        principal("acme").audit_handle(),
+        tenant("acme").audit_handle()
+    );
+    // Pinned by value for the reason given in `tenant_handles_are_unique_and_
+    // stable`: the inequality above holds with or without the prefix, so it
+    // cannot see the mutation its own docstring names. The handle is a
+    // published value that an external store correlates on, so its exact
+    // derivation is part of the contract.
+    assert_eq!(principal("ann").audit_handle(), "dd8817c23f781735");
+    assert_eq!(principal("bob").audit_handle(), "2f31a904780f07a5");
 }
 
-/// Mutation: make `record` store `principal.as_str()` in the chain digest.
+/// Mutation: make `record` store `principal.as_str()` in the record rather
+/// than `principal.audit_handle()`.
 #[test]
 fn audit_a_different_principal_produces_a_different_digest() {
     let mut one = AuditLog::new();
@@ -1482,11 +1571,38 @@ fn audit_a_different_principal_produces_a_different_digest() {
         one.last().expect("event").digest(),
         two.last().expect("event").digest()
     );
+    // The digest above differs because the whole record differs, which is a
+    // weaker statement than it looks: swapping the principal handle for
+    // anything else unique changes the digest too. What this test is actually
+    // for is that the principal *is committed to* rather than merely present,
+    // and only a cross-record comparison can show that -- an audit record whose
+    // principal field never reached the digest would still verify, still
+    // chain, and still name two different principals.
+    let mut three = AuditLog::new();
+    three
+        .record(
+            &tenant("acme"),
+            &principal("ann"),
+            "a",
+            AuditOutcome::Allow,
+            "",
+            1,
+        )
+        .expect("record");
+    assert_eq!(
+        one.last().expect("event").digest(),
+        three.last().expect("event").digest(),
+        "the same principal must produce the same digest"
+    );
+    assert!(
+        !format!("{}", one.last().expect("event")).contains("ann"),
+        "the principal id reached the record rather than its handle"
+    );
 }
 
 // --- mfa / sso boundary ----------------------------------------------------
 
-/// Mutation: give `Assurance` no ordering, or make `satisfies` always true.
+/// Mutation: make `SingleFactor` satisfy `MultiFactor`.
 #[test]
 fn mfa_strength_is_a_total_order() {
     let ladder = [
@@ -1509,18 +1625,32 @@ fn mfa_strength_is_a_total_order() {
     }
 }
 
-/// Mutation: remove `Assurance::name` or return a `String` from it.
+/// Mutation: change `Assurance::name`'s `multi_factor` arm to return the
+/// label another strength already uses.
 #[test]
 fn mfa_strength_names_are_static() {
-    for assurance in [
+    // Pinned by value, and distinct from each other. The previous version of
+    // this test asserted only that each name was non-empty, which every
+    // possible string satisfies -- it could not fail, and its `Mutation:`
+    // docstring said so. Two strengths reporting the same wire name is a real
+    // failure here: an audit line or a policy document that distinguishes
+    // strength by name becomes ambiguous, and nothing downstream can recover
+    // which was meant.
+    let names: Vec<&'static str> = vec![
         Assurance::None,
         Assurance::SingleFactor,
         Assurance::MultiFactor,
         Assurance::HardwareBacked,
-    ] {
-        let name: &'static str = assurance.name();
-        assert_ne!(name, "");
-    }
+    ]
+    .into_iter()
+    .map(Assurance::name)
+    .collect();
+    assert_eq!(
+        names,
+        vec!["none", "single_factor", "multi_factor", "hardware_backed"]
+    );
+    let unique: std::collections::BTreeSet<&&str> = names.iter().collect();
+    assert_eq!(unique.len(), names.len(), "two strengths share a wire name");
 }
 
 // --- managed deployment ----------------------------------------------------
