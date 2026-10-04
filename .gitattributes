@@ -1,0 +1,48 @@
+# Pin line endings so a file's bytes in the repository do not depend on who
+# checked it out.
+#
+# This was not cosmetic. With no file here, `core.autocrlf=true` on Windows
+# converted LF to CRLF on checkout while the repository stored LF, so a file
+# that no one edited showed as modified with an empty diff:
+#
+#     git status  ->  M crates/omnidesk-core/src/relay.rs
+#     git diff    ->  (nothing)
+#
+# Which means "is the tree clean?" had an answer that was wrong in a way that
+# looks like noise. Any gate reading `git status --porcelain` to decide
+# whether a run started from a known state would read "changed" and could not
+# tell it apart from a real edit.
+#
+# `text=auto` lets git detect text vs binary; the two `* text=...` lines pin
+# the two file kinds this repository actually has. Rust and Python are LF in
+# the repository and CRLF in a Windows checkout, which is what `autocrlf`
+# would have done anyway -- the difference is that it is now a stated property
+# of the repository rather than a property of each developer's config.
+#
+# The `*.sh` and `*.bat` split is the reason this is worth writing down: the
+# push watcher and any shell tooling must stay LF, because a CRLF shebang
+# makes `/bin/sh` fail on a line ending rather than on a real error.
+
+* text=auto
+
+*.rs      text eol=lf
+*.py      text eol=lf
+*.toml    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.json    text eol=lf
+*.md      text eol=lf
+*.sh      text eol=lf
+
+# Windows-native launchers must keep CRLF; cmd.exe does not accept LF-only
+# batch files reliably.
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+# Not text. `text=auto` leaves these alone, and naming them stops a future
+# `* text=auto` from being read as applying to them.
+*.png     binary
+*.jpg     binary
+*.ico     binary
+*.exe     binary
+*.pdf     binary
