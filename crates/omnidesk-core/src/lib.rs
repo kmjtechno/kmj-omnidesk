@@ -5,22 +5,32 @@
 
 #![forbid(unsafe_code)]
 
+pub mod adaptive_session;
 pub mod authentication;
 pub mod collaboration;
+pub mod commercial_gate;
 pub mod connectivity;
 pub mod direct_connect;
 pub mod direct_udp;
+pub mod enterprise;
+pub mod frame_queue;
 pub mod input;
 pub mod licensing;
+pub mod log_scrubber;
 pub mod media;
 pub mod metrics;
 pub mod nat_traversal;
 pub mod pipeline;
 pub mod product_shell;
 pub mod reconnect;
+pub mod relay;
 pub mod session;
 pub mod stun;
 pub mod transport;
+pub mod uninstall;
+pub mod update_path;
+pub mod weak_network;
+pub mod weak_network_reconnect;
 
 pub use omnidesk_protocol::{PRODUCT_ID, PRODUCT_SLUG, PROTOCOL_VERSION};
 

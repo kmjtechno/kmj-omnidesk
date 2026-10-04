@@ -11,3 +11,15 @@ Thumbs.db
 *.p12
 *.pfx
 secrets/
+
+# Fuzzing build output and crash artifacts. Crash inputs are never committed:
+# a failing artifact is a gate failure to be fixed, not a fixture to preserve.
+/fuzz/target/
+/fuzz/artifacts/
+/fuzz/Cargo.lock
+
+# CI evidence output.
+artifacts/
+
+# Python bytecode from the scripts/ test suites.
+__pycache__/

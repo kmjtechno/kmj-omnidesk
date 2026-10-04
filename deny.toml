@@ -1,0 +1,110 @@
+# Dependency policy for KMJ OmniDesk.
+#
+# OmniDesk ships a privileged remote-control client, so dependency review is
+# a security gate rather than housekeeping. This file makes the policy
+# machine-checkable via `cargo deny check`.
+#
+# Scope note: this covers licences, advisory status and duplicate versions.
+# It deliberately does NOT claim the dependency tree is free of new CVEs on
+# any given day — that is what the advisory database and release review are
+# for. A clean `cargo deny check` is evidence, not proof.
+
+[graph]
+all-features = true
+
+# Bans are hard failures. Each one encodes a decision that would otherwise
+# only live in a reviewer's head.
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+# Internal workspace crates are declared as bare `{ path = ... }` deps with
+# no version, which is correct for first-party code and is not a
+# supply-chain risk. The concern behind `wildcards = "deny"` is an unpinned
+# *registry* version, so permit the bare path form specifically.
+allow-wildcard-paths = true
+
+# `deny` names below are exclusions, not an allowlist: cargo-deny only treats
+# an explicit `bans.allow` list as allowlist mode. Without any `allow`
+# entries, the tree is judged as-is and these crates alone are rejected.
+[[bans.deny]]
+name = "openssl"
+reason = """
+OpenSSL is not vendored or reproducibly built here, and its licensing/
+maintenance posture is not required by anything OmniDesk currently links.
+QUIC and TLS work goes through rustls so the trust chain stays auditable.
+"""
+
+# Licences: permissive, proven, no copyleft obligations that would reach the
+# shipped client binary. `LicenseRef-KMJ-Proprietary` is OmniDesk's own
+# licence for its own crates; it is not an SPDX identifier, so it has to be
+# allowed explicitly rather than inferred.
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "BSL-1.0",
+    "MPL-2.0",
+    "CC0-1.0",
+    "Unicode-DFS-2016",
+    "LicenseRef-KMJ-Proprietary",
+]
+confidence-threshold = 0.9
+
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0e_ed23 }]
+
+[[licenses.clarify]]
+name = "webpki-roots"
+expression = "MPL-2.0"
+license-files = [{ path = "LICENSE", hash = 0x548c_2dab }]
+
+# `zmij` (float-to-string) is published by dtolnay, who also maintains
+# serde_json, and is MIT per its upstream repository. Its crates.io index
+# entry carries no `license` field, so state it here rather than letting an
+# unrelated dependency of ours decide the policy.
+[[licenses.clarify]]
+name = "zmij"
+expression = "MIT"
+license-files = [{ path = "LICENSE-MIT", hash = 0x23f1_8e03 }]
+
+# A newly introduced licence is a review decision, not a build detail, so
+# anything outside the allow-list above fails the build by default.
+
+# Security advisories. Duplicate transitive advisories are tolerated because
+# a single upstream CVE usually surfaces several times in one tree, but a new
+# vulnerability must break the build.
+[advisories]
+version = 2
+yanked = "deny"
+
+# KNOWN, ACCEPTED, NOT FIXED UPSTREAM.
+#
+# `ttf-parser` is unmaintained (RUSTSEC-2026-0192). It reaches OmniDesk only
+# transitively: winit -> sctk-adwaita -> ab_glyph -> ttf-parser, on desktop
+# font fallback. OmniDesk's own UI uses the embedded bitmap `font8x8`, so no
+# attacker-controlled font is parsed through this path today.
+#
+# This is a tracked exception with a stated expiry, not a silent waiver. The
+# replacement named upstream (`skrifa`) cannot be adopted without a winit
+# release that migrates off ab_glyph, which does not exist yet. When it does,
+# delete this entry so the gate fails and forces the upgrade.
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0192"
+reason = """
+Unmaintained with no safe upgrade: OmniDesk does not parse untrusted fonts
+through this path (bitmap font8x8 is used instead), and the suggested
+replacement requires a winit release that does not exist yet. Re-check and
+remove once winit migrates off ab_glyph/ttf-parser.
+"""
+
+[licenses.private]
+ignore = true

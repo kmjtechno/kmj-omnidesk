@@ -115,6 +115,29 @@ impl ClipboardSyncState {
     pub const fn last_payload_sha256(&self) -> Option<[u8; 32]> {
         self.payload_sha256
     }
+
+    /// Forgets every observation, so no state from a finished session survives
+    /// into the next one.
+    ///
+    /// Without this, sequence numbers carry across a session boundary and the
+    /// first update of a new session is rejected as a replay, or worse, an
+    /// old sequence is accepted because the counter happens to be lower.
+    /// Either way the state outlives what it was evidence for.
+    ///
+    /// Also called on revoke, not only on a clean end: a session cut short is
+    /// exactly the case where the previous peer's clipboard history is least
+    /// wanted.
+    pub const fn clear(&mut self) {
+        *self = Self::new();
+    }
+
+    /// Whether any state is currently held.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.sent_sequence.is_none()
+            && self.received_sequence.is_none()
+            && self.payload_sha256.is_none()
+    }
 }
 
 impl Default for ClipboardSyncState {
@@ -592,6 +615,96 @@ mod tests {
                 .accept(policy, DataDirection::RemoteToLocal, 1, b"remote")
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn a_new_session_starts_with_no_clipboard_state() {
+        assert!(ClipboardSyncState::new().is_empty());
+        assert!(ClipboardSyncState::default().is_empty());
+    }
+
+    #[test]
+    fn clearing_removes_the_digest_and_both_sequence_numbers() {
+        let policy = ClipboardPolicy {
+            send_allowed: true,
+            receive_allowed: true,
+        };
+        let mut state = ClipboardSyncState::new();
+
+        state
+            .accept(policy, DataDirection::LocalToRemote, 7, b"outgoing")
+            .expect("accept");
+        state
+            .accept(policy, DataDirection::RemoteToLocal, 9, b"incoming")
+            .expect("accept");
+
+        assert!(!state.is_empty());
+        assert!(state.last_payload_sha256().is_some());
+
+        state.clear();
+
+        assert!(
+            state.is_empty(),
+            "state from a finished session must not survive into the next"
+        );
+        assert_eq!(state.last_payload_sha256(), None);
+    }
+
+    #[test]
+    fn a_new_session_can_restart_its_sequence_from_one() {
+        let policy = ClipboardPolicy {
+            send_allowed: true,
+            receive_allowed: true,
+        };
+        let mut state = ClipboardSyncState::new();
+
+        state
+            .accept(policy, DataDirection::LocalToRemote, 42, b"first")
+            .expect("first session");
+
+        // Without a clear, the new session's first update would be rejected as
+        // a replay of the previous one's numbering.
+        state.clear();
+
+        assert!(
+            state
+                .accept(policy, DataDirection::LocalToRemote, 1, b"second")
+                .is_ok(),
+            "a new session must be able to start its sequence again"
+        );
+    }
+
+    #[test]
+    fn replay_protection_still_holds_after_a_clear_within_a_session() {
+        let policy = ClipboardPolicy {
+            send_allowed: true,
+            receive_allowed: true,
+        };
+        let mut state = ClipboardSyncState::new();
+
+        state
+            .accept(policy, DataDirection::LocalToRemote, 5, b"one")
+            .expect("accept");
+
+        // `clear` is a session-lifecycle operation, not a way to sidestep
+        // ordering. Within one session the sequence must still move forward.
+        state.clear();
+        state
+            .accept(policy, DataDirection::LocalToRemote, 5, b"again")
+            .expect("after clear");
+        assert_eq!(
+            state.accept(policy, DataDirection::LocalToRemote, 5, b"replay"),
+            Err(ClipboardSyncError::ReplayOrOutOfOrder),
+            "a repeated sequence must still be refused after a clear"
+        );
+    }
+
+    #[test]
+    fn clearing_twice_is_harmless() {
+        let mut state = ClipboardSyncState::new();
+        state.clear();
+        state.clear();
+        assert!(state.is_empty());
     }
 
     #[test]

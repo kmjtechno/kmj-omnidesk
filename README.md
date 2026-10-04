@@ -14,6 +14,8 @@
 
 [Architecture](#architecture) · [Verified status](#current-status) · [Engineering](#build-with-us) · [Roadmap](./ROADMAP.yaml) · [Security](./SECURITY.md)
 
+[**Official KMJ TECHNO GitHub Organization →**](https://github.com/KMJ-TECHNO)
+
 </div>
 
 ![KMJ OmniDesk hero](./docs/readme/omnidesk-hero.svg)

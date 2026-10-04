@@ -165,7 +165,7 @@ mod tests {
             result,
             Err(InputError::Session(SessionError::ControlNotAuthorized))
         );
-        assert!(dispatcher.adapter().events.is_empty());
+        assert_eq!(dispatcher.adapter().events.len(), 0);
     }
 
     #[test]
@@ -198,7 +198,7 @@ mod tests {
             dispatcher.dispatch(&session, event),
             Err(InputError::StaleSession)
         );
-        assert!(dispatcher.adapter().events.is_empty());
+        assert_eq!(dispatcher.adapter().events.len(), 0);
     }
 
     #[test]

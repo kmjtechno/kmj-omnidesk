@@ -1,6 +1,8 @@
 [package]
 name = "omnidesk-m4-validator"
 version = "0.0.1"
+# Proprietary: these crates are never published to a public registry.
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
