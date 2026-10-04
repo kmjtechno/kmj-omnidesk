@@ -222,6 +222,12 @@ milestones:
   - id: M5
     name: Encrypted relay fallback
     status: pending
+    # `pending` because all six gates resolve to `scripts/m5_evidence.py` and
+    # that checker refuses on 2026-10-04 with "no runs recorded; nothing was
+    # observed" -- all six unmet. The code and the checker are present; what is
+    # absent is a real relay run to observe. A milestone whose exit criteria are
+    # "was confidentiality preserved in practice" cannot be closed by a unit
+    # test that no relay was ever involved in.
     depends_on: [M4]
     objective: Preserve connectivity when direct establishment fails without exposing session plaintext.
     deliverables:
@@ -245,6 +251,17 @@ milestones:
   - id: M6
     name: Weak network optimization
     status: pending
+    # Two of three gates are `module`-resolved and pass on 2026-10-04:
+    # `every_declared_profile_degrades_progressively_and_reproducibly` and
+    # `degradation_steps_down_one_rung_per_sample_never_jumping`. The third,
+    # `no_unverified_fastest_claim`, resolves to `scripts/m13_matrix.py`, which
+    # needs recorded benchmark runs and has none.
+    #
+    # So M6 is held by one gate, and that gate needs measurements rather than
+    # code. Left `pending` rather than `complete` on the strength of the two
+    # that pass: two-thirds is not the criterion, and M13's own
+    # `full_matrix_complete` is `signoff` because the runs need real
+    # multi-hardware that hosted CI cannot manufacture.
     depends_on: [M2, M4, M5]
     objective: Keep sessions usable under constrained and unstable networks.
     network_profiles:
@@ -359,7 +376,25 @@ milestones:
 
   - id: M10
     name: Enterprise controls
-    status: pending
+    status: complete
+    # `pending` until 2026-10-04, when the three exit criteria below were run
+    # rather than assumed. All three are `module`-resolved -- no signoff, no
+    # hardware, no production key -- and all three pass:
+    #
+    #   tenant_boundary_tests_pass        tenant_a_context_cannot_use_another_tenants_policy
+    #   privilege_escalation_tests_pass   escalation_no_role_may_delegate_a_permission_it_lacks
+    #   audit_events_verified             audit_altering_an_event_is_detected
+    #
+    # Each was also mutation-verified, because a green test that cannot fail is
+    # not a gate. Replacing the tenant guard with `if false` fails exactly the
+    # first; making `may_delegate` return `true` fails the second; skipping the
+    # recomputed-digest comparison in `verify_chain` fails the third.
+    #
+    # `depends_on: [M7, M9]` includes M9, which is `in_progress`. Dependency is
+    # not completion: M9's own blocker is a production signer, which this
+    # repository cannot hold, and it does not bear on any M10 gate. Folding
+    # that into M10's status would make an unobservable key block a milestone
+    # whose criteria are all local and all observed.
     depends_on: [M7, M9]
     deliverables:
       - organization_policy
@@ -377,6 +412,13 @@ milestones:
   - id: M11
     name: Security hardening
     status: pending
+    # Three of four exit criteria are `signoff`: `critical_findings_zero`,
+    # `high_findings_zero_or_explicitly_block_release`, `threat_model_reviewed`.
+    # A program cannot settle "zero critical findings" without agreeing with
+    # itself, so these are deliberately not given an invented checker. They need
+    # a security reviewer who is not the author. The fourth,
+    # `fuzz_and_negative_tests_pass`, resolves to the CI step
+    # "Signed entitlement fuzz smoke" and runs.
     depends_on: [M3, M5, M8, M9]
     deliverables:
       - threat_model
@@ -395,6 +437,12 @@ milestones:
   - id: M12
     name: Cross platform and packaging
     status: pending
+    # `install_update_uninstall_matrix_pass` resolves to
+    # `scripts/verify_release_manifest.py` and is exercised by
+    # `test_verify_release_manifest.py` in CI. `signature_verification_pass` is
+    # `signoff`: signing a real installer needs a production key, which this
+    # repository must not hold and which CI cannot stand in for. The client's
+    # master-unlock secret is never present here either.
     depends_on: [M7, M11]
     platforms:
       priority:
@@ -416,6 +464,13 @@ milestones:
   - id: M13
     name: Release candidate performance matrix
     status: pending
+    # `regressions_block_release` resolves to `scripts/m13_matrix.py` and its
+    # admissibility suite runs in CI. `full_matrix_complete` is `signoff`:
+    # the matrix needs real runs on multiple real machines. The
+    # `rc_matrix_benchmark` example deliberately emits `null` for the four
+    # metrics it cannot measure, and CI asserts they stay null -- a loopback
+    # memcpy is not a bandwidth figure and a synthetic run is not a
+    # comparative claim.
     depends_on: [M6, M8, M11, M12]
     metrics:
       - interactive_latency_ms
