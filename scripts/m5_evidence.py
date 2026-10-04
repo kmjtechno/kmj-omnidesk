@@ -594,7 +594,7 @@ def command_record(args: argparse.Namespace) -> None:
         "raw_bytes": size,
         "raw_path": raw_name,
         "gates_observed": gates,
-        "environment": load_json_or_empty(args.environment),
+        "environment": load_json_or_empty(args.environment, "environment metadata"),
     }
 
     for field in ("test_binary", "relay_endpoint", "client_endpoint", "server_endpoint"):
@@ -603,10 +603,7 @@ def command_record(args: argparse.Namespace) -> None:
             entry[field] = value
 
     if args.impairment:
-        impairment = load_json_or_empty(args.impairment)
-        if impairment is None:
-            fail(f"could not read impairment description: {args.impairment}")
-        entry["impairment"] = impairment
+        entry["impairment"] = load_json_or_empty(args.impairment, "impairment description")
 
     if args.unauthorized_attempted is not None:
         entry["unauthorized_attempted"] = args.unauthorized_attempted
@@ -622,11 +619,29 @@ def command_record(args: argparse.Namespace) -> None:
     print(json.dumps({"run_id": run_id, "recorded": True}, sort_keys=True))
 
 
-def load_json_or_empty(value: str | None) -> dict:
+def load_json_or_empty(value: str | None, label: str) -> dict:
+    """Load an optional document, refusing when named but unreadable.
+
+    The `None` return here means "no value was named" and nothing else. A
+    value that *was* named and could not be read is a refusal, because the
+    first version of this helper did `load_json(...) or {}` and collapsed both
+    into `{}`. That made the guard at the `--impairment` caller unreachable --
+    the function could not return `None`, so `if impairment is None` was dead --
+    and silently discarded an `--environment` file that existed but was
+    corrupt.
+
+    A recorded run is evidence someone will later be asked to trust. Recording
+    "the impairment description could not be read" as "the impairment was
+    empty" is worse than refusing, because an empty impairment later reads as
+    a run that never broke the link, rather than as the failure it was.
+    """
     if not value:
         return {}
     path = Path(value).resolve(strict=True)
-    return load_json(path, str(path)) or {}
+    document = load_json(path, str(path))
+    if document is None:
+        fail(f"could not read {label} at {value}")
+    return document
 
 
 def command_verify(args: argparse.Namespace) -> None:
