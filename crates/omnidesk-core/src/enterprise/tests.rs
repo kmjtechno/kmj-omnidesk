@@ -1257,6 +1257,93 @@ fn audit_a_record_never_contains_a_tenant_or_principal_name() {
     );
 }
 
+/// Mutation: change `short_hex` to emit the whole digest instead of 8 bytes.
+#[test]
+fn audit_every_handle_is_sixteen_lowercase_hex_characters() {
+    let mut log = AuditLog::new();
+    log.record(
+        &tenant("acme"),
+        &principal("ann"),
+        "device.list",
+        AuditOutcome::Allow,
+        "",
+        NOW,
+    )
+    .expect("record");
+    let event = log.last().expect("one event");
+
+    for handle in [
+        event.handle(),
+        tenant("acme").audit_handle(),
+        principal("ann").audit_handle(),
+        DeviceProof::new("laptop-1", "attestation-1", NOW)
+            .expect("proof")
+            .audit_handle(),
+    ] {
+        assert_eq!(handle.len(), 16, "handle width drifted: {handle}");
+        assert!(
+            handle
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "handle is not lowercase hex: {handle}"
+        );
+    }
+}
+
+/// Mutation: make `AuditEvent::handle` return the tenant handle, or return the
+/// digest as `Debug` rather than hex.
+#[test]
+fn audit_an_event_handle_correlates_with_nothing_but_its_own_digest() {
+    let mut log = AuditLog::new();
+    log.record(
+        &tenant("acme"),
+        &principal("ann"),
+        "device.list",
+        AuditOutcome::Allow,
+        "",
+        NOW,
+    )
+    .expect("record");
+    let event = log.last().expect("one event").clone();
+
+    assert_eq!(event.handle(), event.handle(), "handle must be stable");
+    assert_ne!(event.handle(), event.tenant_handle());
+    assert_ne!(event.handle(), tenant("acme").audit_handle());
+    // The documented use is correlating with an external store that holds the
+    // handle, so it must be derived from the digest and nothing else.
+    assert_eq!(
+        event.handle(),
+        event.digest()[..8]
+            .iter()
+            .fold(String::with_capacity(16), |mut acc, byte| {
+                use std::fmt::Write as _;
+                let _ = write!(acc, "{byte:02x}");
+                acc
+            })
+    );
+}
+
+/// Mutation: make `DeviceProof::audit_handle` return the device id, or drop
+/// its domain-separation prefix so it collides with the tenant handle.
+#[test]
+fn audit_a_device_handle_is_stable_and_hides_the_device_id() {
+    let proof = DeviceProof::new("laptop-1", "attestation-1", NOW).expect("proof");
+    let other = DeviceProof::new("laptop-2", "attestation-2", NOW).expect("proof");
+
+    assert_eq!(proof.audit_handle(), proof.audit_handle());
+    assert_ne!(proof.audit_handle(), other.audit_handle());
+    // Distinct prefixes per kind: a device and a tenant whose ids would
+    // otherwise hash alike must not share a handle, or an event about one is
+    // indistinguishable from an event about the other.
+    assert_ne!(
+        proof.audit_handle(),
+        tenant("laptop-1").audit_handle(),
+        "the device prefix is missing, so this handle cannot tell a device \
+         from a tenant"
+    );
+    assert!(!proof.audit_handle().contains("laptop-1"));
+}
+
 /// Mutation: remove `PrincipalId::audit_handle`, or make it return the id.
 #[test]
 fn audit_principal_handles_are_unique_and_stable() {
