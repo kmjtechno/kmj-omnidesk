@@ -659,6 +659,102 @@ fn device_a_policy_requiring_a_trusted_device_refuses_an_untrusted_one() {
     assert_eq!(decision, Decision::Allow);
 }
 
+// The tests below read `DeviceTrust`'s predicates directly rather than through
+// `TrustRegistry::assess`. `assess` checks `is_revoked()` before it calls
+// `is_trusted_at`, so the `!self.revoked` conjunct *inside* `is_trusted_at` is
+// never the deciding clause on that path -- deleting it leaves every `assess`
+// test green. The predicate has a second caller, `PolicyEngine::evaluate`, with
+// no earlier revoked check of its own, so the conjunct is load-bearing there
+// and only there.
+
+/// Mutation: delete `!self.revoked &&` from `DeviceTrust::is_trusted_at`.
+#[test]
+fn device_the_authorization_predicate_itself_refuses_a_revoked_device() {
+    let mut registry = registry_with_device("laptop-1");
+    let trust = registry.get("laptop-1").expect("device present").clone();
+    assert!(trust.is_trusted_at(NOW));
+    assert!(trust.is_trusted_at_now());
+
+    registry.revoke("laptop-1");
+    let revoked = registry.get("laptop-1").expect("device present").clone();
+    assert!(revoked.is_revoked());
+    assert!(!revoked.is_trusted_at(NOW));
+    assert!(!revoked.is_trusted_at_now());
+
+    let strict = PolicyDocument::new(tenant("acme"), 1).require_trusted_device();
+    let context = admin("ann", "acme").with_device_trust(revoked);
+    assert_eq!(
+        PolicyEngine::new(strict)
+            .evaluate(&context, Role::Administrator, Permission::DeviceList)
+            .expect("tenant matches"),
+        Decision::Deny(DenyReason::UntrustedDevice)
+    );
+}
+
+/// Mutation: change `now < self.trust_expires_at` to `now <=`.
+#[test]
+fn device_an_assessment_made_at_its_expiry_instant_is_already_expired() {
+    let mut registry = TrustRegistry::new();
+    registry
+        .enroll("laptop-1", NOW, NOW + 30 * DAY, NOW + 30 * DAY, true)
+        .expect("enrol");
+    let trust = registry.get("laptop-1").expect("device present").clone();
+    assert_eq!(trust.assessed_at(), trust.trust_expires_at());
+    assert!(!trust.is_trusted_at_now());
+    // The same record, one argument earlier. If these two ever agree the
+    // predicate is reading a clock instead of the argument it was handed.
+    assert!(trust.is_trusted_at(trust.trust_expires_at() - 1));
+
+    let strict = PolicyDocument::new(tenant("acme"), 1).require_trusted_device();
+    let context = admin("ann", "acme").with_device_trust(trust);
+    assert_eq!(
+        PolicyEngine::new(strict)
+            .evaluate(&context, Role::Administrator, Permission::DeviceList)
+            .expect("tenant matches"),
+        Decision::Deny(DenyReason::UntrustedDevice)
+    );
+}
+
+/// Mutation: replace `self.assessed_at` in `is_trusted_at_now` with `u64::MAX`.
+#[test]
+fn device_an_unexpired_assessment_is_trusted() {
+    let registry = registry_with_device("laptop-1");
+    let trust = registry.get("laptop-1").expect("device present").clone();
+    assert!(trust.is_trusted_at_now());
+    assert!(trust.is_trusted_at(trust.trust_expires_at() - 1));
+    assert!(!trust.is_trusted_at(trust.trust_expires_at()));
+}
+
+/// Mutation: swap the `is_revoked` and `is_trusted_at` checks in `assess`.
+#[test]
+fn device_revocation_is_reported_even_when_the_trust_has_also_expired() {
+    let mut registry = TrustRegistry::new();
+    registry
+        .enroll("laptop-1", NOW, NOW + DAY, NOW, true)
+        .expect("enrol");
+    assert!(registry.revoke("laptop-1"));
+    assert_eq!(
+        registry.assess("laptop-1", NOW + 30 * DAY),
+        TrustDecision::Revoked,
+        "a retired device is `Revoked`, not `Expired`: the two tell an \
+         administrator the device was withdrawn rather than merely aged out"
+    );
+}
+
+/// Mutation: change `matches!(self, Self::Trusted)` in `TrustDecision::is_trusted`
+/// to `!matches!(self, Self::Trusted)`.
+#[test]
+fn device_only_the_trusted_decision_counts_as_trusted() {
+    assert!(TrustDecision::Trusted.is_trusted());
+    for decision in [
+        TrustDecision::NotEnrolled,
+        TrustDecision::Revoked,
+        TrustDecision::Expired,
+    ] {
+        assert!(!decision.is_trusted(), "{decision:?} is not trusted");
+    }
+}
+
 /// Mutation: make `DeviceProof::new` accept an unbounded attestation.
 #[test]
 fn device_proof_bounds_its_attestation_reference() {

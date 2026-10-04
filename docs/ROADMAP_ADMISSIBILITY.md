@@ -197,6 +197,37 @@ The boundary is deliberate. A checker that tried to verify test *semantics*
 would be a second, weaker copy of the test suite, and it would pass whenever
 the copy was wrong in the same way.
 
+## A case where that boundary cost something
+
+M10 declares three gates, all resolved by `module`, so all three were
+"covered" while `enterprise::tests` held 62 passing tests. Auditing the public
+functions of `enterprise/trusted_device.rs` by hand found a check that all 62
+missed.
+
+`TrustRegistry::assess` calls `device.is_revoked()` and returns before it ever
+calls `device.is_trusted_at`. So the `!self.revoked` conjunct *inside*
+`is_trusted_at` is never the deciding clause on that path. Deleting it leaves
+every `assess` test green — verified, not inferred: the only failing test after
+the edit was the one written to catch it.
+
+It is load-bearing somewhere else. `PolicyEngine::evaluate` calls
+`is_some_and(DeviceTrust::is_trusted_at_now)` with no earlier revoked check, so
+removing the conjunct makes a `require_trusted_device` policy **allow** a
+revoked device — and no test noticed, because no test called the predicate
+directly.
+
+The gate was enforced in both directions and neither direction saw it. What
+caught it was reading which caller decided the outcome, not any checker.
+
+Five tests now cover the predicates directly. Each was mutation-verified:
+dropping the conjunct fails 1, `<` to `<=` fails 3, `assessed_at` to `u64::MAX`
+fails 3, swapping the `assess` check order fails 2, inverting
+`TrustDecision::is_trusted` fails 1.
+
+The generalisable form: a predicate can be fully exercised through one caller
+and entirely unguarded through another, and a coverage count cannot tell those
+apart. Only the mutation does.
+
 ## Mutation coverage
 
 `verify_roadmap_admissibility_mutations.py` applies 28 edits, one per
