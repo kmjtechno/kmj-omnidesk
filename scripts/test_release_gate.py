@@ -492,6 +492,102 @@ class CommandLineTests(ReleaseFixture):
 
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def _run_cli(self, release_path: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "scripts" / "release_gate.py"),
+                "--release",
+                str(release_path),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=REPO_ROOT,
+        )
+
+    def test_an_unreadable_manifest_refuses_instead_of_crashing(self) -> None:
+        """Mutation: delete the `if release is None` block from `main`.
+
+        `load_json` promises to return None rather than raise, so that one
+        missing document fails its own gate and lets the others report. `main`
+        was the one caller that passed that None straight into `evaluate`,
+        which did `release.get(...)` on it. The result was an
+        `AttributeError: 'NoneType' object has no attribute 'get'` before a
+        single gate spoke.
+
+        The assertions are on stdout, not on the exit code, and that is the
+        whole point of this test. A Python traceback exits 1. So does a clean
+        refusal. Asserting only "nonzero" is satisfied by both the working tool
+        and the broken one -- a test that passes against the defect it was
+        written for is worse than no test, because it looks like coverage.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "not-here.json"
+            result = self._run_cli(missing)
+
+        self.assertNotIn("Traceback", result.stderr, result.stderr)
+        report = json.loads(result.stdout)  # a crash prints no report at all
+        self.assertFalse(report["admissible"])
+        self.assertEqual(report["release"], "<unreadable>")
+        self.assertTrue(
+            any("cannot read the release manifest" in p for p in report["problems"]),
+            report["problems"],
+        )
+        self.assertEqual(result.returncode, 1)
+
+    def test_a_malformed_manifest_is_refused_the_same_way(self) -> None:
+        """Mutation: let `json.JSONDecodeError` propagate out of `main`.
+
+        A manifest truncated by a half-finished write is the same failure as a
+        manifest that was never there, and it must produce the same answer. It
+        used not to: this path raised, and the two cases that look identical to
+        an operator produced two different behaviours.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            truncated = Path(directory) / "release.json"
+            truncated.write_text('{"artifacts": [', encoding="utf-8")
+            result = self._run_cli(truncated)
+
+        self.assertNotIn("Traceback", result.stderr, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertFalse(report["admissible"])
+        self.assertEqual(report["release"], "<unreadable>")
+        self.assertEqual(result.returncode, 1)
+
+    def test_an_unreadable_manifest_names_the_path_it_could_not_read(self) -> None:
+        """Mutation: report an unreadable manifest with an empty problem list.
+
+        `admissible: false` with nothing to fix is a refusal the operator
+        cannot act on. Naming the path is what turns it into a repair
+        instruction, and nothing else here stands between them and a guess.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "not-here.json"
+            result = self._run_cli(missing)
+
+        report = json.loads(result.stdout)
+        self.assertIn(str(missing), "\n".join(report["problems"]))
+
+    def test_a_readable_manifest_is_unaffected_by_the_unreadable_path(self) -> None:
+        """The complement of the tests above.
+
+        A `main` that refuses *everything* would satisfy all three of them.
+        This asserts a well-formed release still gets a full per-gate report,
+        so the guard added for the unreadable case is a guard and not a blanket
+        refusal wearing one.
+        """
+        release = self.a_complete_release()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "release.json"
+            path.write_text(json.dumps(release), encoding="utf-8")
+            result = self._run_cli(path)
+
+        report = json.loads(result.stdout)
+        self.assertNotEqual(report["release"], "<unreadable>")
+        self.assertEqual(len(report["gates"]), len(M14_GATES))
+        for gate in ("signed_release_artifacts", "update_metadata_verified"):
+            self.assertEqual(report["gates"][gate]["status"], "green", gate)
+
     def test_the_roadmap_gate_list_is_read_from_the_roadmap(self) -> None:
         """Mutation: hard-code the gate list in the tool.
 

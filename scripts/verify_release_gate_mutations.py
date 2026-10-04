@@ -148,6 +148,32 @@ MUTATIONS: list[tuple[str, str, str]] = [
         "return 0 if report[\"admissible\"] else 1",
         "return 0",
     ),
+    # --- an unreadable manifest ------------------------------------------
+    # These four exist because the first version of the fix's test asserted
+    # only "exits nonzero". A traceback exits nonzero, so that assertion held
+    # against the defect it was written for. Each mutation below is the crash
+    # itself, or a failure mode of the fix; every one is caught only because
+    # the tests read stdout rather than the exit code.
+    (
+        "an unreadable manifest crashes instead of refusing",
+        "if release is None:",
+        "if False:",
+    ),
+    (
+        "an unreadable manifest is reported as admissible",
+        '                    "admissible": False,',
+        '                    "admissible": True,',
+    ),
+    (
+        "an unreadable manifest reports no problem to act on",
+        '                        f"release: cannot read the release manifest at {args.release}",\n',
+        "",
+    ),
+    (
+        "a readable manifest is refused by the unreadable guard",
+        "if release is None:",
+        "if release is not None:",
+    ),
 ]
 
 
