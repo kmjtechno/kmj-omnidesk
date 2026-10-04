@@ -132,6 +132,36 @@ MUTATIONS: list[tuple[str, str, str]] = [
         'sorted(\n            (f"{item[\'milestone\']}:{item[\'gate\']}" for item in signoffs)\n        )',
         "[]",
     ),
+    (
+        "orphans are collected but never reported",
+        '    for name in orphans:\n        problems.append(',
+        "    for name in []:\n        problems.append(",
+    ),
+    (
+        "the orphan list is emptied regardless of the report",
+        'orphans = orphaned_harnesses(root)',
+        "orphans = []",
+    ),
+    (
+        "an orphan is not a problem, only a listing",
+        '        problems.append(\n            f"scripts/{name} exists but nothing invokes it -- an unrun check "\n            "cannot fail, so it enforces nothing"\n        )',
+        "        pass",
+    ),
+    (
+        "test suites count as proof a harness is invoked",
+        'if path.suffix == ".py" and path.stem.startswith(("test_", "verify_")):',
+        "if False:",
+    ),
+    (
+        "the docs tree is skipped because a directory cannot be read as text",
+        'haystacks.extend(sorted((root / "docs").glob("*.md")))',
+        'haystacks.append(root / "docs")',
+    ),
+    (
+        "a missing scripts directory reads as nothing being orphaned",
+        '        fail(f"missing scripts directory: {scripts}")',
+        '        return []',
+    ),
 ]
 
 

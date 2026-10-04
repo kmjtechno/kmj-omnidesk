@@ -13,6 +13,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -395,6 +396,125 @@ class TestReportDerivation(Fixture):
         )
         after = self.report()
         self.assertEqual(after["gates_covered"], registry_total - 1)
+
+
+class TestOrphanedHarnesses(Fixture):
+    """The reverse mistake: a check that exists and is never run.
+
+    `verify_uninstall_mutations.py`, `verify_release_gate_mutations.py` and
+    `verify_m5_evidence_mutations.py` were each referenced by zero files. They
+    worked when run by hand and no CI step invoked any of them -- the same
+    shape as M1's `authenticated_lan` test, one directory over.
+    """
+
+    def test_the_real_repository_has_no_orphaned_harnesses(self) -> None:
+        report = self.report()
+        self.assertEqual(report["orphaned_harnesses"], [])
+
+    def probe(self, prefix: str = "verify") -> str:
+        """Write an unrun harness and return its name.
+
+        The name is assembled at run time, never written as a literal. A
+        literal would appear in this file, this file would be a haystack, and
+        the probe would excuse itself -- the check would be unable to see the
+        exact case it exists to detect, and would pass while broken.
+        """
+        name = f"{prefix}_{'orphan' + uuid4().hex[:8]}_probe.py"
+        (self.root / "scripts" / name).write_text("# an unrun check\n", encoding="utf-8")
+        return name
+
+    def test_an_uninvoked_harness_is_reported(self) -> None:
+        """Mutation: `orphans.append(name)` removed.
+
+        Asserted through the *report* rather than by calling `orphaned_harnesses`
+        directly, because the failure this guards against is the check
+        computing a list that nothing reads -- the bug found in `m5_evidence.py`,
+        where integrity problems were collected and then discarded.
+        """
+        name = self.probe()
+        report = self.report()
+        self.assertIn(name, report["orphaned_harnesses"])
+        self.assertTrue(
+            any(name in problem for problem in report["problems"]),
+            "an orphan must be reported as a problem, not merely listed",
+        )
+
+    def test_an_orphan_makes_the_roadmap_inadmissible(self) -> None:
+        """The complement of the test above.
+
+        Without this, a checker that lists orphans and still says
+        `roadmap_admissible: true` would pass the test that finds them.
+        """
+        self.probe()
+        report = self.report()
+        self.assertFalse(
+            report["roadmap_admissible"],
+            "an unrun check enforces nothing, so the roadmap is not admissible",
+        )
+
+    def test_a_test_suite_mentioning_a_harness_does_not_excuse_it(self) -> None:
+        """Mutation: read every `scripts/*.py` as a haystack.
+
+        The bug this pins. A test suite names a harness to assert something
+        *about* it, which is the opposite of invoking it -- and when the
+        checker read its own test file as evidence, the two tests that create a
+        probe could not see the probe, because writing it had made it look
+        invoked.
+        """
+        name = self.probe()
+        (self.root / "scripts" / "test_something_else.py").write_text(
+            f"# mentions {name} in a comment only\n", encoding="utf-8"
+        )
+        self.assertIn(
+            name,
+            ra.orphaned_harnesses(self.root),
+            "a name in a comment is not an invocation",
+        )
+
+    def test_a_harness_invoked_by_a_ci_step_is_not_orphaned(self) -> None:
+        """The other direction: a harness CI runs must not be reported."""
+        self.assertNotIn(
+            "verify_m5_evidence_mutations.py", ra.orphaned_harnesses(self.root)
+        )
+
+    def test_a_harness_named_only_in_docs_still_counts_as_invoked(self) -> None:
+        """Docs count.
+
+        A local check documented in `docs/` is run deliberately, even if CI does
+        not run it. Requiring a CI step would push work out of CI rather than
+        making it visible.
+        """
+        name = self.probe()
+        (self.root / "docs" / "LOCAL_CHECKS.md").write_text(
+            f"run `scripts/{name}` before tagging\n", encoding="utf-8"
+        )
+        self.assertNotIn(name, ra.orphaned_harnesses(self.root))
+
+    def test_the_checker_exempts_itself_deliberately(self) -> None:
+        """Mutation: delete an entry from `HARNESS_ENTRY_POINTS`.
+
+        `roadmap_admissibility.py` is invoked through
+        `test_roadmap_admissibility.py`, so it never appears by name in
+        `ci.yml`. Without the exemption it would be reported as its own orphan,
+        and the fix -- adding a pointless self-referencing CI step -- would be
+        worse than the exemption.
+        """
+        for name in (
+            "roadmap_admissibility.py",
+            "test_roadmap_admissibility.py",
+            "verify_roadmap_admissibility_mutations.py",
+        ):
+            self.assertIn(name, ra.HARNESS_ENTRY_POINTS)
+            self.assertNotIn(name, ra.orphaned_harnesses(self.root))
+
+    def test_a_missing_scripts_directory_is_refused(self) -> None:
+        """Mutation: return `[]` when `scripts/` does not exist.
+
+        An empty list reads as "nothing is orphaned", which is a clean bill of
+        health for a tree that has no scripts at all.
+        """
+        with self.assertRaises(SystemExit):
+            ra.orphaned_harnesses(self.root / "no_such_tree")
 
 
 if __name__ == "__main__":

@@ -5,9 +5,9 @@ this repository believes it enforces must still be declared. `scripts/roadmap_ad
 checks both directions and exits non-zero when either fails.
 
 ```
-python3 scripts/test_roadmap_admissibility.py      # 27 tests
+python3 scripts/test_roadmap_admissibility.py      # 35 tests
 python3 scripts/roadmap_admissibility.py           # the report
-python3 scripts/verify_roadmap_admissibility_mutations.py   # 21 mutations
+python3 scripts/verify_roadmap_admissibility_mutations.py   # 28 mutations
 ```
 
 CI runs this as the **Roadmap gate admissibility gate** step. As of the commit
@@ -95,6 +95,50 @@ The reverse direction is what makes the registry trustworthy. A registry that
 only grows can be made to look complete by adding entries for gates that were
 already there.
 
+## And the third direction: a check nobody runs
+
+Everything above asks whether a gate names real enforcement. The opposite
+mistake is a real check that nothing invokes, and it was live:
+
+| Harness | Referenced by |
+| --- | --- |
+| `verify_uninstall_mutations.py` | 0 files |
+| `verify_release_gate_mutations.py` | 0 files |
+| `verify_m5_evidence_mutations.py` | 0 files |
+
+All three worked when run by hand. No CI step ran any of them. An unrun harness
+cannot fail, so it enforces nothing while sitting in the repository looking
+like a gate — the same shape as M1's `authenticated_lan` test, one directory
+over.
+
+`orphaned_harnesses()` reports any `scripts/*.py` named only by the workflow or
+the docs, and all three are now wired to named CI steps. The checker exempts
+itself and its own test suite via `HARNESS_ENTRY_POINTS`, recording *why*: CI
+reaches `roadmap_admissibility.py` through `test_roadmap_admissibility.py`, so
+it never appears by name in `ci.yml`, and the alternative — a self-referencing
+CI step that exists only to satisfy this check — would be worse than the
+exemption.
+
+### What counts as an invocation
+
+A test suite naming a harness does **not** count. This was the bug that made
+the check itself untrustworthy: the first version read every `scripts/*.py` as
+evidence, so writing a probe inside a test put that probe's name into
+`test_roadmap_admissibility.py`, which the check then read as proof the probe
+was invoked. Two tests failed against a tool that was otherwise correct — it
+could not see the exact case it exists to detect.
+
+Test files are excluded from the haystack, and the tests build probe filenames
+at run time (`uuid4`) rather than writing a literal, so no prose anywhere can
+excuse a probe by having read its name. That is the same discipline
+`module_declares` applies: a name in a comment is not a declaration.
+
+A second bug surfaced the same way: `docs` was passed as a path rather than
+globbed, so `read_text` on the directory raised `IsADirectoryError`, was
+swallowed by `except OSError`, and the entire documentation tree was silently
+skipped. A test asserting "docs count" failed against a tool whose own
+docstring claimed docs counted.
+
 ## Sign-offs are not checkers
 
 Six gates cannot be settled by a program, and the registry refuses to pretend:
@@ -155,7 +199,7 @@ the copy was wrong in the same way.
 
 ## Mutation coverage
 
-`verify_roadmap_admissibility_mutations.py` applies 21 edits, one per
+`verify_roadmap_admissibility_mutations.py` applies 28 edits, one per
 behaviour, and requires each to be caught. The survivors from the first run,
 and what each was missing:
 

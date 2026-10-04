@@ -78,6 +78,22 @@ jobs:
       # fail silently rather than loudly.
       - name: M12 uninstall residue gate
         run: cargo test -p omnidesk-core uninstall --lib
+      # U8 mutation verification. The test above proves the uninstall tests
+      # pass; this proves they would *notice* if the containment logic stopped
+      # working. A containment check that no test can fail is an assertion of
+      # intent, and these harnesses had existed with nothing running them --
+      # the same defect as M1's authenticated-LAN test: a real check that no
+      # CI step invoked.
+      - name: U8 uninstall mutation verification gate
+        run: python3 scripts/verify_uninstall_mutations.py
+      # M5/M14 mutation verification, same reason. `verify_m5_evidence.py`
+      # computes integrity problems and class errors; if a regression made it
+      # compute them and then ignore them, the M5 admissibility test suite would
+      # still be green, because that suite tests the function and not the wiring.
+      - name: M5 evidence mutation verification gate
+        run: python3 scripts/verify_m5_evidence_mutations.py
+      - name: M14 release gate mutation verification gate
+        run: python3 scripts/verify_release_gate_mutations.py
       - name: Signed entitlement fuzz smoke
         run: |
           # cargo-fuzz targets need sanitizer support, which requires nightly.

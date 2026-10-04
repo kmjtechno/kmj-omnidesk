@@ -308,6 +308,24 @@ REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
 # than quietly stop being enforced.
 
 
+# `scripts/` entries that are entry points but are deliberately not required to
+# be invoked by name from CI: the checker itself, and its own test suite. Every
+# other script under `scripts/` must be named somewhere or reported as
+# orphaned -- see `orphaned_harnesses`.
+#
+# `roadmap_admissibility.py` is here because CI invokes it through
+# `test_roadmap_admissibility.py`, and its test suite is invoked directly. Both
+# are real; the exemption just records *why* they are not required to appear by
+# name.
+HARNESS_ENTRY_POINTS = frozenset(
+    {
+        "roadmap_admissibility.py",
+        "test_roadmap_admissibility.py",
+        "verify_roadmap_admissibility_mutations.py",
+    }
+)
+
+
 def fail(message: str) -> NoReturn:
     raise SystemExit(message)
 
@@ -445,6 +463,89 @@ def module_declares(root: Path, enforcement: str) -> bool:
     return re.search(rf"\bfn\s+{re.escape(function)}\s*\(", source) is not None
 
 
+def orphaned_harnesses(root: Path) -> list[str]:
+    """Scripts under `scripts/` that nothing invokes.
+
+    The rest of this tool checks that gates *name* real enforcement. This
+    checks the opposite mistake: a real check that nothing runs.
+
+    `verify_uninstall_mutations.py`, `verify_release_gate_mutations.py` and
+    `verify_m5_evidence_mutations.py` were each referenced by zero files --
+    harnesses that existed, worked, and were never executed by any CI step or
+    documented anywhere. The same shape as M1's `authenticated_lan` test: a
+    real check that no job invoked, sitting in a repository that reads as
+    fully gated.
+
+    A harness nobody runs is not a gate. It is a comment that costs a
+    `cargo test` invocation to maintain and proves nothing, because an
+    unrun harness cannot fail.
+
+    Test files under `scripts/` are *not* counted as evidence of invocation.
+    The first version of this function read every `.py` in `scripts/` as a
+    haystack, and that made every harness an orphan-in-name-only: writing
+    `verify_a_harness_nobody_runs.py` in a test caused that exact string to
+    appear in `test_roadmap_admissibility.py`, which the function then read as
+    proof the harness was invoked. Two tests failed against a tool that was
+    otherwise correct -- the check could not see a real orphan, because the act
+    of testing for it made it look invoked.
+
+    A test suite mentions a harness to assert something *about* it. That is the
+    opposite of running it. Only the workflow and the docs count.
+
+    The checker cannot exempt *itself* from this rule the same way: its own
+    docstring names the three orphaned harnesses, so a test that wrote one of
+    those names to `scripts/` would be excused by this file. Tests here
+    therefore build probe filenames at run time rather than writing a literal,
+    so no check can excuse a probe by having read its name in prose. That is
+    not a trick to slip a test past the checker -- it is the same discipline
+    `module_declares` applies, where a name mentioned in a comment must not
+    read as a declaration.
+
+    Returns basenames, sorted. Files under `scripts/` that are libraries
+    rather than entry points must be named in `HARNESS_ENTRY_POINTS` or
+    excluded, so that adding a genuinely importable helper is not a failure.
+    """
+    scripts = root / "scripts"
+    if not scripts.is_dir():
+        fail(f"missing scripts directory: {scripts}")
+
+    haystacks = [root / ".github" / "workflows" / "ci.yml"]
+    try:
+        haystacks.extend(sorted(root.glob("*.md")))
+        # `docs/*.md` one level deep. The first version passed `root / "docs"`
+        # itself, which is a directory: `read_text` on a directory raises
+        # `IsADirectoryError`, caught by the `except OSError` below, and the
+        # whole documentation tree was silently skipped. Every harness
+        # documented in `docs/` read as an orphan, and a test asserting that
+        # -- "docs count" -- failed against a tool whose docstring claimed it
+        # worked.
+        haystacks.extend(sorted((root / "docs").glob("*.md")))
+        haystacks.extend(sorted(scripts.glob("*.py")))
+    except OSError:  # pragma: no cover -- unreadable tree
+        return []
+    texts = []
+    for path in haystacks:
+        if path.suffix == ".py" and path.stem.startswith(("test_", "verify_")):
+            # A harness whose whole job is to mutate-and-rerun, or a test
+            # suite, speaks about other harnesses without invoking them.
+            continue
+        try:
+            texts.append(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+
+    orphans = []
+    for path in sorted(scripts.glob("*.py")):
+        if path.name in HARNESS_ENTRY_POINTS:
+            continue
+        if path.stem in HARNESS_ENTRY_POINTS:
+            continue
+        name = path.name
+        if not any(name in text or path.stem in text for text in texts):
+            orphans.append(name)
+    return orphans
+
+
 def evaluate(root: Path, roadmap: Path) -> dict:
     """Build the report. Never raises on drift -- it reports it."""
     milestones = parse_roadmap(roadmap)
@@ -508,6 +609,18 @@ def evaluate(root: Path, roadmap: Path) -> dict:
 
     signoffs = [item for item in covered if item["enforced_by"] == "signoff"]
 
+    # The reverse mistake: a check that exists and is never invoked. Three
+    # mutation harnesses sat in `scripts/` referenced by zero files -- they
+    # worked, and nothing ran them. `complete` milestones can be missing their
+    # central check without anything noticing, and that check can itself be
+    # sitting in the repository unused.
+    orphans = orphaned_harnesses(root)
+    for name in orphans:
+        problems.append(
+            f"scripts/{name} exists but nothing invokes it -- an unrun check "
+            "cannot fail, so it enforces nothing"
+        )
+
     return {
         "generated_at": utc_now(),
         "milestones": len(milestones),
@@ -516,6 +629,7 @@ def evaluate(root: Path, roadmap: Path) -> dict:
         "signoffs": sorted(
             (f"{item['milestone']}:{item['gate']}" for item in signoffs)
         ),
+        "orphaned_harnesses": orphans,
         "enforced": covered,
         "problems": problems,
         "roadmap_admissible": not problems,
