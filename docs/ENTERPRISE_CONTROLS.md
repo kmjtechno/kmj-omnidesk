@@ -111,18 +111,49 @@ This extends P2 and P7 in [PRIVACY_REVIEW.md](PRIVACY_REVIEW.md), which flagged
 
 ## Verification
 
-62 tests in `enterprise`. Each carries a `Mutation:` line naming the single
+72 tests in `enterprise`. Each carries a `Mutation:` line naming the single
 edit that would make it fail.
 
-All 25 of those mutations were applied and every one was caught. Two initially
-reported as surviving were investigated manually and *were* caught — the
-harness's match had been thrown off by a mutation that failed to compile
-elsewhere. One mutation that removes a `let-else` guard breaks the build
-rather than passing, which is the structural version of the same protection.
+**Those lines were comments until `scripts/verify_enterprise_mutations.py`
+existed.** Every other gate in this repository had a harness that CI runs and
+that applies its own mutations; these 72 were applied by hand on one
+afternoon and never re-checked. A `Mutation:` docstring with nothing applying
+it is documentation of an intention, not evidence.
+
+The harness now applies 22 of them on every CI run and all 22 are caught. It
+covers the load-bearing properties — the tenant guard, the granted check, the
+assurance ordering, the policy flag on unattended grants, the revoked and
+expiry checks on device trust, the audit digest chain, and the RBAC delegation
+ceiling — which is why it is 22 and not 72. **The remaining 50 docstrings are
+still unapplied comments.** That gap is real and is recorded here rather than
+smoothed over, because a docstring that claims verification the build does not
+perform is worse than one that admits it has none.
+
+Of the 25 mutations applied by hand before the harness, all 25 were caught. Two
+initially reported as surviving were investigated manually and *were* caught —
+the harness's match had been thrown off by a mutation that failed to compile
+elsewhere. One mutation that removes a `let-else` guard breaks the build rather
+than passing, which is the structural version of the same protection.
 
 The gate runs in CI by name (`M10 enterprise authorization and audit gate`),
 because a removed authorization check makes the code *more* permissive and
-every unrelated test still passes.
+every unrelated test still passes. It runs the tests. The mutation gate above
+is what proves the tests would notice.
+
+## The mutation harness is multi-file
+
+The other harnesses in this repository mutate one Python or one Rust file.
+The enterprise module is five — `mod.rs`, `rbac.rs`, `trusted_device.rs`,
+`unattended.rs`, `audit.rs` — so every mutation names its target file
+explicitly.
+
+That is not tidiness. Three of this repository's harnesses have shipped
+mutations that silently never ran because a pattern did not match, and a
+pattern that matches in the wrong module is the same failure wearing a
+different hat: a mutation reported as applied when it landed somewhere else,
+or reported as skipped when it never ran. A mutation that cannot be applied is
+listed, never skipped — a skipped mutation is indistinguishable from a caught
+one in a log full of checkmarks.
 
 ## Exit criteria
 
