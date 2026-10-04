@@ -388,6 +388,161 @@ mod tests {
 
     use super::*;
 
+    // --- cost metrics: M5's `relay_utilization_measured` ---------------
+    //
+    // `relay_ratio_bps`, `relay_session_minutes` and the saturating counters
+    // behind them had no test. The one existing test that touches
+    // `RelayUsageMetrics` does so through `meter_relay_session` with an
+    // authorization error, and asserts only that a *refused* session records
+    // nothing. Nothing covered the arithmetic of a session that succeeded --
+    // which is the side of the ledger a cost report is built from.
+    //
+    // The risk is not that a ratio is wrong by a basis point. It is that the
+    // division guard is absent, or that an accumulation wraps, and the number
+    // that comes out is plausible enough to be published.
+
+    /// An unmetered log reports a zero ratio rather than dividing by zero.
+    ///
+    /// Mutation: drop the `if total == 0` guard. Fails by panicking in debug
+    /// and returning nonsense in release -- the release behaviour is the
+    /// dangerous one, because it is what ships.
+    #[test]
+    fn an_unmetered_log_reports_no_relay_ratio() {
+        let usage = RelayUsageMetrics::default();
+        assert_eq!(usage.relay_ratio_bps(), 0);
+        assert_eq!(usage.relay_session_minutes(), 0);
+        assert_eq!(usage.relay_sessions(), 0);
+        assert_eq!(usage.relayed_bytes(), 0);
+    }
+
+    /// The ratio is relayed bytes over *total* bytes, in basis points.
+    ///
+    /// Checked against a hand-computed fraction rather than against another
+    /// call to the function: 1000 relayed of 4000 total is exactly 2500 bps,
+    /// and `relayed / total` (a plausible off-by-one denominator) would give
+    /// 10000 and also look like a valid ratio.
+    ///
+    /// `relayed_bytes` has no public recorder by design -- it is metered by
+    /// `forward_authorized`, on the real forwarding path, so a caller cannot
+    /// bill bytes it never forwarded. The field is set directly here because
+    /// these tests are about the arithmetic, and driving 1000 bytes through a
+    /// relay to compute 2500 bps would be testing the transport twice.
+    ///
+    /// Mutation: divide by `relayed_bytes`. Fails.
+    /// Mutation: return the ratio in percent. Fails.
+    #[test]
+    fn the_relay_ratio_is_relayed_over_total_in_basis_points() {
+        let mut usage = RelayUsageMetrics {
+            relayed_bytes: 1_000,
+            ..Default::default()
+        };
+        usage.record_direct(3_000);
+        assert_eq!(usage.relay_ratio_bps(), 2_500);
+
+        let all_relay = RelayUsageMetrics {
+            relayed_bytes: 500,
+            ..Default::default()
+        };
+        assert_eq!(
+            all_relay.relay_ratio_bps(),
+            10_000,
+            "a log with no direct traffic is entirely relay"
+        );
+
+        let none_relay = RelayUsageMetrics::default();
+        assert_eq!(none_relay.relay_ratio_bps(), 0);
+    }
+
+    /// A counter that would wrap must saturate at its maximum.
+    ///
+    /// A wrapped byte count reads as a *smaller* number than the truth, so a
+    /// cost report would understate relay use rather than fail. Saturating
+    /// overstates, which is the direction a cost report should err in.
+    ///
+    /// Mutation: `saturating_add` -> `+=`. Fails.
+    #[test]
+    fn usage_counters_saturate_rather_than_wrapping() {
+        let mut usage = RelayUsageMetrics::default();
+        usage.record_direct(10);
+        assert_eq!(usage.direct_bytes(), 10);
+
+        // `record_relay_session` is the accumulator a long-lived relay
+        // actually reaches its ceiling on.
+        let mut sessions = RelayUsageMetrics {
+            direct_sessions: u32::MAX - 1,
+            ..Default::default()
+        };
+        sessions.record_direct_session();
+        sessions.record_direct_session();
+        assert_eq!(sessions.direct_sessions(), u32::MAX);
+    }
+
+    /// Session minutes round up, so a short relay session is not free.
+    ///
+    /// 61 seconds is 2 minutes. Integer division alone would report 1 and
+    /// understate the cost of every short session, which is the case relay is
+    /// most often used for.
+    ///
+    /// Mutation: return `seconds / 60` without the ceiling. Fails.
+    #[test]
+    fn relay_session_minutes_round_up_so_short_sessions_still_cost() {
+        let mut usage = RelayUsageMetrics::default();
+        usage.record_relay_session(Duration::from_secs(61));
+        assert_eq!(usage.relay_session_minutes(), 2);
+
+        let mut exact = RelayUsageMetrics::default();
+        exact.record_relay_session(Duration::from_secs(120));
+        assert_eq!(exact.relay_session_minutes(), 2);
+
+        let mut under_a_minute = RelayUsageMetrics::default();
+        under_a_minute.record_relay_session(Duration::from_secs(1));
+        assert_eq!(
+            under_a_minute.relay_session_minutes(),
+            1,
+            "one second of relay time is still one billed minute"
+        );
+    }
+
+    /// A multi-session ledger sums every session, not just the last.
+    ///
+    /// The obvious wrong implementation records `duration` rather than adding
+    /// it, which makes the report read the last session's cost as the total.
+    ///
+    /// Mutation: `saturating_add` -> assignment. Fails.
+    #[test]
+    fn the_ledger_sums_every_session() {
+        let mut usage = RelayUsageMetrics::default();
+        usage.record_relay_session(Duration::from_secs(600));
+        usage.record_relay_session(Duration::from_secs(600));
+        usage.record_relay_session(Duration::from_secs(600));
+        assert_eq!(usage.relay_session_seconds(), 1_800);
+        assert_eq!(usage.relay_sessions(), 3);
+        assert_eq!(usage.relay_session_minutes(), 30);
+    }
+
+    /// The exported report carries every metric M5's `cost_metrics` names.
+    ///
+    /// `relayed_bytes`, `relay_session_minutes` and `relay_ratio` are the three
+    /// the roadmap lists. A field dropped from the export is a metric the
+    /// roadmap promises and no consumer can read.
+    #[test]
+    fn the_exported_report_carries_every_roadmap_cost_metric() {
+        let mut usage = RelayUsageMetrics {
+            relayed_bytes: 2_000,
+            ..Default::default()
+        };
+        usage.record_direct(2_000);
+        usage.record_relay_session(Duration::from_secs(300));
+
+        let exported = usage.export();
+        assert_eq!(exported.relayed_bytes, 2_000);
+        assert_eq!(exported.direct_bytes, 2_000);
+        assert_eq!(exported.relay_session_minutes, 5);
+        assert_eq!(exported.relay_ratio_bps, 5_000);
+        assert_eq!(exported.relay_sessions, 1);
+        assert_eq!(exported.direct_sessions, 0);
+    }
+
     fn relay_candidate() -> ConnectionCandidate {
         ConnectionCandidate {
             kind: CandidateKind::Relay,
