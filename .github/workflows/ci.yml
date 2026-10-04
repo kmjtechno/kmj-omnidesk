@@ -124,6 +124,21 @@ jobs:
       # A mutation the check could not apply is reported, not skipped.
       - name: Determinism test evidence gate
         run: python3 scripts/audit_determinism_tests.py
+      # Check-shaped public functions nothing calls. This prints a reading list
+      # and does not gate, because a candidate is not a defect -- but the list
+      # is empty today, and it found three real things: a predicate documented
+      # as the self-escalation guard when the actual guard was a different
+      # function, an untested flag that `ENTERPRISE_CONTROLS.md` says is not
+      # yet an authorization input, and a digest helper with a docstring nobody
+      # checked.
+      #
+      # The suite is the part that gates. It proves the scanner can count a
+      # call, which is the way its first version was wrong: it reported a
+      # function that is called two hundred lines below its own definition.
+      - name: Unreferenced check surface
+        run: |
+          python3 scripts/test_find_unreferenced_checks.py
+          python3 scripts/find_unreferenced_checks.py
       # M5. The relay's three security gates fail silently: deleting the
       # authorization check makes the relay forward a session it was not
       # granted, and no unrelated test notices. `relay` is also the module

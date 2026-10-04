@@ -99,8 +99,16 @@ impl Permission {
 
     /// Whether this permission changes what other principals can do.
     ///
-    /// Used to refuse self-escalation: a principal may not grant a permission
-    /// that outranks the one doing the granting. See [`Role::may_delegate`].
+    /// A classification, not the escalation rule. The escalation rule is
+    /// [`Role::may_delegate`], which is bounded by what the granter's own role
+    /// holds. `is_administrative` does not and must not gate delegation: an
+    /// administrator is the role that holds these permissions, so refusing to
+    /// delegate them because they are administrative would stop the only role
+    /// that legitimately can.
+    ///
+    /// It is a predicate for classifying a permission for display or for a
+    /// narrower decision that is not the ceiling. Kept honest by
+    /// `escalation_the_administrative_classification_is_not_the_ceiling`.
     #[must_use]
     pub const fn is_administrative(self) -> bool {
         matches!(

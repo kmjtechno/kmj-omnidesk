@@ -283,6 +283,103 @@ fn escalation_no_role_may_delegate_a_permission_it_lacks() {
     }
 }
 
+/// Mutation: set `managed: true` in `enroll` unconditionally, or make
+/// `is_managed` return `!self.revoked`.
+#[test]
+fn device_the_managed_flag_is_recorded_verbatim_and_is_not_a_trust_input() {
+    let mut registry = TrustRegistry::new();
+    registry
+        .enroll("managed-1", NOW, NOW + DAY, NOW, true)
+        .expect("enrol managed");
+    registry
+        .enroll("self-1", NOW, NOW + DAY, NOW, false)
+        .expect("enrol self");
+
+    let managed = registry.get("managed-1").expect("present").clone();
+    let self_enrolled = registry.get("self-1").expect("present").clone();
+    assert!(managed.is_managed());
+    assert!(!self_enrolled.is_managed());
+
+    // Neither is trusted differently for it. `ENTERPRISE_CONTROLS.md` records
+    // that managed deployment has a direction but no deployment client, so the
+    // flag is a record and not an authorization input. That is a stated
+    // limitation, not an accident -- and it is pinned here so that turning it
+    // into an input is a deliberate change rather than a side effect of someone
+    // adding a conjunct.
+    assert!(managed.is_trusted_at(NOW));
+    assert!(self_enrolled.is_trusted_at(NOW));
+
+    // And revocation still governs both.
+    assert!(registry.revoke("managed-1"));
+    assert!(
+        !registry
+            .get("managed-1")
+            .expect("present")
+            .is_trusted_at(NOW)
+    );
+}
+
+/// Mutation: make `may_delegate` refuse every administrative permission, on
+/// the reading that "administrative" means "not delegable".
+#[test]
+fn escalation_the_administrative_classification_is_not_the_ceiling() {
+    // `is_administrative` used to be documented as the mechanism that refuses
+    // self-escalation. It was never wired to anything, and the rule it claimed
+    // to implement is `may_delegate`. Wiring it in would look like closing the
+    // escalation hole and would instead stop the one role that may legitimately
+    // delegate: an administrator refusing to mint administrators breaks the
+    // tenant, while a non-administrator holding an administrative permission
+    // is already impossible because no role grants one.
+    for permission in Permission::all() {
+        let administrative = permission.is_administrative();
+        let administrable = Role::Administrator.may_delegate(permission);
+        assert!(
+            administrable,
+            "Administrator must be able to delegate {permission:?}"
+        );
+        assert_eq!(
+            administrative,
+            Role::Administrator.permissions().contains(&permission)
+                && !matches!(
+                    permission,
+                    Permission::DeviceManage
+                        | Permission::AuditRead
+                        | Permission::DeviceList
+                        | Permission::SessionStart
+                        | Permission::SessionAttach
+                        | Permission::SelfService
+                ),
+            "the administrative set drifted for {permission:?}"
+        );
+    }
+
+    // The classification is exactly the three permissions that change what
+    // other principals can do. Pinned by value, not by reimplementing the
+    // match: a fourth added to the arm without this list would otherwise pass.
+    let administrative: Vec<Permission> = Permission::all()
+        .into_iter()
+        .filter(|permission| permission.is_administrative())
+        .collect();
+    assert_eq!(
+        administrative,
+        vec![
+            Permission::UnattendedGrant,
+            Permission::PolicyEdit,
+            Permission::PrincipalManage
+        ]
+    );
+
+    // And the ceiling still holds for the permission that matters most: no role
+    // that does not hold `PrincipalManage` may delegate it.
+    for role in Role::all() {
+        assert_eq!(
+            role.may_delegate(Permission::PrincipalManage),
+            role.permissions().contains(&Permission::PrincipalManage),
+            "{role:?} delegation of PrincipalManage does not match what it holds"
+        );
+    }
+}
+
 /// Mutation: give `Administrator::permissions` only `DeviceList`.
 #[test]
 fn escalation_a_role_holds_exactly_its_declared_permissions() {
