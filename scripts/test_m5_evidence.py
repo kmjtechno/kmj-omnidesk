@@ -686,5 +686,116 @@ class TestRecording(Fixture):
         self.assertIsNone(m5.entry_class_errors(entries[0], "M5-CODE-R001"))
 
 
+class TestUnreadableOptionalDocument(Fixture):
+    """A file named but unreadable is not the same as a file not named.
+
+    `load_json_or_empty` used to end in `load_json(...) or {}`, which collapsed
+    both cases into `{}`. Two consequences, both fixed here:
+
+    * the `if impairment is None` guard at the `--impairment` caller could
+      never fire, because the function was incapable of returning `None`;
+    * a corrupt `--environment` file was recorded as `{}` with no message.
+
+    The second is the worse one. This ledger is evidence someone will later be
+    asked to trust, and "the environment metadata could not be read" recorded
+    as "there was no environment" is a false statement about a real machine.
+    """
+
+    def corrupt(self, name: str) -> str:
+        path = self.root / name
+        path.write_text('{"method":', encoding="utf-8")
+        return str(path)
+
+    def readable(self, name: str, content: str = '{"method": "tc"}') -> str:
+        path = self.root / name
+        path.write_text(content, encoding="utf-8")
+        return str(path)
+
+    def args_for(self, **overrides):
+        import argparse
+
+        defaults = dict(
+            root=str(self.root),
+            run_id="M5-LINK-R001",
+            evidence_class="link_forced_observed",
+            raw=self.raw("obs"),
+            gate=[DECRYPT],
+            environment=None,
+            test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint="relay.example:4433",
+            client_endpoint="10.0.0.1:9000",
+            server_endpoint="10.0.0.2:9000",
+            impairment=None,
+            unauthorized_attempted=None,
+            unauthorized_outcome=None,
+        )
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_a_corrupt_impairment_description_is_refused_at_record_time(self) -> None:
+        """Mutation: restore `or {}` in `load_json_or_empty`.
+
+        This is the dead-guard case. The run used to be recorded with
+        `impairment: {}`, and `verify` would only reject it later — the
+        operator got a successful "recorded": true at the moment they could
+        still act, and a failure minutes afterwards that named no cause.
+        """
+        args = self.args_for(impairment=self.corrupt("impair.json"))
+        with self.assertRaises(SystemExit):
+            m5.command_record(args)
+        self.assertEqual(m5.read_ledger(self.root), [], "a refused run must not be recorded")
+
+    def test_a_corrupt_environment_file_is_refused_at_record_time(self) -> None:
+        """Mutation: drop the refusal in `load_json_or_empty`.
+
+        This caller never had a guard at all, so the file was silently lost.
+        The test asserts both halves: that it raises, and that nothing reached
+        the ledger.
+        """
+        args = self.args_for(environment=self.corrupt("env.json"))
+        with self.assertRaises(SystemExit):
+            m5.command_record(args)
+        self.assertEqual(m5.read_ledger(self.root), [])
+
+    def test_a_readable_impairment_description_is_recorded_verbatim(self) -> None:
+        """The complement of the refusal above.
+
+        A helper that refuses everything would satisfy both tests above. This
+        asserts a good file still reaches the ledger with its contents intact,
+        so the guard refuses *unreadable*, not *present*.
+        """
+        args = self.args_for(impairment=self.readable("impair.json"))
+        m5.command_record(args)
+        entries = m5.read_ledger(self.root)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["impairment"], {"method": "tc"})
+
+    def test_omitting_both_optional_documents_still_records(self) -> None:
+        """Mutation: make `load_json_or_empty` refuse when nothing was named.
+
+        Both documents are genuinely optional — M5's exit criteria do not name
+        environment metadata — so `None` must keep meaning `{}`. This is what
+        stops the refusal above from becoming "refuse to record any run".
+        """
+        m5.command_record(self.args_for())
+        entries = m5.read_ledger(self.root)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["environment"], {})
+        self.assertNotIn("impairment", entries[0])
+
+    def test_a_corrupt_document_is_named_in_the_refusal(self) -> None:
+        """Mutation: refuse without saying which file.
+
+        The exit message is the only thing the operator sees. "could not read"
+        with no path and no label is not an actionable error.
+        """
+        for field in ("impairment", "environment"):
+            path = self.corrupt(f"{field}-named.json")
+            args = self.args_for(**{field: path})
+            with self.assertRaises(SystemExit) as caught:
+                m5.command_record(args)
+            self.assertIn(str(path), str(caught.exception), field)
+
+
 if __name__ == "__main__":
     unittest.main()

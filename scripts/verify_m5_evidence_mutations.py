@@ -178,6 +178,30 @@ MUTATIONS: list[tuple[str, str, str]] = [
         '"m5_satisfied": not problems,',
         '"m5_satisfied": True,',
     ),
+    # --- a file named but unreadable --------------------------------------
+    # The original `or {}` and the two failures it caused. Restoring `or {}`
+    # is the historical bug verbatim, and the other two are the ways this
+    # guard can stop working while still reading like a guard.
+    (
+        "an unreadable impairment file is recorded as an empty one",
+        "    if document is None:\n        fail(f\"could not read {label} at {value}\")\n    return document",
+        "    return document or {}",
+    ),
+    (
+        "an unreadable file is recorded without complaint",
+        "    if document is None:\n        fail(f\"could not read {label} at {value}\")\n    return document",
+        "    return document",
+    ),
+    (
+        "the refusal names no file to act on",
+        'fail(f"could not read {label} at {value}")',
+        "fail('could not read the document')",
+    ),
+    (
+        "omitting an optional document is refused too",
+        "    if not value:\n        return {}",
+        "    if not value:\n        return {}\n    fail('naming a document is required')",
+    ),
 ]
 
 
