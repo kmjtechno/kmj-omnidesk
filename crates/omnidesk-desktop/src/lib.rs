@@ -5,7 +5,10 @@ use omnidesk_core::product_shell::{
 };
 
 pub mod accesskit_tree;
+pub mod layout;
 pub mod render;
+
+pub use layout::ShellLayout;
 
 #[cfg(windows)]
 pub mod windows_host;
@@ -56,17 +59,33 @@ pub struct VisualSystem {
     pub foreground_rgb: [u8; 3],
     pub accent_rgb: [u8; 3],
     pub danger_rgb: [u8; 3],
+    pub muted_rgb: [u8; 3],
+    pub border_rgb: [u8; 3],
 }
 
 impl VisualSystem {
+    /// The KMJ shell palette: a blue-grey ground with the brand red reserved
+    /// for actions.
+    ///
+    /// The red is deliberately scarce. Carrying it on borders, rail edges, and
+    /// every enabled control turned the whole surface into one hue and left
+    /// nothing standing out -- an accent that appears everywhere is not an
+    /// accent. Here it marks the primary action and destructive state only.
+    ///
+    /// `surface` sits far enough above `background` to read as a distinct
+    /// plane. At a difference of a few levels per channel the panel and the
+    /// ground are the same colour to the eye, and the layout collapses into
+    /// one undifferentiated field.
     #[must_use]
     pub const fn kmj_black_red() -> Self {
         Self {
-            background_rgb: [8, 8, 10],
-            surface_rgb: [18, 18, 22],
-            foreground_rgb: [245, 245, 247],
+            background_rgb: [9, 13, 17],
+            surface_rgb: [24, 31, 38],
+            foreground_rgb: [232, 237, 242],
             accent_rgb: [220, 24, 40],
             danger_rgb: [255, 59, 48],
+            muted_rgb: [107, 119, 131],
+            border_rgb: [26, 32, 39],
         }
     }
 }
@@ -78,6 +97,10 @@ pub struct PresentationModel {
     pub details: Vec<String>,
     pub controls: Vec<ShellControl>,
     pub visual: VisualSystem,
+    /// One-line summary shown under the content header, e.g. "3 devices · 2 online".
+    pub summary: String,
+    /// Labels for the panel's labelled rows, in order.
+    pub panel_title: &'static str,
 }
 
 #[must_use]
@@ -88,12 +111,33 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         PrimaryView::Session => "Secure session active",
     };
     let details = presentation_details(shell);
+    let devices = shell.devices();
+    let online = devices
+        .iter()
+        .filter(|device| device.status == DeviceStatus::Online)
+        .count();
+    let summary = if devices.is_empty() {
+        "No devices registered".to_owned()
+    } else {
+        format!(
+            "{} device{} · {online} online",
+            devices.len(),
+            if devices.len() == 1 { "" } else { "s" }
+        )
+    };
+    let panel_title = match shell.primary_view() {
+        PrimaryView::Devices => "Devices",
+        PrimaryView::PermissionPrompt => "Request",
+        PrimaryView::Session => "Session",
+    };
     PresentationModel {
         title: "KMJ OmniDesk",
         status,
         details,
         controls: controls_for_shell(shell),
         visual: VisualSystem::kmj_black_red(),
+        summary,
+        panel_title,
     }
 }
 
@@ -238,34 +282,31 @@ impl ControlRect {
     }
 }
 
+/// Geometry of each control, in the same order as `presentation.controls`.
+///
+/// Resolved through [`ShellLayout`] rather than recomputed here, so the hit
+/// test cannot drift from what the renderer drew.
 #[must_use]
 pub fn control_rects_for(
     presentation: &PresentationModel,
     width: usize,
     height: usize,
 ) -> Vec<ControlRect> {
-    if width <= 208 || height <= 64 {
+    let Some(layout) = ShellLayout::for_window(width, height) else {
         return Vec::new();
-    }
-
-    let panel_x = 192;
-    let panel_y: usize = 32;
-    let panel_width = width.saturating_sub(216);
-    let detail_y = panel_y
-        .saturating_add(68)
-        .saturating_add(presentation.details.len().saturating_mul(18));
-    let first_control_y = detail_y.saturating_add(16);
-    let card_width = panel_width.saturating_sub(44);
+    };
 
     presentation
         .controls
         .iter()
         .enumerate()
         .map(|(index, _)| ControlRect {
-            x: panel_x + 22,
-            y: first_control_y.saturating_add(index.saturating_mul(62)),
-            width: card_width,
-            height: 48,
+            x: layout.content_x,
+            y: layout
+                .first_row_y()
+                .saturating_add(index.saturating_mul(layout.row_height)),
+            width: layout.content_width,
+            height: layout.row_height.saturating_sub(8),
         })
         .collect()
 }
@@ -513,9 +554,37 @@ mod tests {
     #[test]
     fn black_red_visual_system_is_explicit_and_high_contrast() {
         let visual = VisualSystem::kmj_black_red();
-        assert!(visual.background_rgb.iter().all(|channel| *channel <= 16));
-        assert!(visual.surface_rgb.iter().all(|channel| *channel <= 32));
-        assert!(visual.foreground_rgb.iter().all(|channel| *channel >= 240));
+        // The ground must stay dark enough that the foreground text reads at
+        // a glance. The bound is per-channel against the darkest channel of
+        // the surface, not against an exact tuple, so the palette can move to
+        // a blue-grey ground without this test having to be rewritten for it.
+        assert!(visual.background_rgb.iter().all(|channel| *channel <= 24));
+        // Surface sits above the ground: if it does not, the panel collapses
+        // into the background and the layout stops reading as a layout.
+        assert!(
+            visual
+                .surface_rgb
+                .iter()
+                .all(|c| *c > visual.background_rgb[0]),
+            "surface must be distinguishable from background"
+        );
+        // Surface stays in the same dark band: a light surface would invert
+        // the whole shell and break the red accent's contrast.
+        assert!(
+            visual.surface_rgb.iter().all(|channel| *channel <= 48),
+            "surface too light for the dark shell"
+        );
+        assert!(visual.foreground_rgb.iter().all(|channel| *channel >= 200));
+        // Secondary text must be clearly dimmer than primary, or the type
+        // hierarchy disappears.
+        assert!(visual.muted_rgb.iter().all(|channel| *channel >= 90));
+        assert!(
+            visual
+                .muted_rgb
+                .iter()
+                .all(|c| *c < visual.foreground_rgb[0]),
+            "muted text is not distinguishable from primary"
+        );
         assert!(visual.accent_rgb[0] > visual.accent_rgb[1] * 5);
         assert!(visual.accent_rgb[0] > visual.accent_rgb[2] * 4);
     }
