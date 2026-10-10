@@ -65,7 +65,7 @@ impl ShellLayout {
         // The content column takes whatever the panel does not, floored so the
         // device labels keep a usable width on a small window.
         let panel_width = if width >= NARROW_SHELL_WIDTH {
-            (width * 3 / 10).clamp(240, 380)
+            (width * 3 / 10).max(240)
         } else {
             0
         };

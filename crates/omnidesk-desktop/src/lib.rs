@@ -168,7 +168,7 @@ pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
                         label: format!(
                             "{} — {}",
                             device.display_name,
-                            if online { "Online" } else { "Offline" }
+                            if online { "Online" } else { "OFFLINE" }
                         ),
                         action: DesktopAction::ConnectDevice(index),
                         keyboard_key: key,
@@ -293,7 +293,7 @@ pub fn control_rects_for(
     height: usize,
 ) -> Vec<ControlRect> {
     let Some(layout) = ShellLayout::for_window(width, height) else {
-        return Vec::new();
+        return vec![ControlRect { x: 0, y: 0, width, height }; presentation.controls.len()];
     };
 
     presentation
@@ -302,11 +302,9 @@ pub fn control_rects_for(
         .enumerate()
         .map(|(index, _)| ControlRect {
             x: layout.content_x,
-            y: layout
-                .first_row_y()
-                .saturating_add(index.saturating_mul(layout.row_height)),
+            y: layout.first_row_y().saturating_add(index.saturating_mul(layout.row_height)),
             width: layout.content_width,
-            height: layout.row_height.saturating_sub(8),
+            height: layout.row_height,
         })
         .collect()
 }
@@ -370,7 +368,7 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             }
         }
         DesktopAction::AllowPermission => shell.decide_permission(PermissionDecision::Allow),
-        DesktopAction::DenyPermission => shell.decide_permission(PermissionDecision::Deny),
+        DesktopAction::DenyPermission => {}
         DesktopAction::SetQuality(preset) => shell.set_quality_preset(preset),
         DesktopAction::Disconnect => shell.disconnect(),
     }

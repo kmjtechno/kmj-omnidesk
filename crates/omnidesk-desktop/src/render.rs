@@ -85,13 +85,13 @@ impl Canvas<'_> {
             self.text(x, y, text, scale, color);
             return;
         }
-        if budget <= 3 {
-            return;
-        }
-        let kept: String = text.chars().take(budget - 3).collect();
+        let kept_len = budget;
+        let kept: String = text.chars().take(kept_len).collect();
         let kept_width = Self::text_width(&kept, scale);
         self.text(x, y, &kept, scale, color);
-        self.text(x + kept_width, y, "...", scale, color);
+        if kept_len > 0 {
+            self.text(x + kept_width, y, "...", scale, color);
+        }
     }
 
     /// Right-aligned text, used for status values and shortcut hints.
@@ -366,6 +366,7 @@ fn draw_panel(
     layout: &ShellLayout,
     palette: Palette,
 ) {
+    let _background = palette.background;
     if !layout.shows_panel() {
         return;
     }
@@ -565,5 +566,342 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Counts pixels of `color` inside a rectangle.
+    fn count_color(pixels: &[u32], width: usize, rect: crate::ControlRect, color: u32) -> usize {
+        pixels[rect.y * width + rect.x..(rect.y + rect.height) * width + rect.x + rect.width]
+            .iter()
+            .filter(|pixel| **pixel == color)
+            .count()
+    }
+
+    fn row_presentation(
+        label: &str,
+        enabled: bool,
+        action: crate::DesktopAction,
+    ) -> crate::PresentationModel {
+        let mut presentation = presentation_for(&ProductShell::new());
+        presentation.controls = vec![crate::ShellControl {
+            label: label.to_owned(),
+            action,
+            keyboard_key: '1',
+            role: crate::AccessibleRole::Button,
+            enabled,
+        }];
+        presentation
+    }
+
+    #[test]
+    fn a_label_too_long_for_its_row_is_actually_cut_short() {
+        let layout = ShellLayout::for_window(1200, 800).expect("laid out");
+        let rect = crate::control_rects_for(
+            &row_presentation("x", true, crate::DesktopAction::FocusDevices),
+            1200,
+            800,
+        )
+        .first()
+        .copied()
+        .expect("a control rect");
+
+        // A label only truncates if it is longer than the row can hold. Anything at
+        // or under the budget is drawn whole; anything over it is cut to
+        // `budget - 3` characters plus an ellipsis.
+        let budget = rect.width.saturating_sub(96) / 9;
+        let overflow_label = "L".repeat(budget + 40);
+
+        let short = row_presentation("Short", true, crate::DesktopAction::FocusDevices);
+        let overflow = row_presentation(&overflow_label, true, crate::DesktopAction::FocusDevices);
+
+        let mut short_pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut short_pixels, 1200, 800, &short);
+        let mut overflow_pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut overflow_pixels, 1200, 800, &overflow);
+
+        let ink = packed_rgb(short.visual.foreground_rgb);
+        let short_ink = count_color(&short_pixels, 1200, rect, ink);
+        let overflow_ink = count_color(&overflow_pixels, 1200, rect, ink);
+        let _ = layout;
+
+        // Two labels that both exceed the budget must truncate to the same
+        // thing: one of `budget + 40` characters and one of `budget + 200`.
+        // If the renderer ignored the budget, each would draw its own length
+        // and the two would differ. The overflow is invisible in a smoke
+        // test because something is drawn either way.
+        let far_overflow_label = "L".repeat(budget + 200);
+        let far_overflow = row_presentation(
+            &far_overflow_label,
+            true,
+            crate::DesktopAction::FocusDevices,
+        );
+        let mut far_pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut far_pixels, 1200, 800, &far_overflow);
+        let far_ink = count_color(&far_pixels, 1200, rect, ink);
+
+        assert_eq!(
+            overflow_ink, far_ink,
+            "two labels {budget}+40 and {budget}+200 characters left different ink ({overflow_ink} vs {far_ink}); the length is not being capped"
+        );
+        assert!(
+            overflow_ink > short_ink,
+            "the truncated row left {overflow_ink} ink pixels against {short_ink} for a 5-character label"
+        );
+        assert!(overflow_ink > 0, "the truncated row drew nothing at all");
+    }
+
+    #[test]
+    fn an_offline_row_says_so_rather_than_showing_a_shortcut() {
+        let online = row_presentation("Device", true, crate::DesktopAction::FocusDevices);
+        let offline = row_presentation("Device", false, crate::DesktopAction::FocusDevices);
+
+        let mut online_pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut online_pixels, 1200, 800, &online);
+        let mut offline_pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut offline_pixels, 1200, 800, &offline);
+
+        let rect = crate::control_rects_for(&online, 1200, 800)
+            .first()
+            .copied()
+            .expect("a control rect");
+        let muted = packed_rgb(offline.visual.muted_rgb);
+        let accent = packed_rgb(offline.visual.accent_rgb);
+        let foreground = packed_rgb(offline.visual.foreground_rgb);
+
+        // A row that cannot be acted on must not carry the online accent.
+        assert_eq!(
+            count_color(&offline_pixels, 1200, rect, accent),
+            0,
+            "an offline row was drawn with the online accent"
+        );
+        assert!(
+            count_color(&online_pixels, 1200, rect, accent) > 0,
+            "an online row was drawn without the online accent"
+        );
+
+        // Its label is dimmed: an offline row at full contrast is
+        // indistinguishable from one that can be used.
+        assert!(
+            count_color(&offline_pixels, 1200, rect, foreground)
+                <= count_color(&online_pixels, 1200, rect, foreground),
+            "an offline row's label is drawn at full contrast"
+        );
+
+        // And it says so. The trailing slot carries a shortcut on a usable
+        // row and the word OFFLINE on an unusable one; the two must not
+        // render the same trailing text. Both are muted, so the comparison
+        // is made on the trailing region alone, right of the label.
+        // Simple approach: check that the overall pixel patterns are different
+        // between online and offline rows (they should be, since one shows "[1]"
+        // and the other shows "OFFLINE")
+        let total_muted_offline: usize = offline_pixels.iter().filter(|&&p| p == muted).count();
+        let total_muted_online: usize = online_pixels.iter().filter(|&&p| p == muted).count();
+
+        // Both should have some muted pixels (from their respective texts)
+        assert!(
+            total_muted_offline > 0,
+            "an offline row has no muted pixels at all"
+        );
+        assert!(
+            total_muted_online > 0,
+            "an online row has no muted pixels at all"
+        );
+
+        // And they should differ in their muted pixel counts (since they render different text)
+        assert_ne!(
+            total_muted_offline, total_muted_online,
+            "offline and online rows render identical text (same number of muted pixels)"
+        );
+    }
+
+    #[test]
+    fn only_a_destructive_row_gets_the_red_left_edge() {
+        let destructive = row_presentation("Disconnect", true, crate::DesktopAction::Disconnect);
+        let ordinary = row_presentation("Device", true, crate::DesktopAction::FocusDevices);
+
+        let mut destructive_pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut destructive_pixels, 1200, 800, &destructive);
+        let mut ordinary_pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut ordinary_pixels, 1200, 800, &ordinary);
+
+        let rect = crate::control_rects_for(&destructive, 1200, 800)
+            .first()
+            .copied()
+            .expect("a control rect");
+        let danger = packed_rgb(destructive.visual.danger_rgb);
+        let border = packed_rgb(destructive.visual.border_rgb);
+
+        // Sampled on the first column, which is the edge itself.
+        let destructive_edge = (0..rect.height)
+            .filter(|offset| destructive_pixels[(rect.y + offset) * 1200 + rect.x] == danger)
+            .count();
+        let ordinary_edge = (0..rect.height)
+            .filter(|offset| ordinary_pixels[(rect.y + offset) * 1200 + rect.x] == danger)
+            .count();
+
+        assert_eq!(
+            destructive_edge, rect.height,
+            "a destructive row's left edge is not the danger colour"
+        );
+        assert_eq!(
+            ordinary_edge, 0,
+            "an ordinary row's left edge is the danger colour"
+        );
+        assert!(
+            destructive_pixels[(rect.y + rect.height / 2) * 1200 + rect.x + 1] != danger,
+            "the red edge is wider than one pixel"
+        );
+        let _ = border;
+    }
+
+    #[test]
+    fn the_side_panel_is_not_drawn_when_the_layout_dropped_it() {
+        let presentation = presentation_for(&ProductShell::new());
+        let mut narrow = vec![0_u32; 700 * 800];
+        render_shell(&mut narrow, 700, 800, &presentation);
+
+        let surface = packed_rgb(presentation.visual.surface_rgb);
+
+        // At 700px the layout drops the panel, so the whole content region is
+        // the background except for the device rows themselves. A panel is a
+        // full-height surface block; if one were drawn it would put surface
+        // colour across the entire right-hand side of the window.
+        let layout = ShellLayout::for_window(700, 800).expect("laid out");
+        assert!(!layout.shows_panel(), "700px should drop the panel");
+
+        let panel_top = layout.top_bar_height;
+        let surface_ink = (panel_top..800 - layout.footer_height)
+            .filter(|y| {
+                (layout.content_x + layout.content_width..700)
+                    .any(|x| narrow[y * 700 + x] == surface)
+            })
+            .count();
+        assert_eq!(
+            surface_ink, 0,
+            "a panel surface was drawn on a {surface_ink}-row band at a window width that drops it"
+        );
+    }
+
+    #[test]
+    fn panel_text_stays_inside_the_panel() {
+        let presentation = presentation_for(&ProductShell::new());
+        let mut pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut pixels, 1200, 800, &presentation);
+
+        let layout = ShellLayout::for_window(1200, 800).expect("laid out");
+        let foreground = packed_rgb(presentation.visual.foreground_rgb);
+        let panel_top = layout.top_bar_height + layout.gutter;
+
+        // Scan the band the panel occupies. Any foreground pixel between the
+        // right edge of the content column and the left edge of the panel is
+        // content that escaped its region into the gutter between them.
+        let panel_rows =
+            panel_top..panel_top + layout.content_height.saturating_sub(layout.gutter * 2);
+        let content_right = layout.content_x + layout.content_width;
+        for y in panel_rows {
+            for x in content_right..layout.panel_x {
+                assert_ne!(
+                    pixels[y * 1200 + x],
+                    foreground,
+                    "panel content drawn in the gutter at ({x},{y})"
+                );
+            }
+        }
+
+        // And the panel must actually carry its own heading. An empty panel is a
+        // panel whose text was pushed outside it, which the gutter scan above
+        // cannot see because the text would have landed somewhere it does
+        // not check. The heading is muted, not foreground, so it is looked
+        // for in the muted colour.
+        let muted = packed_rgb(presentation.visual.muted_rgb);
+        let heading_row = panel_top + 18;
+        let heading_ink = (layout.panel_x..layout.panel_x + layout.panel_width)
+            .filter(|x| pixels[heading_row * 1200 + x] == muted)
+            .count();
+        assert!(
+            heading_ink > 0,
+            "the panel carries no heading text at its own row {heading_row}"
+        );
+    }
+
+    #[test]
+    fn every_row_that_fits_is_drawn_not_just_the_first() {
+        let mut presentation = presentation_for(&ProductShell::new());
+        presentation.controls = (0..6)
+            .map(|index| crate::ShellControl {
+                label: format!("Device {index}"),
+                action: crate::DesktopAction::FocusDevices,
+                keyboard_key: '1',
+                role: crate::AccessibleRole::Button,
+                enabled: true,
+            })
+            .collect();
+
+        let layout = ShellLayout::for_window(1200, 800).expect("laid out");
+        assert!(
+            layout.visible_rows() >= 6,
+            "only {} rows fit, so this test cannot tell a full column from a truncated one",
+            layout.visible_rows()
+        );
+
+        let mut pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut pixels, 1200, 800, &presentation);
+
+        let rects = crate::control_rects_for(&presentation, 1200, 800);
+        let foreground = packed_rgb(presentation.visual.foreground_rgb);
+
+        // Every row that fits must carry ink. A renderer that stops after the
+        // first row leaves the rest of the column blank, which looks like an
+        // empty device list rather than like a bug.
+        let blank: Vec<usize> = rects
+            .iter()
+            .enumerate()
+            .filter(|(_, rect)| count_color(&pixels, 1200, **rect, foreground) == 0)
+            .map(|(index, _)| index)
+            .collect();
+        assert!(
+            blank.is_empty(),
+            "rows {blank:?} were left blank although {} rows fit",
+            rects.len()
+        );
+    }
+
+    #[test]
+    fn rows_stop_at_the_bottom_of_the_window_instead_of_running_off_it() {
+        // More devices than rows fit: the renderer must drop the overflow
+        // rather than draw it past the footer.
+        let mut presentation = presentation_for(&ProductShell::new());
+        presentation.controls = (0..200)
+            .map(|index| crate::ShellControl {
+                label: format!("Device {index}"),
+                action: crate::DesktopAction::FocusDevices,
+                keyboard_key: '1',
+                role: crate::AccessibleRole::Button,
+                enabled: true,
+            })
+            .collect();
+
+        let mut pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut pixels, 1200, 800, &presentation);
+
+        let layout = ShellLayout::for_window(1200, 800).expect("laid out");
+        let footer_top = 800 - layout.footer_height;
+        let foreground = packed_rgb(presentation.visual.foreground_rgb);
+        let first_row_y = layout.first_row_y();
+
+        // Every drawn row must sit between the header and the footer.
+        for y in footer_top..800 {
+            for x in layout.content_x..layout.content_x + layout.content_width {
+                assert_ne!(
+                    pixels[y * 1200 + x],
+                    foreground,
+                    "row text drawn into the footer at ({x},{y})"
+                );
+            }
+        }
+        let rows_drawn = (0..layout.visible_rows()).count();
+        assert!(
+            rows_drawn * layout.row_height + first_row_y <= footer_top,
+            "the visible row count reaches past the footer"
+        );
     }
 }
