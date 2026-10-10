@@ -85,7 +85,7 @@ impl Canvas<'_> {
             self.text(x, y, text, scale, color);
             return;
         }
-        let kept_len = budget;
+        let kept_len = budget.saturating_sub(3);
         let kept: String = text.chars().take(kept_len).collect();
         let kept_width = Self::text_width(&kept, scale);
         self.text(x, y, &kept, scale, color);
@@ -302,11 +302,7 @@ fn draw_controls(
             },
         );
 
-        let label_color = if is_online {
-            palette.foreground
-        } else {
-            palette.muted
-        };
+        let label_color = palette.foreground;
         canvas.text_clipped(
             rect.x + 40,
             rect.y + 12,
@@ -322,19 +318,6 @@ fn draw_controls(
         } else {
             "OFFLINE".to_owned()
         };
-        canvas.text_right(
-            rect.x + rect.width - 14,
-            rect.y + 12,
-            &trailing,
-            1,
-            palette.muted,
-        );
-        canvas.h_line(
-            rect.x + 1,
-            rect.y + rect.height.saturating_sub(1),
-            rect.width.saturating_sub(2),
-            palette.border,
-        );
     }
 
     if presentation.controls.is_empty() {
