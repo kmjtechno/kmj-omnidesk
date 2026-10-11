@@ -65,7 +65,7 @@ impl ShellLayout {
         // The content column takes whatever the panel does not, floored so the
         // device labels keep a usable width on a small window.
         let panel_width = if width >= NARROW_SHELL_WIDTH {
-            (width * 3 / 10).max(240)
+            (width * 3 / 10).clamp(240, 380)
         } else {
             0
         };
@@ -77,7 +77,11 @@ impl ShellLayout {
 
         // Never let the column collapse to nothing on a window that passed the
         // narrow check: a zero-width column still reports hit targets.
-        let content_width = content_width.max(200);
+        let content_width = if content_width == 0 {
+            200
+        } else {
+            content_width.max(200)
+        };
         let panel_x = content_x
             .saturating_add(content_width)
             .saturating_add(gutter);
@@ -157,6 +161,32 @@ mod tests {
         let layout = ShellLayout::for_window(700, 800).expect("laid out");
         assert!(!layout.shows_panel());
         assert!(layout.content_width >= 200);
+    }
+
+    /// The panel width is clamped at both ends: too wide on a huge window
+    /// would push the content column under the panel, and too narrow would
+    /// leave the panel unreadable.
+    #[test]
+    fn panel_width_is_clamped_at_the_wide_end() {
+        let layout = ShellLayout::for_window(2560, 1440).expect("laid out");
+        assert!(
+            layout.panel_width <= 380,
+            "panel widened to {} past its 380 cap",
+            layout.panel_width
+        );
+    }
+
+    /// The panel width is clamped at the narrow end: below the narrow
+    /// threshold the panel is dropped entirely rather than drawn at its
+    /// minimum width.
+    #[test]
+    fn panel_width_is_clamped_at_the_narrow_end() {
+        let layout = ShellLayout::for_window(719, 800).expect("laid out");
+        assert!(
+            !layout.shows_panel(),
+            "panel drawn at {} on a window that should drop it",
+            layout.panel_width
+        );
     }
 
     #[test]

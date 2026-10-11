@@ -55,20 +55,20 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
     (
         "layout.rs",
         "panel width is not clamped at the wide end",
-        "(width * 3 / 10).max(240)",
-        "(width * 3 / 10).min(380)",
+        "let panel_width = if width >= NARROW_SHELL_WIDTH {\n            (width * 3 / 10).clamp(240, 380)\n        } else {\n            0\n        };",
+        "let panel_width = if width >= NARROW_SHELL_WIDTH {\n            (width * 3 / 10).max(240)\n        } else {\n            0\n        };",
     ),
     (
         "layout.rs",
         "panel width is not clamped at the narrow end",
-        "(width * 3 / 10).max(240)",
-        "(width * 3 / 10).max(240)",
+        "let panel_width = if width >= NARROW_SHELL_WIDTH {\n            (width * 3 / 10).clamp(240, 380)\n        } else {\n            0\n        };",
+        "let panel_width = if width >= NARROW_SHELL_WIDTH {\n            (width * 3 / 10).max(240)\n        } else {\n            (width * 3 / 10).max(240)\n        };",
     ),
     (
         "layout.rs",
         "content column is allowed to collapse to nothing",
         ".max(200)",
-        "",
+        "let content_width = if content_width == 0 { 200 } else { content_width.max(200) };",
     ),
     (
         "layout.rs",
@@ -98,7 +98,7 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
     (
         "lib.rs",
         "control rects ignore the row index",
-        "y: layout.first_row_y().saturating_add(index.saturating_mul(layout.row_height)),",
+        "y: layout\n                .first_row_y()\n                .saturating_add(index.saturating_mul(layout.row_height)),",
         "y: layout.first_row_y().saturating_add(0),",
     ),
     (
@@ -122,26 +122,26 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
     (
         "lib.rs",
         "control rects are still produced for a window too small to lay out",
+        "let Some(layout) = ShellLayout::for_window(width, height) else {\n        return vec![\n            ControlRect {\n                x: 0,\n                y: 0,\n                width,\n                height\n            };\n            presentation.controls.len()\n        ];\n    };",
         "let Some(layout) = ShellLayout::for_window(width, height) else {\n        return Vec::new();\n    };",
-        "let Some(layout) = ShellLayout::for_window(width, height) else {\n        return vec![ControlRect { x: 0, y: 0, width, height };\n            presentation.controls.len()];\n    };",
     ),
     (
         "lib.rs",
         "hit test matches disabled controls",
+        ".find(|(control, rect)| control.enabled && rect.contains(x, y))",
         ".find(|(_, rect)| rect.contains(x, y))",
-        ".find(|(_, rect)| rect.contains(x, y) || true) || None,",
     ),
     (
         "lib.rs",
         "contains treats the right edge as inside the rect",
         "&& x < self.x.saturating_add(self.width)\n            && y < self.y.saturating_add(self.height)",
-        "&& x < self.x.saturating_add(self.width)\n            && y < self.y.saturating_add(self.height)",
+        "&& x < self.x.saturating_add(self.width)\n            && y <= self.y.saturating_add(self.height)",
     ),
     (
         "lib.rs",
         "contains ignores the top edge",
         "&& y >= self.y",
-        "&& y >= self.y",
+        "&& y > self.y",
     ),
     (
         "lib.rs",
@@ -200,9 +200,9 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
     ),
     (
         "render.rs",
-        "renderer draws the panel even when the layout dropped it",
+        "the panel is skipped when the layout shows it",
         "if !layout.shows_panel() {\n        return;\n    }",
-        "if false {\n        return;\n    }",
+        "if layout.shows_panel() {\n        return;\n    }",
     ),
     (
         "render.rs",
@@ -219,8 +219,8 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
     (
         "render.rs",
         "truncation ellipsis is drawn on top of the text it replaces",
-        "let kept_len = budget;",
-        "let kept_len = budget.saturating_sub(3);"
+        "let kept_len = budget.saturating_sub(3);",
+        "let kept_len = budget;"
     ),
     (
         "render.rs",
@@ -232,13 +232,13 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
         "render.rs",
         "an offline row shows a shortcut hint instead of saying it is offline",
         'let trailing = if is_online {\n            format!("[{}]", control.keyboard_key.to_ascii_uppercase())\n        } else {\n            "OFFLINE".to_owned()\n        };',
-        'let trailing = "OFFLINE".to_owned();',
+        'let trailing = palette.muted;',
     ),
     (
         "render.rs",
         "every row gets the red destructive edge",
+        "palette.border,",
         "if destructive {\n                palette.danger\n            } else {\n                palette.border\n            },",
-        "palette.danger,",
     ),
     (
         "render.rs",

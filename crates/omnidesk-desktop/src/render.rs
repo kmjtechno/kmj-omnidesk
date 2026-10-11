@@ -302,7 +302,11 @@ fn draw_controls(
             },
         );
 
-        let label_color = palette.foreground;
+        let label_color = if is_online {
+            palette.foreground
+        } else {
+            palette.muted
+        };
         canvas.text_clipped(
             rect.x + 40,
             rect.y + 12,
@@ -318,6 +322,7 @@ fn draw_controls(
         } else {
             "OFFLINE".to_owned()
         };
+        canvas.text(rect.x + 40, rect.y + 44, &trailing, 1, palette.muted);
     }
 
     if presentation.controls.is_empty() {
@@ -349,7 +354,7 @@ fn draw_panel(
     layout: &ShellLayout,
     palette: Palette,
 ) {
-    let _background = palette.background;
+    let _ = palette.background;
     if !layout.shows_panel() {
         return;
     }
@@ -630,6 +635,33 @@ mod tests {
             "the truncated row left {overflow_ink} ink pixels against {short_ink} for a 5-character label"
         );
         assert!(overflow_ink > 0, "the truncated row drew nothing at all");
+
+        // A label one character over the budget must not draw more ink than a
+        // label drawn at exactly the budget: truncation hands back
+        // `budget - 3` characters plus an ellipsis, which is `budget` glyphs
+        // total. If the ellipsis were drawn on top of the text it replaces,
+        // the over-budget row would draw `budget + 1` glyphs and leave more
+        // ink than the at-budget row.
+        let at_budget = row_presentation(
+            &"L".repeat(budget),
+            true,
+            crate::DesktopAction::FocusDevices,
+        );
+        let mut at_pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut at_pixels, 1200, 800, &at_budget);
+        let at_ink = count_color(&at_pixels, 1200, rect, ink);
+        let over_budget = row_presentation(
+            &"L".repeat(budget + 1),
+            true,
+            crate::DesktopAction::FocusDevices,
+        );
+        let mut over_pixels = vec![0_u32; 1200 * 800];
+        render_shell(&mut over_pixels, 1200, 800, &over_budget);
+        let over_ink = count_color(&over_pixels, 1200, rect, ink);
+        assert!(
+            over_ink <= at_ink,
+            "a label one character over the budget drew {over_ink} ink against {at_ink} for a {budget}-character label; the ellipsis was drawn on top of the text"
+        );
     }
 
     #[test]
@@ -662,10 +694,12 @@ mod tests {
         );
 
         // Its label is dimmed: an offline row at full contrast is
-        // indistinguishable from one that can be used.
+        // indistinguishable from one that can be used. The comparison is strict
+        // because the same label drawn at the same contrast renders identical
+        // ink, and a test that allows equality cannot tell the two apart.
         assert!(
             count_color(&offline_pixels, 1200, rect, foreground)
-                <= count_color(&online_pixels, 1200, rect, foreground),
+                < count_color(&online_pixels, 1200, rect, foreground),
             "an offline row's label is drawn at full contrast"
         );
 
@@ -761,6 +795,33 @@ mod tests {
         assert_eq!(
             surface_ink, 0,
             "a panel surface was drawn on a {surface_ink}-row band at a window width that drops it"
+        );
+    }
+
+    /// The mirror of the narrow case: when the layout does show a panel, the
+    /// renderer must actually draw it. A guard that only ever checks the
+    /// dropped case cannot tell "drawn when dropped" from "never drawn".
+    #[test]
+    fn the_side_panel_is_drawn_when_the_layout_shows_it() {
+        let presentation = presentation_for(&ProductShell::new());
+        let mut wide = vec![0_u32; 1200 * 800];
+        render_shell(&mut wide, 1200, 800, &presentation);
+
+        let surface = packed_rgb(presentation.visual.surface_rgb);
+        let layout = ShellLayout::for_window(1200, 800).expect("laid out");
+        assert!(layout.shows_panel(), "1200px should show the panel");
+
+        let panel_top = layout.top_bar_height + layout.gutter;
+        let panel_bottom = panel_top + layout.content_height.saturating_sub(layout.gutter * 2);
+        let surface_ink = (panel_top..panel_bottom)
+            .filter(|y| {
+                (layout.panel_x..layout.panel_x + layout.panel_width)
+                    .any(|x| wide[y * 1200 + x] == surface)
+            })
+            .count();
+        assert!(
+            surface_ink > 0,
+            "no panel surface was drawn at a window width that shows one"
         );
     }
 

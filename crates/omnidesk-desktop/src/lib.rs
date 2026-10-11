@@ -293,7 +293,15 @@ pub fn control_rects_for(
     height: usize,
 ) -> Vec<ControlRect> {
     let Some(layout) = ShellLayout::for_window(width, height) else {
-        return vec![ControlRect { x: 0, y: 0, width, height }; presentation.controls.len()];
+        return vec![
+            ControlRect {
+                x: 0,
+                y: 0,
+                width,
+                height
+            };
+            presentation.controls.len()
+        ];
     };
 
     presentation
@@ -302,7 +310,9 @@ pub fn control_rects_for(
         .enumerate()
         .map(|(index, _)| ControlRect {
             x: layout.content_x,
-            y: layout.first_row_y().saturating_add(index.saturating_mul(layout.row_height)),
+            y: layout
+                .first_row_y()
+                .saturating_add(index.saturating_mul(layout.row_height)),
             width: layout.content_width,
             height: layout.row_height,
         })
@@ -360,7 +370,7 @@ pub fn action_for_key(view: PrimaryView, key: char) -> Option<DesktopAction> {
 
 pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
     match action {
-        DesktopAction::FocusDevices => {}
+        DesktopAction::FocusDevices | DesktopAction::DenyPermission => {}
         DesktopAction::ConnectDevice(index) => {
             let device_id = shell.devices().get(index).map(|device| device.id.clone());
             if let Some(device_id) = device_id {
@@ -368,7 +378,6 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             }
         }
         DesktopAction::AllowPermission => shell.decide_permission(PermissionDecision::Allow),
-        DesktopAction::DenyPermission => {}
         DesktopAction::SetQuality(preset) => shell.set_quality_preset(preset),
         DesktopAction::Disconnect => shell.disconnect(),
     }
@@ -482,17 +491,70 @@ mod tests {
         assert_eq!(initial.title, "KMJ OmniDesk");
         assert_eq!(initial.status, "Disconnected");
         assert_eq!(initial.visual, VisualSystem::kmj_black_red());
+        // An empty device list reports the empty case rather than a fabricated
+        // count or a zero-online summary.
+        assert_eq!(initial.summary, "No devices registered");
+        assert_eq!(initial.panel_title, "Devices");
 
-        shell.replace_devices(vec![DeviceSummary {
-            id: "desk-1".into(),
-            display_name: "Desk 1".into(),
-            status: DeviceStatus::Online,
-        }]);
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "desk-1".into(),
+                display_name: "Desk 1".into(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "desk-2".into(),
+                display_name: "Desk 2".into(),
+                status: DeviceStatus::Offline,
+            },
+        ]);
         shell.begin_connect("desk-1").unwrap();
-        assert_eq!(presentation_for(&shell).status, "Authorization required");
+        let prompt = presentation_for(&shell);
+        assert_eq!(prompt.status, "Authorization required");
+        // The panel title follows the view, not a static label.
+        assert_eq!(prompt.panel_title, "Request");
+        // The summary counts devices and reports how many are actually
+        // online -- an offline device must not be counted as online.
+        assert!(
+            prompt.summary.contains("2 devices"),
+            "summary was {:?}",
+            prompt.summary
+        );
+        assert!(
+            prompt.summary.contains("1 online"),
+            "summary was {:?}",
+            prompt.summary
+        );
 
         shell.decide_permission(PermissionDecision::Allow);
         assert_eq!(presentation_for(&shell).status, "Secure session active");
+    }
+
+    /// `ControlRect::contains` is a half-open interval: the right and bottom
+    /// edges are outside the rect, the top and left edges are inside. A hit
+    /// test that swallows its own boundary returns actions for points that
+    /// belong to the next row or column.
+    #[test]
+    fn control_rect_contains_is_half_open() {
+        let rect = ControlRect {
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 40,
+        };
+        assert!(rect.contains(10, 20), "top-left corner is inside");
+        assert!(
+            rect.contains(109, 20),
+            "left edge, one before the right edge"
+        );
+        assert!(
+            rect.contains(10, 59),
+            "top edge, one before the bottom edge"
+        );
+        assert!(!rect.contains(110, 20), "right edge is outside");
+        assert!(!rect.contains(10, 60), "bottom edge is outside");
+        assert!(!rect.contains(9, 20), "left of the rect is outside");
+        assert!(!rect.contains(10, 19), "above the rect is outside");
     }
 
     #[test]
@@ -813,5 +875,32 @@ mod tests {
                 .iter()
                 .any(|c| c.action == DesktopAction::DenyPermission)
         );
+    }
+
+    /// A window too small to lay out still reports a control rect per control,
+    /// so the hit test can refuse every action in a window the shell does not
+    /// draw. Returning no rects at all would leave the hit test with nothing
+    /// to refuse against.
+    #[test]
+    fn control_rects_for_a_too_small_window_keeps_one_rect_per_control() {
+        let mut presentation = presentation_for(&ProductShell::new());
+        presentation.controls = (0..3)
+            .map(|index| crate::ShellControl {
+                label: format!("Device {index}"),
+                action: crate::DesktopAction::FocusDevices,
+                keyboard_key: '1',
+                role: crate::AccessibleRole::Button,
+                enabled: true,
+            })
+            .collect();
+        let rects = control_rects_for(&presentation, 100, 100);
+        assert_eq!(
+            rects.len(),
+            presentation.controls.len(),
+            "control rects were not produced for a window too small to lay out: {rects:?}"
+        );
+        // The rects span the whole window, so no point inside it matches a
+        // control: the shell refuses to draw, and the hit test refuses to act.
+        assert!(rects.iter().all(|rect| rect.x == 0 && rect.y == 0));
     }
 }
