@@ -39,7 +39,7 @@ fn native_ui_font() -> Option<&'static FontArc> {
     .as_ref()
 }
 
-fn native_text_size(scale: usize) -> f32 {
+const fn native_text_size(scale: usize) -> f32 {
     if scale >= 2 { 21.0 } else { 12.8 }
 }
 
@@ -94,6 +94,9 @@ impl Canvas<'_> {
         );
     }
 
+    // Glyph advances are finite, screen-bounded float values; usize only
+    // records the conservative rounded pixel extent for clipping.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn text_width(text: &str, scale: usize) -> usize {
         if let Some(font) = native_ui_font() {
             let scaled = font.as_scaled(PxScale::from(native_text_size(scale)));
@@ -147,6 +150,9 @@ impl Canvas<'_> {
         self.text(right_edge.saturating_sub(width), y, text, scale, color);
     }
 
+    // The alpha fraction is clamped to [0,1] before converting to the
+    // exact 8-bit channel range used for deterministic pixel compositing.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn blend_coverage(&mut self, x: i32, y: i32, color: u32, coverage: f32) {
         let (Ok(x), Ok(y)) = (usize::try_from(x), usize::try_from(y)) else {
             return;
@@ -170,6 +176,9 @@ impl Canvas<'_> {
         self.pixels[y * self.width + x] = blended;
     }
 
+    // Font APIs use f32 coordinates and signed raster bounds. The viewport
+    // clips all pixel writes, and the glyph API bounds each local delta.
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     fn text(&mut self, x: usize, y: usize, text: &str, scale: usize, color: u32) {
         if let Some(font) = native_ui_font() {
             let px = PxScale::from(native_text_size(scale));
