@@ -31,9 +31,12 @@ fn native_ui_font() -> Option<&'static FontArc> {
             "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
         ];
         paths.iter().find_map(|path| {
-            std::fs::read(path).ok().and_then(|data| FontArc::try_from_vec(data).ok())
+            std::fs::read(path)
+                .ok()
+                .and_then(|data| FontArc::try_from_vec(data).ok())
         })
-    }).as_ref()
+    })
+    .as_ref()
 }
 
 fn native_text_size(scale: usize) -> f32 {
@@ -94,7 +97,10 @@ impl Canvas<'_> {
     fn text_width(text: &str, scale: usize) -> usize {
         if let Some(font) = native_ui_font() {
             let scaled = font.as_scaled(PxScale::from(native_text_size(scale)));
-            let sum: f32 = text.chars().map(|c| scaled.h_advance(scaled.glyph_id(c))).sum();
+            let sum: f32 = text
+                .chars()
+                .map(|c| scaled.h_advance(scaled.glyph_id(c)))
+                .sum();
             return sum.ceil() as usize;
         }
         text.chars().count().saturating_mul(9).saturating_mul(scale)
