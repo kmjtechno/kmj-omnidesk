@@ -1,10 +1,43 @@
+use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
 use font8x8::{BASIC_FONTS, UnicodeFonts};
+use std::sync::OnceLock;
 
 use crate::{LockedDashboardLayout, PresentationModel, ShellLayout, control_rects_for};
 
 #[must_use]
 pub const fn packed_rgb(rgb: [u8; 3]) -> u32 {
     (rgb[0] as u32) << 16 | (rgb[1] as u32) << 8 | rgb[2] as u32
+}
+
+// Read fonts supplied by the operating system: the product does not bundle,
+// upload, copy, or redistribute proprietary Windows font files. The existing
+// tiny pixel-font renderer remains a deterministic fallback for minimal hosts.
+fn native_ui_font() -> Option<&'static FontArc> {
+    static FONT: OnceLock<Option<FontArc>> = OnceLock::new();
+    FONT.get_or_init(|| {
+        #[cfg(windows)]
+        let paths: &[&str] = &[
+            r"C:\Windows\Fonts\segoeui.ttf",
+            r"C:\Windows\Fonts\arial.ttf",
+        ];
+        #[cfg(target_os = "macos")]
+        let paths: &[&str] = &[
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/Library/Fonts/Arial.ttf",
+        ];
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        let paths: &[&str] = &[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        ];
+        paths.iter().find_map(|path| {
+            std::fs::read(path).ok().and_then(|data| FontArc::try_from_vec(data).ok())
+        })
+    }).as_ref()
+}
+
+fn native_text_size(scale: usize) -> f32 {
+    if scale >= 2 { 21.0 } else { 12.8 }
 }
 
 struct Canvas<'a> {
@@ -58,16 +91,17 @@ impl Canvas<'_> {
         );
     }
 
-    /// Pixel width `text` occupies at `scale`.
     fn text_width(text: &str, scale: usize) -> usize {
+        if let Some(font) = native_ui_font() {
+            let scaled = font.as_scaled(PxScale::from(native_text_size(scale)));
+            let sum: f32 = text.chars().map(|c| scaled.h_advance(scaled.glyph_id(c))).sum();
+            return sum.ceil() as usize;
+        }
         text.chars().count().saturating_mul(9).saturating_mul(scale)
     }
 
-    /// Draws `text`, truncating with an ellipsis when it would run past
-    /// `max_width`.
-    ///
-    /// A label drawn past its row's edge is drawn over the neighbouring
-    /// region, which reads as a rendering fault rather than as a long name.
+    /// Clip text to its real font advances rather than dividing by a fixed
+    /// bitmap-cell width. Reserve ellipsis width to protect neighboring cards.
     fn text_clipped(
         &mut self,
         x: usize,
@@ -80,33 +114,85 @@ impl Canvas<'_> {
         if max_width == 0 {
             return;
         }
-        let budget = max_width / (9 * scale);
-        if text.chars().count() <= budget {
+        if Self::text_width(text, scale) <= max_width {
             self.text(x, y, text, scale, color);
             return;
         }
-        if budget <= 3 {
+        let ellipsis = "...";
+        let dots_width = Self::text_width(ellipsis, scale);
+        if dots_width >= max_width {
             return;
         }
-        let kept: String = text.chars().take(budget - 3).collect();
-        let kept_width = Self::text_width(&kept, scale);
+        let mut kept = String::new();
+        for c in text.chars() {
+            kept.push(c);
+            if Self::text_width(&kept, scale).saturating_add(dots_width) > max_width {
+                kept.pop();
+                break;
+            }
+        }
+        let used_width = Self::text_width(&kept, scale);
         self.text(x, y, &kept, scale, color);
-        self.text(x + kept_width, y, "...", scale, color);
+        self.text(x.saturating_add(used_width), y, ellipsis, scale, color);
     }
 
-    /// Right-aligned text, used for status values and shortcut hints.
     fn text_right(&mut self, right_edge: usize, y: usize, text: &str, scale: usize, color: u32) {
         let width = Self::text_width(text, scale);
         self.text(right_edge.saturating_sub(width), y, text, scale, color);
     }
 
+    fn blend_coverage(&mut self, x: i32, y: i32, color: u32, coverage: f32) {
+        let (Ok(x), Ok(y)) = (usize::try_from(x), usize::try_from(y)) else {
+            return;
+        };
+        if x >= self.width || y >= self.height {
+            return;
+        }
+        let alpha = (coverage.clamp(0.0, 1.0) * 255.0).round() as u32;
+        if alpha == 0 {
+            return;
+        }
+        let background = self.pixels[y * self.width + x];
+        let inverse = 255 - alpha;
+        let mut blended = 0_u32;
+        for shift in [0_u32, 8, 16] {
+            let foreground = (color >> shift) & 0xff;
+            let behind = (background >> shift) & 0xff;
+            let mix = (foreground * alpha + behind * inverse + 127) / 255;
+            blended |= mix << shift;
+        }
+        self.pixels[y * self.width + x] = blended;
+    }
+
     fn text(&mut self, x: usize, y: usize, text: &str, scale: usize, color: u32) {
+        if let Some(font) = native_ui_font() {
+            let px = PxScale::from(native_text_size(scale));
+            let scaled = font.as_scaled(px);
+            let mut cursor_x = x as f32;
+            let baseline = y as f32 + scaled.ascent();
+            for character in text.chars() {
+                let id = scaled.glyph_id(character);
+                let glyph = id.with_scale_and_position(px, point(cursor_x, baseline));
+                if let Some(outline) = font.outline_glyph(glyph) {
+                    let bounds = outline.px_bounds();
+                    let left = bounds.min.x as i32;
+                    let top = bounds.min.y as i32;
+                    outline.draw(|dx, dy, coverage| {
+                        self.blend_coverage(
+                            left.saturating_add(dx as i32),
+                            top.saturating_add(dy as i32),
+                            color,
+                            coverage,
+                        );
+                    });
+                }
+                cursor_x += scaled.h_advance(id);
+            }
+            return;
+        }
         let mut cursor_x = x;
         for character in text.chars() {
-            // The approved application uses mixed-case, human-readable labels.
-            // Do not transform names and navigation titles into pixel capitals.
-            let glyph_character = character;
-            if let Some(glyph) = BASIC_FONTS.get(glyph_character) {
+            if let Some(glyph) = BASIC_FONTS.get(character) {
                 for (row, bits) in glyph.iter().enumerate() {
                     for column in 0..8 {
                         if bits & (1 << column) != 0 {
