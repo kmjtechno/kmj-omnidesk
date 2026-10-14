@@ -316,39 +316,27 @@ jobs:
       - name: Build and exercise unsigned Windows NSIS candidate
         shell: pwsh
         run: |
-          # Use the official NSIS portable ZIP, bypassing Chocolatey's
-          # unreliable community V2 index. Verify the official SHA-256 before
-          # extraction; never use any unverifiable installer compiler.
-          $nsisUrl = @(
-            'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.12/nsis-3.12.zip',
-            'https://sourceforge.net/projects/nsis/files/NSIS%203/3.12/nsis-3.12.zip/download'
+          # Build-only NSIS-compatible compiler from a fixed GitHub release.
+          # The runner's Chocolatey feed returned repeated HTTP 503, and the
+          # SourceForge mirror supplied bytes failing the official SHA check.
+          # Do not execute this compiler without verifying its published hash.
+          $nsisVersion = '3.13.7507.353'
+          $nsisCompilerUrl = 'https://github.com/negrutiu/nsis/releases/download/v3.13.7507.353/nsis-3.13.7507.353-negrutiu-x86.exe'
+          $nsisTrustedSha256 = '078d2fa42246e4af893f1b2fa9256b389086b14f5ec4f6bab085d4880ec6a625'
+          $nsisSetup = Join-Path $env:RUNNER_TEMP 'kmj-nsis-build-tool.exe'
+          Invoke-WebRequest -Uri $nsisCompilerUrl -OutFile $nsisSetup -MaximumRedirection 10 -TimeoutSec 90
+          $toolDigest = (Get-FileHash $nsisSetup -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($toolDigest -ne $nsisTrustedSha256) { throw 'NSIS compiler hash mismatch; refused' }
+          $toolInstall = Start-Process -FilePath $nsisSetup -ArgumentList '/S' -Wait -PassThru
+          if ($toolInstall.ExitCode -ne 0) { throw "Pinned NSIS install failed: $($toolInstall.ExitCode)" }
+          $compilerPaths = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'),
+            (Join-Path $env:ProgramFiles 'NSIS\makensis.exe')
           )
-          $trustedSha256 = '56581f90db321581c5381193d796fffcf2d24b2f8fed2160a6c6a3baa67f2c4f'
-          $zipPath = Join-Path $env:RUNNER_TEMP 'nsis-3.12.zip'
-          $verified = $false
-          foreach ($url in $nsisUrl) {
-            try {
-              Invoke-WebRequest -Uri $url -OutFile $zipPath -MaximumRedirection 10 -TimeoutSec 60
-              $digest = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-              if ($digest -ne $trustedSha256) {
-                throw "NSIS SHA-256 mismatch; refusing untrusted toolchain"
-              }
-              $verified = $true
-              break
-            } catch {
-              Write-Warning "NSIS official mirror unavailable or invalid: $($_.Exception.Message)"
-              Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-            }
-          }
-          if (-not $verified) { throw 'Official pinned NSIS archive could not be verified' }
-          $nsisDirectory = Join-Path $env:RUNNER_TEMP 'kmj-nsis-3.12-verified'
-          Expand-Archive -Path $zipPath -DestinationPath $nsisDirectory -Force
-          $compiler = Get-ChildItem -Path $nsisDirectory -Filter 'makensis.exe' -File -Recurse |
-            Select-Object -First 1
-          if ($null -eq $compiler) { throw 'Verified NSIS archive did not contain makensis.exe' }
-          $makensis = $compiler.FullName
-          Write-Host "NSIS_PINNED_VERSION=3.12"
-          Write-Host "NSIS_TOOLCHAIN_SHA256=$trustedSha256"
+          $makensis = $compilerPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $makensis) { throw 'Pinned NSIS compiler missing after verified installation' }
+          Write-Host "NSIS_GITHUB_RELEASE_PIN=$nsisVersion"
+          Write-Host "NSIS_TOOLCHAIN_SHA256=$nsisTrustedSha256"
 
           New-Item -ItemType Directory -Force -Path artifacts\windows-installer | Out-Null
           $sourceExe = (Resolve-Path "target\release\omnidesk-desktop.exe").Path
