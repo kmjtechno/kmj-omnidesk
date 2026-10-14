@@ -1,0 +1,27 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="KMJ OmniDesk"
+    Manufacturer="KMJ TECHNO"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="{D2A45E35-BC4F-4E12-A671-2D8C1736E5E1}"
+    Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of KMJ OmniDesk is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="KMJ OmniDesk">
+        <Component Id="MainExecutable" Guid="*">
+          <File
+            Id="OmniDeskDesktopExecutable"
+            Source="$(var.SourceExe)"
+            Name="omnidesk-desktop.exe"
+            KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="KMJ OmniDesk" Level="1">
+      <ComponentRef Id="MainExecutable" />
+    </Feature>
+  </Package>
+</Wix>
