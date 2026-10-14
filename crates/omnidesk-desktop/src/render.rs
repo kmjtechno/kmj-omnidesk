@@ -993,14 +993,14 @@ mod tests {
             role: crate::AccessibleRole::Button,
             enabled: true,
         }];
-        let mut pixels = vec![0_u32; 1200 * 800];
-        render_shell(&mut pixels, 1200, 800, &presentation);
+        let mut pixels = vec![0_u32; 960 * 800];
+        render_shell(&mut pixels, 960, 800, &presentation);
 
         // The panel starts at panel_x; nothing of the row may land there.
-        let Some(layout) = ShellLayout::for_window(1200, 800) else {
-            panic!("layout should resolve at 1200x800");
+        let Some(layout) = ShellLayout::for_window(960, 800) else {
+            panic!("layout should resolve at 960x800");
         };
-        let Some(rect) = crate::control_rects_for(&presentation, 1200, 800)
+        let Some(rect) = crate::control_rects_for(&presentation, 960, 800)
             .first()
             .copied()
         else {
@@ -1009,7 +1009,7 @@ mod tests {
         let row_y = rect.y;
         for y in row_y..row_y + rect.height {
             for x in layout.panel_x..layout.panel_x + layout.panel_width {
-                let pixel = pixels[y * 1200 + x];
+                let pixel = pixels[y * 960 + x];
                 assert_ne!(
                     pixel,
                     packed_rgb(presentation.visual.foreground_rgb),
