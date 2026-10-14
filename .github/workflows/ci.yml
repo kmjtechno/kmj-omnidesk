@@ -316,7 +316,24 @@ jobs:
       - name: Build and exercise unsigned Windows NSIS candidate
         shell: pwsh
         run: |
-          choco install nsis --version=3.13.0 --yes --no-progress
+          # Chocolatey community index can temporarily omit a known approved
+          # version. Retry a bounded number of times, then use the separately
+          # pinned previous NSIS release. Never skip installer verification.
+          $installedNsis = $false
+          foreach ($version in @('3.13.0', '3.12.0')) {
+            for ($attempt = 1; $attempt -le 2; $attempt++) {
+              choco install nsis "--version=$version" --yes --no-progress
+              if ($LASTEXITCODE -eq 0) {
+                $installedNsis = $true
+                Write-Host "NSIS_CHOCOLATEY_PINNED_VERSION=$version"
+                break
+              }
+              Write-Warning "NSIS $version install attempt $attempt failed: $LASTEXITCODE"
+              if ($attempt -lt 2) { Start-Sleep -Seconds 5 }
+            }
+            if ($installedNsis) { break }
+          }
+          if (-not $installedNsis) { throw 'Neither approved pinned NSIS version could be installed' }
           $makensis = Join-Path $env:ProgramFiles "NSIS\makensis.exe"
           if (-not (Test-Path $makensis)) {
             $makensis = Join-Path ${env:ProgramFiles(x86)} "NSIS\makensis.exe"
