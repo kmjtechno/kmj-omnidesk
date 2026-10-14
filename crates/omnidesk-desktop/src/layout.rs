@@ -57,10 +57,10 @@ impl ShellLayout {
             return None;
         }
 
-        let gutter = 24;
-        let top_bar_height = 56;
-        let footer_height = 44;
-        let row_height = 52;
+        let gutter = 28;
+        let top_bar_height = 68;
+        let footer_height = 42;
+        let row_height = 58;
 
         // The content column takes whatever the panel does not, floored so the
         // device labels keep a usable width on a small window.
@@ -104,7 +104,7 @@ impl ShellLayout {
     /// Top edge of the first device row, below the content header.
     #[must_use]
     pub const fn first_row_y(&self) -> usize {
-        self.top_bar_height + 92
+        self.top_bar_height + 246
     }
 
     /// How many device rows fit in the content column without scrolling.
@@ -115,7 +115,7 @@ impl ShellLayout {
         // the header, and `top_bar_height` is added back because
         // `first_row_y` is measured from the window origin while
         // `content_height` is measured from below the top bar.
-        let header = 92;
+        let header = 246;
         let below_rows = self
             .content_height
             .saturating_sub(header)
