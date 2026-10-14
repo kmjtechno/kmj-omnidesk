@@ -40,7 +40,7 @@ fn native_ui_font() -> Option<&'static FontArc> {
 }
 
 const fn native_text_size(scale: usize) -> f32 {
-    if scale >= 2 { 21.0 } else { 12.8 }
+    if scale >= 2 { 22.0 } else { 16.0 }
 }
 
 struct Canvas<'a> {
@@ -967,12 +967,12 @@ fn draw_locked_session_tiles(
     // Keyboard/device controls only become clickable in their real shell state.
     let toolbar = layout.session_toolbar;
     let offline_labels = [
-        "SEND KEYS",
-        "CLIPBOARD",
-        "FILE TRANSFER",
-        "SHELL",
-        "CAPTURE",
-        "MORE",
+        "Send Keys",
+        "Clipboard",
+        "File Transfer",
+        "Remote Shell",
+        "Screenshot",
+        "More",
     ];
     let active_session =
         presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session;
@@ -1088,10 +1088,10 @@ fn draw_locked_action_buttons(
         info_x,
         actions_y + 16,
         info_w,
-        "ACTIONS  /  UNAVAILABLE",
+        "Actions  /  Unavailable",
         p.foreground,
     );
-    for (index, text) in ["FILE TRANSFER", "REMOTE REBOOT", "CLIPBOARD", "UNATTENDED"]
+    for (index, text) in ["File Transfer", "Remote Reboot", "Clipboard", "Unattended"]
         .iter()
         .enumerate()
     {
