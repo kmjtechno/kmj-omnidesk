@@ -124,5 +124,21 @@ class ReleaseCandidatePackagingTests(unittest.TestCase):
 
 
 
+    def test_manual_release_workflow_treats_untrusted_inputs_as_data(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "release-candidate.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("KMJ_RC_VERSION: ${{ inputs.version }}", workflow)
+        self.assertIn("KMJ_RC_CHANNEL: ${{ inputs.channel }}", workflow)
+        self.assertIn('--version "$env:KMJ_RC_VERSION"', workflow)
+        self.assertIn('--channel "$env:KMJ_RC_CHANNEL"', workflow)
+        self.assertNotIn("--version '${{ inputs.version }}'", workflow)
+        self.assertNotIn("--channel '${{ inputs.channel }}'", workflow)
+
+
+
 if __name__ == "__main__":
     unittest.main()
