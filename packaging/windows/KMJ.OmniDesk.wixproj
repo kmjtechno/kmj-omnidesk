@@ -1,0 +1,7 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <Platform>x64</Platform>
+    <DefineConstants>SourceExe=$(SourceExe);ProductVersion=$(ProductVersion)</DefineConstants>
+  </PropertyGroup>
+</Project>
