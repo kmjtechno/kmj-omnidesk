@@ -406,21 +406,9 @@ fn draw_controls(
             },
         );
 
-        let label_color = if is_online {
-            palette.foreground
-        } else {
-            palette.muted
-        };
-        canvas.text_clipped(
-            rect.x + 40,
-            rect.y + 12,
-            &control.label,
-            1,
-            rect.width.saturating_sub(96),
-            label_color,
-        );
-
-        // Disabled rows say so, rather than relying on the dimmed label alone.
+        // Reserve enough space for the actual trailing status string before
+        // rendering the device label. A fixed 96px inset was insufficient for
+        // "UNAVAILABLE", which collided with the label on narrow windows.
         let trailing = if is_online {
             format!("[{}]", control.keyboard_key.to_ascii_uppercase())
         } else if matches!(control.action, crate::DesktopAction::ConnectDevice(_)) {
@@ -428,6 +416,20 @@ fn draw_controls(
         } else {
             "UNAVAILABLE".to_owned()
         };
+        let label_color = if is_online {
+            palette.foreground
+        } else {
+            palette.muted
+        };
+        let trailing_width = Canvas::text_width(&trailing, 1);
+        canvas.text_clipped(
+            rect.x + 40,
+            rect.y + 12,
+            &control.label,
+            1,
+            rect.width.saturating_sub(40 + trailing_width + 24),
+            label_color,
+        );
         canvas.text_right(
             rect.x + rect.width - 14,
             rect.y + 12,
