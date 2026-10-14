@@ -424,6 +424,9 @@ jobs:
         shell: pwsh
         run: |
           node --check scripts/codebridge-ui-qa.mjs
+          # Negative tests must observe nonzero exits instead of PowerShell
+          # aborting before the assertions are evaluated.
+          $PSNativeCommandUseErrorActionPreference = $false
           node scripts/codebridge-ui-qa.mjs unsupported
           if ($LASTEXITCODE -eq 0) { throw 'Unapproved visual QA variant was accepted' }
           node scripts/codebridge-ui-qa.mjs
