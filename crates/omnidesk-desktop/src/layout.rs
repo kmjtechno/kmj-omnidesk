@@ -177,7 +177,6 @@ mod tests {
     }
 }
 
-
 /// Pixel-space rectangle shared by the visual and input layers of the locked
 /// four-column dashboard. Draw and hit-test code must not duplicate offsets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -333,11 +332,20 @@ mod locked_dashboard_tests {
     fn compact_windows_fall_back_instead_of_overlapping_panels() {
         assert!(LockedDashboardLayout::for_window(960, 640).is_none());
         assert!(LockedDashboardLayout::for_window(1419, 560).is_none());
-        for (width, height) in [(1180, 600), (1200, 800), (1419, 611), (1920, 1080), (2560, 1440)] {
+        for (width, height) in [
+            (1180, 600),
+            (1200, 800),
+            (1419, 611),
+            (1920, 1080),
+            (2560, 1440),
+        ] {
             let l = LockedDashboardLayout::for_window(width, height).unwrap();
             assert!(l.viewer.width >= 350);
             assert!(l.inspector.x + l.inspector.width <= width);
-            assert!(l.device_row(0).contains(l.device_row(0).x, l.device_row(0).y));
+            assert!(
+                l.device_row(0)
+                    .contains(l.device_row(0).x, l.device_row(0).y)
+            );
             assert!(!l.device_row(0).contains(l.navigation.x, l.device_row(0).y));
         }
     }
