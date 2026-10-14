@@ -176,3 +176,169 @@ mod tests {
         }
     }
 }
+
+
+/// Pixel-space rectangle shared by the visual and input layers of the locked
+/// four-column dashboard. Draw and hit-test code must not duplicate offsets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DashboardRect {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl DashboardRect {
+    #[must_use]
+    pub const fn contains(self, x: usize, y: usize) -> bool {
+        x >= self.x
+            && y >= self.y
+            && x < self.x.saturating_add(self.width)
+            && y < self.y.saturating_add(self.height)
+    }
+}
+
+/// Canonical 1419x611 user-approved visual reference:
+/// nav | devices | remote workspace | status inspector.
+///
+/// Below the minimum readable dashboard size the existing compact shell
+/// is used. This is a deliberate responsive fallback, not clipped columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LockedDashboardLayout {
+    pub top_bar_height: usize,
+    pub navigation: DashboardRect,
+    pub devices: DashboardRect,
+    pub viewer: DashboardRect,
+    pub inspector: DashboardRect,
+    pub remote_screen: DashboardRect,
+    pub session_toolbar: DashboardRect,
+    pub first_device_row_y: usize,
+    pub device_row_step: usize,
+}
+
+impl LockedDashboardLayout {
+    #[must_use]
+    pub fn for_window(width: usize, height: usize) -> Option<Self> {
+        if width < 1180 || height < 600 {
+            return None;
+        }
+        let top = 70;
+        let navigation_width = (width / 100 * 12).clamp(160, 198);
+        let devices_width = (width / 100 * 19).clamp(238, 315);
+        let inspector_width = (width / 100 * 20).clamp(254, 320);
+        let nav = DashboardRect {
+            x: 4,
+            y: top + 4,
+            width: navigation_width,
+            height: height - top - 10,
+        };
+        let devices = DashboardRect {
+            x: nav.x + nav.width + 6,
+            y: nav.y,
+            width: devices_width,
+            height: nav.height,
+        };
+        let inspector = DashboardRect {
+            x: width - inspector_width - 6,
+            y: nav.y,
+            width: inspector_width,
+            height: nav.height,
+        };
+        let viewer_x = devices.x + devices.width + 6;
+        let viewer_width = inspector.x.saturating_sub(viewer_x + 6);
+        if viewer_width < 350 {
+            return None;
+        }
+        let viewer = DashboardRect {
+            x: viewer_x,
+            y: nav.y,
+            width: viewer_width,
+            height: nav.height,
+        };
+        let toolbar_y = viewer.y + viewer.height - 76;
+        let remote_screen = DashboardRect {
+            x: viewer.x + 10,
+            y: viewer.y + 62,
+            width: viewer.width - 20,
+            height: viewer.height.saturating_sub(150),
+        };
+        let session_toolbar = DashboardRect {
+            x: viewer.x + 10,
+            y: toolbar_y,
+            width: viewer.width - 20,
+            height: 58,
+        };
+        Some(Self {
+            top_bar_height: top,
+            navigation: nav,
+            devices,
+            viewer,
+            inspector,
+            remote_screen,
+            session_toolbar,
+            first_device_row_y: devices.y + 93,
+            device_row_step: 55,
+        })
+    }
+
+    #[must_use]
+    pub fn device_row(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.devices.x + 8,
+            y: self.first_device_row_y + index.saturating_mul(self.device_row_step),
+            width: self.devices.width.saturating_sub(16),
+            height: 49,
+        }
+    }
+
+    #[must_use]
+    pub fn permission_button(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.remote_screen.x + 18,
+            y: self.remote_screen.y + 125 + index.saturating_mul(62),
+            width: self.remote_screen.width.saturating_sub(36).min(240),
+            height: 48,
+        }
+    }
+
+    #[must_use]
+    pub fn session_button(&self, index: usize, count: usize) -> DashboardRect {
+        let count = count.max(1);
+        let item_width = self.session_toolbar.width / count;
+        DashboardRect {
+            x: self.session_toolbar.x + index.saturating_mul(item_width) + 3,
+            y: self.session_toolbar.y + 5,
+            width: item_width.saturating_sub(6),
+            height: self.session_toolbar.height - 10,
+        }
+    }
+}
+
+#[cfg(test)]
+mod locked_dashboard_tests {
+    use super::*;
+
+    #[test]
+    fn matches_locked_four_column_hierarchy() {
+        let l = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        assert!(l.navigation.x + l.navigation.width < l.devices.x);
+        assert!(l.devices.x + l.devices.width < l.viewer.x);
+        assert!(l.viewer.x + l.viewer.width < l.inspector.x);
+        assert!(l.inspector.x + l.inspector.width <= 1419);
+        assert!(l.remote_screen.y >= l.viewer.y);
+        assert!(l.session_toolbar.y > l.remote_screen.y + l.remote_screen.height);
+    }
+
+    #[test]
+    fn compact_windows_fall_back_instead_of_overlapping_panels() {
+        assert!(LockedDashboardLayout::for_window(960, 640).is_none());
+        assert!(LockedDashboardLayout::for_window(1419, 560).is_none());
+        for (width, height) in [(1180, 600), (1200, 800), (1419, 611), (1920, 1080), (2560, 1440)] {
+            let l = LockedDashboardLayout::for_window(width, height).unwrap();
+            assert!(l.viewer.width >= 350);
+            assert!(l.inspector.x + l.inspector.width <= width);
+            assert!(l.device_row(0).contains(l.device_row(0).x, l.device_row(0).y));
+            assert!(!l.device_row(0).contains(l.navigation.x, l.device_row(0).y));
+        }
+    }
+}
