@@ -182,12 +182,21 @@ fn draw_top_bar(
     // Title on the left, status pill on the right. The red is spent here on
     // the status dot only -- enough to read the shell's state at a glance
     // without tinting the chrome.
+    canvas.fill_rect(layout.content_x, 18, 28, 28, palette.accent);
+    canvas.text(layout.content_x + 7, 24, "K", 2, palette.foreground);
     canvas.text(
-        layout.content_x,
+        layout.content_x + 42,
         (bar / 2).saturating_sub(9),
         presentation.title,
         2,
         palette.foreground,
+    );
+    canvas.text(
+        layout.content_x + 42,
+        (bar / 2).saturating_add(13),
+        "SECURE REMOTE ACCESS",
+        1,
+        palette.muted,
     );
 
     let status_width = Canvas::text_width(presentation.status, 1);
@@ -248,6 +257,88 @@ fn draw_content_header(
         1,
         palette.muted,
     );
+}
+
+fn draw_quick_connect(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &ShellLayout,
+    palette: Palette,
+) {
+    let x = layout.content_x;
+    let y = layout.top_bar_height + 76;
+    let width = layout.content_width;
+    let height = 138;
+
+    canvas.fill_rect(x, y, width, height, palette.surface);
+    canvas.stroke_rect(x, y, width, height, 1, palette.border);
+    canvas.fill_rect(x, y, 3, height, palette.accent);
+
+    let inner_x = x + 22;
+    let inner_y = y + 18;
+    canvas.text(inner_x, inner_y, "YOUR OMNIDESK ID", 1, palette.muted);
+    canvas.text(inner_x, inner_y + 24, "NOT ASSIGNED", 2, palette.foreground);
+    canvas.text(
+        inner_x,
+        inner_y + 54,
+        "Identity appears only after secure device registration.",
+        1,
+        palette.muted,
+    );
+
+    let split_x = x + width / 2;
+    if width >= 560 {
+        canvas.fill_rect(split_x, y + 18, 1, height - 36, palette.border);
+        let remote_x = split_x + 22;
+        let remote_width = x + width - remote_x - 22;
+
+        canvas.text(remote_x, inner_y, "REMOTE DEVICE ID", 1, palette.muted);
+        canvas.fill_rect(remote_x, inner_y + 24, remote_width, 34, palette.background);
+        canvas.stroke_rect(remote_x, inner_y + 24, remote_width, 34, 1, palette.border);
+        canvas.text_clipped(
+            remote_x + 12,
+            inner_y + 36,
+            "SELECT A REGISTERED DEVICE BELOW",
+            1,
+            remote_width.saturating_sub(24),
+            palette.muted,
+        );
+
+        let button_width = remote_width.min(156);
+        canvas.fill_rect(
+            remote_x,
+            inner_y + 72,
+            button_width,
+            30,
+            if presentation.controls.iter().any(|control| control.enabled) {
+                palette.accent
+            } else {
+                palette.border
+            },
+        );
+        canvas.text(
+            remote_x + 16,
+            inner_y + 83,
+            "CONNECT",
+            1,
+            palette.foreground,
+        );
+        canvas.text(
+            remote_x + button_width + 12,
+            inner_y + 83,
+            "Use an online device",
+            1,
+            palette.muted,
+        );
+    } else {
+        canvas.text(
+            inner_x,
+            inner_y + 82,
+            "REMOTE DEVICE: SELECT AN ONLINE DEVICE BELOW",
+            1,
+            palette.muted,
+        );
+    }
 }
 
 /// Whether an action destroys something the user would have to re-establish.
@@ -455,6 +546,7 @@ pub fn render_shell(
     };
     draw_top_bar(&mut canvas, presentation, &layout, palette);
     draw_content_header(&mut canvas, presentation, &layout, palette);
+    draw_quick_connect(&mut canvas, presentation, &layout, palette);
     draw_controls(&mut canvas, presentation, &layout, palette);
     draw_panel(&mut canvas, presentation, &layout, palette);
     draw_footer(&mut canvas, presentation, &layout, palette);
