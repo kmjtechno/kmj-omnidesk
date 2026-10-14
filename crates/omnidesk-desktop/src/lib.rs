@@ -8,7 +8,7 @@ pub mod accesskit_tree;
 pub mod layout;
 pub mod render;
 
-pub use layout::ShellLayout;
+pub use layout::{LockedDashboardLayout, ShellLayout};
 
 #[cfg(windows)]
 pub mod windows_host;
@@ -92,6 +92,7 @@ impl VisualSystem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresentationModel {
+    pub primary_view: PrimaryView,
     pub title: &'static str,
     pub status: &'static str,
     pub details: Vec<String>,
@@ -132,6 +133,7 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         PrimaryView::Session => "Session setup",
     };
     PresentationModel {
+        primary_view: shell.primary_view(),
         title: "KMJ OmniDesk",
         status,
         details,
@@ -294,6 +296,31 @@ pub fn control_rects_for(
     width: usize,
     height: usize,
 ) -> Vec<ControlRect> {
+    // The real four-column dashboard and its hit-testing share precisely
+    // the same panel and control rectangles. Never render one coordinate
+    // system and click in a different one.
+    if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
+        let count = presentation.controls.len();
+        return presentation
+            .controls
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                let rect = match presentation.primary_view {
+                    PrimaryView::Devices => locked.device_row(index),
+                    PrimaryView::PermissionPrompt => locked.permission_button(index),
+                    PrimaryView::Session => locked.session_button(index, count),
+                };
+                ControlRect {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                }
+            })
+            .collect();
+    }
+
     let Some(layout) = ShellLayout::for_window(width, height) else {
         return Vec::new();
     };
@@ -475,6 +502,33 @@ mod tests {
                     .all(|control| control.keyboard_key.is_ascii())
             );
         }
+    }
+
+    #[test]
+    fn locked_dashboard_device_rows_and_pointer_targets_agree() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "paired-desk".to_owned(),
+            display_name: "Paired Desk".to_owned(),
+            status: DeviceStatus::Online,
+        }]);
+        let p = presentation_for(&shell);
+        let rect = control_rects_for(&p, 1419, 611)[0];
+        assert!(rect.x > 180, "device control must not overlap nav rail");
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, rect.x + 12, rect.y + 12),
+            Some(DesktopAction::ConnectDevice(0))
+        );
+        assert_eq!(action_at_point(&shell, 1419, 611, 30, rect.y + 12), None);
+        shell.begin_connect("paired-desk").unwrap();
+        let approval = presentation_for(&shell);
+        let yes = control_rects_for(&approval, 1419, 611)[0];
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, yes.x + 12, yes.y + 12),
+            Some(DesktopAction::AllowPermission)
+        );
     }
 
     #[test]

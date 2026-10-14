@@ -316,12 +316,27 @@ jobs:
       - name: Build and exercise unsigned Windows NSIS candidate
         shell: pwsh
         run: |
-          choco install nsis --version=3.13.0 --yes --no-progress
-          $makensis = Join-Path $env:ProgramFiles "NSIS\makensis.exe"
-          if (-not (Test-Path $makensis)) {
-            $makensis = Join-Path ${env:ProgramFiles(x86)} "NSIS\makensis.exe"
-          }
-          if (-not (Test-Path $makensis)) { throw 'NSIS makensis.exe was not installed' }
+          # Build-only NSIS-compatible compiler from a fixed GitHub release.
+          # The runner's Chocolatey feed returned repeated HTTP 503, and the
+          # SourceForge mirror supplied bytes failing the official SHA check.
+          # Do not execute this compiler without verifying its published hash.
+          $nsisVersion = '3.13.7507.353'
+          $nsisCompilerUrl = 'https://github.com/negrutiu/nsis/releases/download/v3.13.7507.353/nsis-3.13.7507.353-negrutiu-x86.exe'
+          $nsisTrustedSha256 = '078d2fa42246e4af893f1b2fa9256b389086b14f5ec4f6bab085d4880ec6a625'
+          $nsisSetup = Join-Path $env:RUNNER_TEMP 'kmj-nsis-build-tool.exe'
+          Invoke-WebRequest -Uri $nsisCompilerUrl -OutFile $nsisSetup -MaximumRedirection 10 -TimeoutSec 90
+          $toolDigest = (Get-FileHash $nsisSetup -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($toolDigest -ne $nsisTrustedSha256) { throw 'NSIS compiler hash mismatch; refused' }
+          $toolInstall = Start-Process -FilePath $nsisSetup -ArgumentList '/S' -Wait -PassThru
+          if ($toolInstall.ExitCode -ne 0) { throw "Pinned NSIS install failed: $($toolInstall.ExitCode)" }
+          $compilerPaths = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'),
+            (Join-Path $env:ProgramFiles 'NSIS\makensis.exe')
+          )
+          $makensis = $compilerPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $makensis) { throw 'Pinned NSIS compiler missing after verified installation' }
+          Write-Host "NSIS_GITHUB_RELEASE_PIN=$nsisVersion"
+          Write-Host "NSIS_TOOLCHAIN_SHA256=$nsisTrustedSha256"
 
           New-Item -ItemType Directory -Force -Path artifacts\windows-installer | Out-Null
           $sourceExe = (Resolve-Path "target\release\omnidesk-desktop.exe").Path
@@ -396,6 +411,15 @@ jobs:
             throw "Windows desktop idle CPU $($sample.idle_cpu_milli_percent) milli-percent exceeds $cpuBudgetMilliPercent budget"
           }
           Stop-Process -Id $process.Id -Force
+      - name: Export exact locked 1419x611 Rust UI renderer frame
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          cargo run -p omnidesk-desktop --example locked_dashboard_capture --release -- artifacts/locked-dashboard.ppm
+          python scripts/locked_ui_ppm_to_png.py --input artifacts/locked-dashboard.ppm --output artifacts/locked-dashboard.png --metadata artifacts/locked-dashboard-evidence.json
+          $report = Get-Content -Raw artifacts/locked-dashboard-evidence.json | ConvertFrom-Json
+          if ($report.evidence_type -ne 'deterministic_native_renderer_empty_state') { throw 'invalid UI QA evidence type' }
+          if ($report.remote_video_authenticated -ne $false) { throw 'mock UI falsely claims a live session' }
       - name: Capture real native UI window for visual QA
         shell: pwsh
         run: pwsh -NoProfile -File scripts/windows_native_visual_smoke.ps1 -BinaryPath target/release/omnidesk-desktop.exe -OutputDirectory artifacts/native-ui
@@ -418,4 +442,6 @@ jobs:
             artifacts/windows-installer/*.json
             artifacts/native-ui/*.json
             artifacts/native-ui/*.png
+            artifacts/locked-dashboard.png
+            artifacts/locked-dashboard-evidence.json
           if-no-files-found: error

@@ -171,7 +171,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
             let attributes = WindowAttributes::default()
                 .with_title(title)
                 .with_visible(false)
-                .with_inner_size(winit::dpi::LogicalSize::new(960.0, 640.0));
+                .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
             let window = Arc::new(
                 event_loop
                     .create_window(attributes)

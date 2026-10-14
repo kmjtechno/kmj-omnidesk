@@ -1,6 +1,6 @@
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 
-use crate::{PresentationModel, ShellLayout, control_rects_for};
+use crate::{LockedDashboardLayout, PresentationModel, ShellLayout, control_rects_for};
 
 #[must_use]
 pub const fn packed_rgb(rgb: [u8; 3]) -> u32 {
@@ -543,6 +543,521 @@ fn draw_footer(
     );
 }
 
+// Real, product-derived four-column canvas for the exact owner-locked
+// 1419x611 desktop application reference. No demo wallpaper, manufactured
+// devices, or fabricated connection metrics may be rendered here.
+const VERIFIED_GREEN: u32 = 0x1f_da_78;
+
+fn locked_frame(
+    canvas: &mut Canvas<'_>,
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+    palette: Palette,
+) {
+    canvas.fill_rect(left, top, width, height, palette.surface);
+    canvas.stroke_rect(left, top, width, height, 1, palette.border);
+}
+
+fn locked_label(
+    canvas: &mut Canvas<'_>,
+    x: usize,
+    y: usize,
+    width: usize,
+    label: &str,
+    color: u32,
+) {
+    canvas.text_clipped(x, y, label, 1, width, color);
+}
+
+fn draw_locked_header(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
+    // Header: branding, search affordance and account utilities, as in lock.
+    canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, p.surface);
+    canvas.fill_rect(0, 0, canvas.width, 2, p.accent);
+    canvas.h_line(0, layout.top_bar_height - 1, canvas.width, p.border);
+    canvas.text(17, 21, "KMJ", 2, p.accent);
+    canvas.text(85, 21, "OMNIDESK", 2, p.foreground);
+    canvas.text(85, 45, "SECURE  /  ACCESSIBLE  /  EVERYWHERE", 1, p.muted);
+
+    let search_x = canvas.width / 3;
+    let search_w = canvas.width / 3;
+    canvas.fill_rect(search_x, 15, search_w, 37, p.background);
+    canvas.stroke_rect(search_x, 15, search_w, 37, 1, p.border);
+    locked_label(
+        canvas,
+        search_x + 14,
+        29,
+        search_w.saturating_sub(28),
+        "SEARCH UNAVAILABLE UNTIL DEVICE SYNC",
+        p.muted,
+    );
+    locked_label(
+        canvas,
+        canvas.width.saturating_sub(194),
+        29,
+        180,
+        "SETTINGS   HELP",
+        p.muted,
+    );
+}
+
+fn draw_locked_navigation(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
+    let nav = layout.navigation;
+    let nav_labels = [
+        "DEVICES",
+        "CONNECTIONS",
+        "FILE TRANSFER",
+        "REMOTE ACTIONS",
+        "AUTOMATION",
+        "SECURITY",
+        "SETTINGS",
+    ];
+    for (index, label) in nav_labels.iter().enumerate() {
+        let y = nav.y + 9 + index * 44;
+        let enabled = index == 0;
+        if enabled {
+            canvas.fill_rect(nav.x + 6, y, nav.width - 12, 36, p.accent);
+            canvas.stroke_rect(nav.x + 6, y, nav.width - 12, 36, 1, p.danger);
+        }
+        locked_label(
+            canvas,
+            nav.x + 18,
+            y + 13,
+            nav.width.saturating_sub(32),
+            label,
+            if enabled { p.foreground } else { p.muted },
+        );
+    }
+    let nav_bottom = nav.y + nav.height;
+    canvas.fill_rect(nav.x + 9, nav_bottom - 69, nav.width - 18, 56, p.background);
+    canvas.stroke_rect(nav.x + 9, nav_bottom - 69, nav.width - 18, 56, 1, p.border);
+    canvas.dot(nav.x + 22, nav_bottom - 47, 4, p.muted);
+    locked_label(
+        canvas,
+        nav.x + 32,
+        nav_bottom - 51,
+        nav.width.saturating_sub(48),
+        "DISCONNECTED",
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        nav.x + 17,
+        nav_bottom - 28,
+        nav.width.saturating_sub(28),
+        "LOCAL DEVICE",
+        p.muted,
+    );
+}
+
+fn draw_locked_devices(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let devices = layout.devices;
+    // Device directory stays empty until an authoritative pairing service
+    // provides real DeviceSummary records; never copy fake peers from mockup.
+    locked_label(
+        canvas,
+        devices.x + 14,
+        devices.y + 21,
+        devices.width - 28,
+        "DEVICES",
+        p.foreground,
+    );
+    canvas.fill_rect(
+        devices.x + 10,
+        devices.y + 60,
+        devices.width - 20,
+        1,
+        p.border,
+    );
+    locked_label(
+        canvas,
+        devices.x + 15,
+        devices.y + 75,
+        devices.width - 26,
+        "ALL      ONLINE      OFFLINE",
+        p.muted,
+    );
+    // The disabled FocusDevices control is an accessibility placeholder, not
+    // a real registered peer. Rendering its row would cover the empty-state
+    // explanation; do not treat a list of offline real devices as empty.
+    let empty_directory = presentation.controls.len() == 1
+        && matches!(
+            presentation.controls[0].action,
+            crate::DesktopAction::FocusDevices
+        )
+        && !presentation.controls[0].enabled;
+    if empty_directory {
+        locked_label(
+            canvas,
+            devices.x + 14,
+            devices.y + 112,
+            devices.width - 28,
+            "NO ONLINE DEVICE AVAILABLE",
+            p.muted,
+        );
+        locked_label(
+            canvas,
+            devices.x + 14,
+            devices.y + 136,
+            devices.width - 28,
+            "PAIR A TRUSTED DEVICE FIRST",
+            p.muted,
+        );
+    }
+    if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices {
+        for (index, control) in presentation.controls.iter().enumerate() {
+            if matches!(control.action, crate::DesktopAction::FocusDevices) && !control.enabled {
+                continue;
+            }
+            let rect = layout.device_row(index);
+            if rect.y + rect.height >= devices.y + devices.height - 12 {
+                break;
+            }
+            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.background);
+            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.border);
+            canvas.dot(
+                rect.x + 14,
+                rect.y + rect.height / 2,
+                4,
+                if control.enabled {
+                    VERIFIED_GREEN
+                } else {
+                    p.muted
+                },
+            );
+            locked_label(
+                canvas,
+                rect.x + 28,
+                rect.y + 18,
+                rect.width.saturating_sub(44),
+                &control.label,
+                if control.enabled {
+                    p.foreground
+                } else {
+                    p.muted
+                },
+            );
+        }
+    }
+}
+
+fn draw_locked_remote_view(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let viewer = layout.viewer;
+    // Remote canvas. A legitimate remote video frame must come from the
+    // authenticated frame decoder, never from a screenshot of the reference.
+    locked_label(
+        canvas,
+        viewer.x + 13,
+        viewer.y + 22,
+        viewer.width - 26,
+        presentation.panel_title,
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        viewer.x + 13,
+        viewer.y + 43,
+        viewer.width - 26,
+        presentation.status,
+        p.muted,
+    );
+    let screen = layout.remote_screen;
+    canvas.fill_rect(
+        screen.x,
+        screen.y,
+        screen.width,
+        screen.height,
+        p.background,
+    );
+    canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
+    canvas.fill_rect(screen.x + 1, screen.y + 1, screen.width - 2, 3, p.border);
+    locked_label(
+        canvas,
+        screen.x + 22,
+        screen.y + 22,
+        screen.width - 44,
+        "REMOTE DESKTOP",
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        screen.x + 22,
+        screen.y + 48,
+        screen.width - 44,
+        "NO AUTHENTICATED REMOTE VIDEO",
+        p.muted,
+    );
+    locked_label(
+        canvas,
+        screen.x + 22,
+        screen.y + 73,
+        screen.width - 44,
+        "CONNECT TO A VERIFIED DEVICE TO START",
+        p.muted,
+    );
+}
+
+fn draw_locked_session_tiles(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let screen = layout.remote_screen;
+    // Keyboard/device controls only become clickable in their real shell state.
+    let toolbar = layout.session_toolbar;
+    let offline_labels = [
+        "SEND KEYS",
+        "CLIPBOARD",
+        "FILE TRANSFER",
+        "SHELL",
+        "CAPTURE",
+        "MORE",
+    ];
+    let active_session =
+        presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session;
+    let prompt =
+        presentation.primary_view == omnidesk_core::product_shell::PrimaryView::PermissionPrompt;
+    if prompt {
+        locked_label(
+            canvas,
+            screen.x + 22,
+            screen.y + 107,
+            screen.width - 44,
+            "APPROVE LOCAL PERMISSION?",
+            p.foreground,
+        );
+        for (index, control) in presentation.controls.iter().enumerate() {
+            let rect = layout.permission_button(index);
+            canvas.fill_rect(
+                rect.x,
+                rect.y,
+                rect.width,
+                rect.height,
+                if index == 0 { p.accent } else { p.border },
+            );
+            locked_label(
+                canvas,
+                rect.x + 12,
+                rect.y + 19,
+                rect.width - 24,
+                &control.label,
+                p.foreground,
+            );
+        }
+    }
+    if active_session {
+        for (index, control) in presentation.controls.iter().enumerate() {
+            let rect = layout.session_button(index, presentation.controls.len());
+            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.border);
+            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.muted);
+            locked_label(
+                canvas,
+                rect.x + 6,
+                rect.y + 18,
+                rect.width.saturating_sub(12),
+                &control.label,
+                p.foreground,
+            );
+        }
+    } else {
+        let tile_width = toolbar.width / offline_labels.len();
+        for (index, label) in offline_labels.iter().enumerate() {
+            let x = toolbar.x + index * tile_width + 3;
+            let width = tile_width.saturating_sub(6);
+            canvas.fill_rect(x, toolbar.y + 5, width, toolbar.height - 10, p.background);
+            canvas.stroke_rect(x, toolbar.y + 5, width, toolbar.height - 10, 1, p.border);
+            locked_label(
+                canvas,
+                x + 5,
+                toolbar.y + 22,
+                width.saturating_sub(10),
+                label,
+                p.muted,
+            );
+        }
+    }
+}
+
+fn draw_locked_details(
+    canvas: &mut Canvas<'_>,
+    p: Palette,
+    info_x: usize,
+    info_w: usize,
+    details_y: usize,
+) {
+    locked_label(
+        canvas,
+        info_x,
+        details_y + 18,
+        info_w,
+        "SESSION DETAILS",
+        p.foreground,
+    );
+    for (index, text) in [
+        "Duration        --",
+        "Resolution      --",
+        "Frame rate      --",
+        "Bandwidth       --",
+        "Codec           --",
+        "Encryption      --",
+    ]
+    .iter()
+    .enumerate()
+    {
+        locked_label(
+            canvas,
+            info_x,
+            details_y + 45 + index * 22,
+            info_w,
+            text,
+            p.muted,
+        );
+    }
+}
+
+fn draw_locked_action_buttons(
+    canvas: &mut Canvas<'_>,
+    p: Palette,
+    info_x: usize,
+    info_w: usize,
+    actions_y: usize,
+) {
+    locked_label(
+        canvas,
+        info_x,
+        actions_y + 16,
+        info_w,
+        "ACTIONS  /  UNAVAILABLE",
+        p.foreground,
+    );
+    for (index, text) in ["FILE TRANSFER", "REMOTE REBOOT", "CLIPBOARD", "UNATTENDED"]
+        .iter()
+        .enumerate()
+    {
+        let columns = 2;
+        let cell_w = info_w / columns;
+        let x = info_x + index % columns * cell_w + 2;
+        let y = actions_y + 37 + index / columns * 37;
+        let button_width = cell_w.saturating_sub(8);
+        canvas.fill_rect(x, y, button_width, 31, p.background);
+        canvas.stroke_rect(x, y, button_width, 31, 1, p.border);
+        locked_label(
+            canvas,
+            x + 5,
+            y + 12,
+            button_width.saturating_sub(10),
+            text,
+            p.muted,
+        );
+    }
+}
+
+fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
+    let inspector = layout.inspector;
+    // Right cards. Values remain unavailable until verified by transport.
+    let first = inspector.height * 36 / 100;
+    let second = inspector.height * 35 / 100;
+    let status_y = inspector.y + 5;
+    let details_y = status_y + first + 6;
+    let actions_y = details_y + second + 6;
+    locked_frame(
+        canvas,
+        inspector.x + 6,
+        status_y,
+        inspector.width - 12,
+        first,
+        p,
+    );
+    locked_frame(
+        canvas,
+        inspector.x + 6,
+        details_y,
+        inspector.width - 12,
+        second,
+        p,
+    );
+    locked_frame(
+        canvas,
+        inspector.x + 6,
+        actions_y,
+        inspector.width - 12,
+        inspector.y + inspector.height - actions_y - 5,
+        p,
+    );
+    let info_x = inspector.x + 20;
+    let info_w = inspector.width.saturating_sub(40);
+    locked_label(
+        canvas,
+        info_x,
+        status_y + 18,
+        info_w,
+        "CONNECTION STATUS",
+        p.foreground,
+    );
+    canvas.dot(info_x + 5, status_y + 47, 4, p.muted);
+    locked_label(
+        canvas,
+        info_x + 17,
+        status_y + 43,
+        info_w - 17,
+        "NO VERIFIED CONNECTION",
+        p.muted,
+    );
+    for (index, text) in [
+        "Path: unavailable",
+        "Latency: unavailable",
+        "Relay: not verified",
+    ]
+    .iter()
+    .enumerate()
+    {
+        locked_label(
+            canvas,
+            info_x,
+            status_y + 72 + index * 25,
+            info_w,
+            text,
+            p.muted,
+        );
+    }
+    draw_locked_details(canvas, p, info_x, info_w, details_y);
+    draw_locked_action_buttons(canvas, p, info_x, info_w, actions_y);
+}
+
+fn draw_locked_dashboard(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    draw_locked_header(canvas, layout, p);
+    for rect in [
+        layout.navigation,
+        layout.devices,
+        layout.viewer,
+        layout.inspector,
+    ] {
+        locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
+    }
+    draw_locked_navigation(canvas, layout, p);
+    draw_locked_devices(canvas, presentation, layout, p);
+    draw_locked_remote_view(canvas, presentation, layout, p);
+    draw_locked_session_tiles(canvas, presentation, layout, p);
+    draw_locked_inspector(canvas, layout, p);
+}
+
 /// Draws the current truthful product-shell presentation into an RGB software buffer.
 ///
 /// The renderer is deliberately static/event-driven: it draws only the state supplied by
@@ -569,6 +1084,10 @@ pub fn render_shell(
         width,
         height,
     };
+    if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
+        draw_locked_dashboard(&mut canvas, presentation, &locked, palette);
+        return;
+    }
     draw_top_bar(&mut canvas, presentation, &layout, palette);
     draw_content_header(&mut canvas, presentation, &layout, palette);
     draw_quick_connect(&mut canvas, presentation, &layout, palette);
@@ -632,6 +1151,26 @@ mod tests {
     }
 
     #[test]
+    fn locked_empty_directory_is_not_covered_by_a_disabled_placeholder_row() {
+        let model = presentation_for(&ProductShell::new());
+        let width = 1419;
+        let height = 611;
+        let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+        let mut pixels = vec![0_u32; width * height];
+        render_shell(&mut pixels, width, height, &model);
+
+        // The placeholder must not paint a dark row behind the empty-state
+        // prompt. A genuine peer row begins at the same y-position.
+        let x = layout.devices.x + 9;
+        let y = layout.device_row(0).y + 20;
+        assert_eq!(
+            pixels[y * width + x],
+            packed_rgb(model.visual.surface_rgb),
+            "the fake placeholder row obscured the truthful empty-state text"
+        );
+    }
+
+    #[test]
     fn renderer_is_safe_for_zero_or_short_buffers() {
         let shell = ProductShell::new();
         let presentation = presentation_for(&shell);
@@ -684,14 +1223,14 @@ mod tests {
             role: crate::AccessibleRole::Button,
             enabled: true,
         }];
-        let mut pixels = vec![0_u32; 1200 * 800];
-        render_shell(&mut pixels, 1200, 800, &presentation);
+        let mut pixels = vec![0_u32; 960 * 800];
+        render_shell(&mut pixels, 960, 800, &presentation);
 
         // The panel starts at panel_x; nothing of the row may land there.
-        let Some(layout) = ShellLayout::for_window(1200, 800) else {
-            panic!("layout should resolve at 1200x800");
+        let Some(layout) = ShellLayout::for_window(960, 800) else {
+            panic!("layout should resolve at 960x800");
         };
-        let Some(rect) = crate::control_rects_for(&presentation, 1200, 800)
+        let Some(rect) = crate::control_rects_for(&presentation, 960, 800)
             .first()
             .copied()
         else {
@@ -700,7 +1239,7 @@ mod tests {
         let row_y = rect.y;
         for y in row_y..row_y + rect.height {
             for x in layout.panel_x..layout.panel_x + layout.panel_width {
-                let pixel = pixels[y * 1200 + x];
+                let pixel = pixels[y * 960 + x];
                 assert_ne!(
                     pixel,
                     packed_rgb(presentation.visual.foreground_rgb),
