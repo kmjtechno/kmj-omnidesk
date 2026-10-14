@@ -955,7 +955,8 @@ fn draw_locked_action_buttons(
             text,
             p.muted,
         );
-    }}
+    }
+}
 
 fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
     let inspector = layout.inspector;
