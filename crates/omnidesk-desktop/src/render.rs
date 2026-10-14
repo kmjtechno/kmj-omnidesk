@@ -197,7 +197,9 @@ fn draw_top_bar(
         (bar / 2).saturating_add(13),
         "KMJ TECHNO  /  SECURE REMOTE ACCESS",
         1,
-        canvas.width.saturating_sub(layout.content_x + layout.gutter),
+        canvas
+            .width
+            .saturating_sub(layout.content_x + layout.gutter),
         palette.muted,
     );
 
