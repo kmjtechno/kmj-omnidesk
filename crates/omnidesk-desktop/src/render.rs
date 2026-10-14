@@ -182,18 +182,22 @@ fn draw_top_bar(
     // Title on the left, status pill on the right. The red is spent here on
     // the status dot only -- enough to read the shell's state at a glance
     // without tinting the chrome.
+    // At compact widths a 2x title intersects the status pill. Use a
+    // measured one-line title and clip the secondary label to the viewport.
+    let title_scale = if canvas.width < 480 { 1 } else { 2 };
     canvas.text(
         layout.content_x,
         (bar / 2).saturating_sub(9),
         presentation.title,
-        2,
+        title_scale,
         palette.foreground,
     );
-    canvas.text(
+    canvas.text_clipped(
         layout.content_x,
         (bar / 2).saturating_add(13),
         "KMJ TECHNO  /  SECURE REMOTE ACCESS",
         1,
+        canvas.width.saturating_sub(layout.content_x + layout.gutter),
         palette.muted,
     );
 
@@ -276,15 +280,21 @@ fn draw_quick_connect(
     let inner_y = y + 18;
     canvas.text(inner_x, inner_y, "YOUR OMNIDESK ID", 1, palette.muted);
     canvas.text(inner_x, inner_y + 24, "NOT ASSIGNED", 2, palette.foreground);
-    canvas.text(
+    let split_x = x + width / 2;
+    let identity_width = if width >= 560 {
+        split_x.saturating_sub(inner_x + 12)
+    } else {
+        width.saturating_sub(44)
+    };
+    canvas.text_clipped(
         inner_x,
         inner_y + 54,
         "Identity appears only after secure device registration.",
         1,
+        identity_width,
         palette.muted,
     );
 
-    let split_x = x + width / 2;
     if width >= 560 {
         canvas.fill_rect(split_x, y + 18, 1, height - 36, palette.border);
         let remote_x = split_x + 22;
@@ -321,19 +331,22 @@ fn draw_quick_connect(
             1,
             palette.foreground,
         );
-        canvas.text(
-            remote_x + button_width + 12,
+        let message_x = remote_x + button_width + 12;
+        canvas.text_clipped(
+            message_x,
             inner_y + 83,
             "Use an online device",
             1,
+            x.saturating_add(width).saturating_sub(message_x + 12),
             palette.muted,
         );
     } else {
-        canvas.text(
+        canvas.text_clipped(
             inner_x,
             inner_y + 82,
             "REMOTE DEVICE: SELECT AN ONLINE DEVICE BELOW",
             1,
+            width.saturating_sub(44),
             palette.muted,
         );
     }
@@ -408,8 +421,10 @@ fn draw_controls(
         // Disabled rows say so, rather than relying on the dimmed label alone.
         let trailing = if is_online {
             format!("[{}]", control.keyboard_key.to_ascii_uppercase())
-        } else {
+        } else if matches!(control.action, crate::DesktopAction::ConnectDevice(_)) {
             "OFFLINE".to_owned()
+        } else {
+            "UNAVAILABLE".to_owned()
         };
         canvas.text_right(
             rect.x + rect.width - 14,
@@ -500,11 +515,19 @@ fn draw_footer(
     let y = canvas.height.saturating_sub(layout.footer_height);
     canvas.h_line(0, y, canvas.width, palette.border);
 
-    canvas.text(
+    // Footer shortcuts must never collide with right-aligned status text.
+    let shortcut_text = if canvas.width < 540 {
+        "TAB / ENTER / ESC"
+    } else {
+        "TAB CYCLE   ENTER SELECT   ESC BACK"
+    };
+    let status_width = Canvas::text_width(presentation.status, 1);
+    canvas.text_clipped(
         layout.content_x,
         y + 16,
-        "TAB CYCLE   ENTER SELECT   ESC BACK",
+        shortcut_text,
         1,
+        layout.content_width.saturating_sub(status_width + 28),
         palette.muted,
     );
     canvas.text_right(
