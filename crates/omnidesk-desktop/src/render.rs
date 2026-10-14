@@ -546,11 +546,18 @@ fn draw_footer(
 // Real, product-derived four-column canvas for the exact owner-locked
 // 1419x611 desktop application reference. No demo wallpaper, manufactured
 // devices, or fabricated connection metrics may be rendered here.
-const VERIFIED_GREEN: u32 = 0x1fda78;
+const VERIFIED_GREEN: u32 = 0x1f_da_78;
 
-fn locked_frame(canvas: &mut Canvas<'_>, x: usize, y: usize, w: usize, h: usize, p: Palette) {
-    canvas.fill_rect(x, y, w, h, p.surface);
-    canvas.stroke_rect(x, y, w, h, 1, p.border);
+fn locked_frame(
+    canvas: &mut Canvas<'_>,
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+    palette: Palette,
+) {
+    canvas.fill_rect(left, top, width, height, palette.surface);
+    canvas.stroke_rect(left, top, width, height, 1, palette.border);
 }
 
 fn locked_label(
@@ -564,12 +571,7 @@ fn locked_label(
     canvas.text_clipped(x, y, label, 1, width, color);
 }
 
-fn draw_locked_dashboard(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    layout: &LockedDashboardLayout,
-    p: Palette,
-) {
+fn draw_locked_header(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
     // Header: branding, search affordance and account utilities, as in lock.
     canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, p.surface);
     canvas.fill_rect(0, 0, canvas.width, 2, p.accent);
@@ -599,14 +601,10 @@ fn draw_locked_dashboard(
         p.muted,
     );
 
-    // Lock: navigation | devices | live-view workspace | session inspector.
+}
+
+fn draw_locked_navigation(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
     let nav = layout.navigation;
-    let devices = layout.devices;
-    let viewer = layout.viewer;
-    let inspector = layout.inspector;
-    for rect in [nav, devices, viewer, inspector] {
-        locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
-    }
     let nav_labels = [
         "DEVICES",
         "CONNECTIONS",
@@ -653,6 +651,10 @@ fn draw_locked_dashboard(
         p.muted,
     );
 
+}
+
+fn draw_locked_devices(canvas: &mut Canvas<'_>, presentation: &PresentationModel, layout: &LockedDashboardLayout, p: Palette) {
+    let devices = layout.devices;
     // Device directory stays empty until an authoritative pairing service
     // provides real DeviceSummary records; never copy fake peers from mockup.
     locked_label(
@@ -735,6 +737,10 @@ fn draw_locked_dashboard(
         }
     }
 
+}
+
+fn draw_locked_remote_view(canvas: &mut Canvas<'_>, presentation: &PresentationModel, layout: &LockedDashboardLayout, p: Palette) {
+    let viewer = layout.viewer;
     // Remote canvas. A legitimate remote video frame must come from the
     // authenticated frame decoder, never from a screenshot of the reference.
     locked_label(
@@ -787,6 +793,10 @@ fn draw_locked_dashboard(
         "CONNECT TO A VERIFIED DEVICE TO START",
         p.muted,
     );
+}
+
+fn draw_locked_session_tiles(canvas: &mut Canvas<'_>, presentation: &PresentationModel, layout: &LockedDashboardLayout, p: Palette) {
+    let screen = layout.remote_screen;
     // Keyboard/device controls only become clickable in their real shell state.
     let toolbar = layout.session_toolbar;
     let offline_labels = [
@@ -861,6 +871,10 @@ fn draw_locked_dashboard(
         }
     }
 
+}
+
+fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
+    let inspector = layout.inspector;
     // Right cards. Values remain unavailable until verified by transport.
     let first = inspector.height * 36 / 100;
     let second = inspector.height * 35 / 100;
@@ -982,7 +996,23 @@ fn draw_locked_dashboard(
             text,
             p.muted,
         );
+    }}
+
+fn draw_locked_dashboard(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    draw_locked_header(canvas, layout, p);
+    for rect in [layout.navigation, layout.devices, layout.viewer, layout.inspector] {
+        locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
     }
+    draw_locked_navigation(canvas, layout, p);
+    draw_locked_devices(canvas, presentation, layout, p);
+    draw_locked_remote_view(canvas, presentation, layout, p);
+    draw_locked_session_tiles(canvas, presentation, layout, p);
+    draw_locked_inspector(canvas, layout, p);
 }
 
 /// Draws the current truthful product-shell presentation into an RGB software buffer.
