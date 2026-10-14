@@ -108,7 +108,8 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
     let status = match shell.primary_view() {
         PrimaryView::Devices => "Disconnected",
         PrimaryView::PermissionPrompt => "Authorization required",
-        PrimaryView::Session => "Secure session active",
+        // Local permission is not proof of an authenticated transport.
+        PrimaryView::Session => "Permission granted",
     };
     let details = presentation_details(shell);
     let devices = shell.devices();
@@ -128,7 +129,7 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
     let panel_title = match shell.primary_view() {
         PrimaryView::Devices => "Remote access",
         PrimaryView::PermissionPrompt => "Authorization",
-        PrimaryView::Session => "Live session",
+        PrimaryView::Session => "Session setup",
     };
     PresentationModel {
         title: "KMJ OmniDesk",
@@ -250,6 +251,7 @@ pub fn presentation_details(shell: &ProductShell) -> Vec<String> {
                     "Device: {}",
                     shell.selected_device().unwrap_or("unavailable")
                 ),
+                "Network session not verified".to_owned(),
                 format!("Quality: {:?}", shell.quality_preset()),
             ];
             if let Some(stats) = shell.connection_stats() {
@@ -494,7 +496,11 @@ mod tests {
         assert_eq!(presentation_for(&shell).status, "Authorization required");
 
         shell.decide_permission(PermissionDecision::Allow);
-        assert_eq!(presentation_for(&shell).status, "Secure session active");
+        assert_eq!(presentation_for(&shell).status, "Permission granted");
+        assert!(presentation_for(&shell)
+            .details
+            .iter()
+            .any(|value| value == "Network session not verified"));
     }
 
     #[test]
