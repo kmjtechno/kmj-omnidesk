@@ -10,7 +10,10 @@ SCRIPT = Path(__file__).with_name("package_release_candidate.py")
 
 
 class ReleaseCandidatePackagingTests(unittest.TestCase):
-    def run_packager(self, binary: Path, output: Path, version: str = "0.0.1"):
+    def run_packager(
+        self, binary: Path, output: Path, version: str = "0.0.1",
+        platform: str = "windows", arch: str = "x86_64",
+    ):
         return subprocess.run(
             [
                 "python3",
@@ -22,9 +25,9 @@ class ReleaseCandidatePackagingTests(unittest.TestCase):
                 "--version",
                 version,
                 "--platform",
-                "windows",
+                platform,
                 "--arch",
-                "x86_64",
+                arch,
                 "--channel",
                 "beta",
             ],
@@ -79,6 +82,46 @@ class ReleaseCandidatePackagingTests(unittest.TestCase):
             binary.write_bytes(b"binary")
             result = self.run_packager(binary, root / "out", "../escape")
             self.assertNotEqual(result.returncode, 0)
+
+    def test_path_traversal_segments_are_rejected_without_deleting_other_folders(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            binary = root / "omnidesk-desktop.exe"
+            binary.write_bytes(b"binary")
+            victim = root / "victim"
+            victim.mkdir()
+            sentinel = victim / "keep-me.txt"
+            sentinel.write_text("never delete", encoding="utf-8")
+            for overrides in (
+                {"arch": "a/../../victim"},
+                {"platform": "a/../../victim"},
+                {"arch": "..\\\\victim"},
+                {"platform": ""},
+            ):
+                with self.subTest(overrides=overrides):
+                    result = self.run_packager(binary, root / "out", **overrides)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(sentinel.read_text(encoding="utf-8"), "never delete")
+
+    def test_binary_in_staging_is_preserved_and_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            staging = root / "out" / "kmj-omnidesk-0.0.1-windows-x86_64"
+            staging.mkdir(parents=True)
+            binary = staging / "omnidesk-desktop.exe"
+            binary.write_bytes(b"original")
+            result = self.run_packager(binary, root / "out")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(binary.read_bytes(), b"original")
+
+    def test_empty_binary_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            binary = root / "omnidesk-desktop.exe"
+            binary.touch()
+            result = self.run_packager(binary, root / "out")
+            self.assertNotEqual(result.returncode, 0)
+
 
 
 if __name__ == "__main__":
