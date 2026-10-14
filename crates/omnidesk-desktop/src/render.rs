@@ -687,7 +687,10 @@ fn draw_locked_devices(
     // a real registered peer. Rendering its row would cover the empty-state
     // explanation; do not treat a list of offline real devices as empty.
     let empty_directory = presentation.controls.len() == 1
-        && matches!(presentation.controls[0].action, crate::DesktopAction::FocusDevices)
+        && matches!(
+            presentation.controls[0].action,
+            crate::DesktopAction::FocusDevices
+        )
         && !presentation.controls[0].enabled;
     if empty_directory {
         locked_label(
