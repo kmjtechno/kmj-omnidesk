@@ -11,6 +11,7 @@ rust-version.workspace = true
 [dependencies]
 omnidesk-core = { path = "../omnidesk-core" }
 font8x8 = "0.3.1"
+ab_glyph = "0.2.32"
 accesskit = "0.25.1"
 
 [target.'cfg(windows)'.dependencies]
