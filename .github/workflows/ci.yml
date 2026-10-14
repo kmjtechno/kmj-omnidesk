@@ -64,6 +64,8 @@ jobs:
       # declare who did, and a manifest that cannot say is rejected.
       - name: Release manifest integrity gate tests
         run: python3 scripts/test_verify_release_manifest.py
+      - name: M12 deterministic RC packaging gate
+        run: python3 scripts/test_package_release_candidate.py
       # M12 `safe_update_path`. The update path is the one place the product
       # asks a machine to run new code, so U1-U9 are gated by name rather than
       # left inside the general `cargo test` step where a rename can quietly
