@@ -11,11 +11,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import zipfile
 from pathlib import Path
 
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+SAFE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 
 
 def sha256(path: Path) -> str:
@@ -26,22 +28,37 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def safe_version(value: str) -> str:
-    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-    if not value or any(char not in allowed for char in value):
-        raise ValueError("version contains unsupported characters")
+def safe_component(value: str, label: str) -> str:
+    """Reject directory separators, traversal, shell controls, and ambiguous labels."""
+    if not SAFE_COMPONENT.fullmatch(value) or value.endswith("."):
+        raise ValueError(f"{label} contains unsupported characters")
     return value
+
+
+def safe_version(value: str) -> str:
+    return safe_component(value, "version")
 
 
 def build(args: argparse.Namespace) -> dict:
     binary = Path(args.binary).resolve(strict=True)
-    output = Path(args.output).resolve()
-    output.mkdir(parents=True, exist_ok=True)
-
     version = safe_version(args.version)
-    bundle_name = f"kmj-omnidesk-{version}-{args.platform}-{args.arch}"
+    platform = safe_component(args.platform, "platform")
+    arch = safe_component(args.arch, "arch")
+    if not binary.is_file() or binary.stat().st_size == 0:
+        raise ValueError("binary must be a non-empty regular file")
+    if platform == "windows" and binary.suffix.lower() != ".exe":
+        raise ValueError("Windows release candidate must use an .exe binary")
+
+    output = Path(args.output).resolve()
+    bundle_name = f"kmj-omnidesk-{version}-{platform}-{arch}"
     staging = output / bundle_name
+    # Never delete the source payload when rebuilding the same candidate.
+    if binary.is_relative_to(staging):
+        raise ValueError("binary cannot be inside the candidate staging directory")
+    output.mkdir(parents=True, exist_ok=True)
     if staging.exists():
+        if staging.is_symlink() or not staging.is_dir():
+            raise ValueError("candidate staging path must be a real directory")
         shutil.rmtree(staging)
     staging.mkdir()
 
@@ -54,8 +71,8 @@ def build(args: argparse.Namespace) -> dict:
         "product_slug": "kmj-omnidesk",
         "version": version,
         "channel": args.channel,
-        "platform": args.platform,
-        "arch": args.arch,
+        "platform": platform,
+        "arch": arch,
         "release_state": "UNSIGNED_CANDIDATE",
         "publishable": False,
         "signature_declared": False,
