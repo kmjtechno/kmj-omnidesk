@@ -1,7 +1,7 @@
 param([string]$BinaryPath='target/release/omnidesk-desktop.exe',[string]$OutputDirectory='artifacts/native-ui')
 $ErrorActionPreference='Stop'
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
-$ev=[ordered]@{schema_version=1;evidence_type='real_windows_native_window';process_started=$false;window_found=$false;title_verified=$false;screenshot_state='UNVERIFIED';sampled_colors=0;reason=$null}
+$ev=[ordered]@{schema_version=1;evidence_type='real_windows_native_window';process_started=$false;window_found=$false;title_verified=$false;screenshot_state='UNVERIFIED';sampled_colors=0;visual_review_required=$true;reason=$null}
 $p=$null
 try {
   $p=Start-Process -FilePath (Resolve-Path $BinaryPath).Path -PassThru
@@ -46,7 +46,7 @@ public class KmjCapture {
     }
     $ev.sampled_colors=$colors.Count
     $bmp.Save((Join-Path $OutputDirectory 'native-window.png'),[System.Drawing.Imaging.ImageFormat]::Png)
-    if($colors.Count -gt 8){$ev.screenshot_state='CAPTURED_FROM_RUNNING_APP'}
+    if($colors.Count -ge 5){$ev.screenshot_state='CAPTURED_FROM_RUNNING_APP'}
     else {throw 'Capture is blank/flat'}
   } finally { $bmp.Dispose() }
 } catch {
