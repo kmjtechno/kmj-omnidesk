@@ -79,13 +79,13 @@ impl VisualSystem {
     #[must_use]
     pub const fn kmj_black_red() -> Self {
         Self {
-            background_rgb: [9, 13, 17],
-            surface_rgb: [24, 31, 38],
-            foreground_rgb: [232, 237, 242],
-            accent_rgb: [220, 24, 40],
+            background_rgb: [5, 6, 8],
+            surface_rgb: [15, 17, 21],
+            foreground_rgb: [244, 246, 248],
+            accent_rgb: [232, 18, 37],
             danger_rgb: [255, 59, 48],
-            muted_rgb: [107, 119, 131],
-            border_rgb: [26, 32, 39],
+            muted_rgb: [132, 139, 148],
+            border_rgb: [38, 42, 48],
         }
     }
 }
@@ -126,9 +126,9 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         )
     };
     let panel_title = match shell.primary_view() {
-        PrimaryView::Devices => "Devices",
-        PrimaryView::PermissionPrompt => "Request",
-        PrimaryView::Session => "Session",
+        PrimaryView::Devices => "Remote access",
+        PrimaryView::PermissionPrompt => "Authorization",
+        PrimaryView::Session => "Live session",
     };
     PresentationModel {
         title: "KMJ OmniDesk",
