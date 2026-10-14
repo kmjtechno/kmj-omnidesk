@@ -497,10 +497,12 @@ mod tests {
 
         shell.decide_permission(PermissionDecision::Allow);
         assert_eq!(presentation_for(&shell).status, "Permission granted");
-        assert!(presentation_for(&shell)
-            .details
-            .iter()
-            .any(|value| value == "Network session not verified"));
+        assert!(
+            presentation_for(&shell)
+                .details
+                .iter()
+                .any(|value| value == "Network session not verified")
+        );
     }
 
     #[test]
