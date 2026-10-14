@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
-SAFE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\\Z")
+SAFE_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 
 
 def sha256(path: Path) -> str:
