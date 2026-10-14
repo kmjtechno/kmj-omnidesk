@@ -604,13 +604,7 @@ fn draw_locked_header(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p
     );
 }
 
-fn draw_locked_nav_icon(
-    canvas: &mut Canvas<'_>,
-    index: usize,
-    x: usize,
-    y: usize,
-    color: u32,
-) {
+fn draw_locked_nav_icon(canvas: &mut Canvas<'_>, index: usize, x: usize, y: usize, color: u32) {
     // Low-overdraw monochrome vector-style icons; no external font/icon
     // dependency or fabricated online/connection state.
     match index {
@@ -1157,11 +1151,22 @@ mod tests {
     fn locked_design_preserves_lowercase_typography() {
         let mut lower_pixels = vec![0_u32; 16 * 12];
         let mut upper_pixels = vec![0_u32; 16 * 12];
-        Canvas { pixels: &mut lower_pixels, width: 16, height: 12 }
-            .text(0, 0, "a", 1, 0x00_ff_ff);
-        Canvas { pixels: &mut upper_pixels, width: 16, height: 12 }
-            .text(0, 0, "A", 1, 0x00_ff_ff);
-        assert_ne!(lower_pixels, upper_pixels, "lowercase navigation must remain lowercase");
+        Canvas {
+            pixels: &mut lower_pixels,
+            width: 16,
+            height: 12,
+        }
+        .text(0, 0, "a", 1, 0x00_ff_ff);
+        Canvas {
+            pixels: &mut upper_pixels,
+            width: 16,
+            height: 12,
+        }
+        .text(0, 0, "A", 1, 0x00_ff_ff);
+        assert_ne!(
+            lower_pixels, upper_pixels,
+            "lowercase navigation must remain lowercase"
+        );
     }
 
     #[test]
