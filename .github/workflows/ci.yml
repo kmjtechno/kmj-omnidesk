@@ -313,6 +313,53 @@ jobs:
           if ($result.manifest.release_state -ne 'UNSIGNED_CANDIDATE') { throw 'candidate state is not fail-closed' }
           if ($result.manifest.publishable -ne $false) { throw 'unsigned candidate became publishable' }
           if ($result.manifest.signature_declared -ne $false) { throw 'unsigned candidate claims a signature' }
+      - name: Build and exercise unsigned Windows NSIS candidate
+        shell: pwsh
+        run: |
+          choco install nsis --version=3.13.0 --yes --no-progress
+          $makensis = Join-Path $env:ProgramFiles "NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) {
+            $makensis = Join-Path ${env:ProgramFiles(x86)} "NSIS\makensis.exe"
+          }
+          if (-not (Test-Path $makensis)) { throw 'NSIS makensis.exe was not installed' }
+
+          New-Item -ItemType Directory -Force -Path artifacts\windows-installer | Out-Null
+          $sourceExe = (Resolve-Path "target\release\omnidesk-desktop.exe").Path
+          $outputExe = (Join-Path $env:GITHUB_WORKSPACE "artifacts\windows-installer\KMJ-OmniDesk-unsigned-setup.exe")
+
+          & $makensis "/DSOURCE_EXE=$sourceExe" "/DOUTPUT_EXE=$outputExe" "packaging\windows\KMJ-OmniDesk.nsi"
+          if ($LASTEXITCODE -ne 0) { throw "NSIS build failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path $outputExe)) { throw 'NSIS build did not produce the installer' }
+
+          $signature = Get-AuthenticodeSignature $outputExe
+          if ($signature.Status -ne 'NotSigned') {
+            throw "CI installer must remain explicitly unsigned, got $($signature.Status)"
+          }
+
+          $install = Start-Process -FilePath $outputExe -ArgumentList '/S' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "NSIS install failed with exit code $($install.ExitCode)" }
+
+          $installedExe = Join-Path $env:ProgramFiles 'KMJ OmniDesk\omnidesk-desktop.exe'
+          $uninstaller = Join-Path $env:ProgramFiles 'KMJ OmniDesk\Uninstall.exe'
+          if (-not (Test-Path $installedExe)) { throw 'installer did not place the OmniDesk executable' }
+          if (-not (Test-Path $uninstaller)) { throw 'installer did not place an uninstaller' }
+
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "NSIS uninstall failed with exit code $($uninstall.ExitCode)" }
+          Start-Sleep -Seconds 1
+          if (Test-Path $installedExe) { throw 'uninstall left the OmniDesk executable behind' }
+
+          $evidence = [ordered]@{
+            installer = 'KMJ-OmniDesk-unsigned-setup.exe'
+            installer_sha256 = (Get-FileHash $outputExe -Algorithm SHA256).Hash.ToLowerInvariant()
+            signature_status = $signature.Status.ToString()
+            install_exit_code = $install.ExitCode
+            uninstall_exit_code = $uninstall.ExitCode
+            installed_executable_removed = -not (Test-Path $installedExe)
+            evidence_type = 'unsigned_ci_installer_candidate'
+            publishable = $false
+          }
+          $evidence | ConvertTo-Json | Tee-Object -FilePath artifacts\windows-installer\install-uninstall-evidence.json
       - name: Measure Windows desktop resource baseline
         shell: pwsh
         run: |
@@ -364,4 +411,6 @@ jobs:
             artifacts/release-candidate-result.json
             artifacts/release-candidate/*.zip
             artifacts/release-candidate/*.bundle.json
+            artifacts/windows-installer/*.exe
+            artifacts/windows-installer/*.json
           if-no-files-found: error
