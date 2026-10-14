@@ -68,10 +68,27 @@ if (process.argv.length !== 3 || !Object.hasOwn(commands, variant)) {
       encoding: "utf8",
       windowsHide: true,
     });
-    if (run.error || run.status !== 0) {
+    let verificationIssue = null;
+    if (variant === "capture" && run.status === 0) {
+      const receiptPath = path.join(evidence, "native-ui-smoke.json");
+      try {
+        const receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8").replace(/^\\uFEFF/, ""));
+        if (
+          receipt.evidence_type !== "real_windows_native_window" ||
+          !receipt.process_started ||
+          !receipt.title_verified ||
+          receipt.screenshot_state !== "CAPTURED_FROM_RUNNING_APP"
+        ) {
+          verificationIssue = "CAPTURE_NOT_VERIFIED";
+        }
+      } catch {
+        verificationIssue = "CAPTURE_RECEIPT_MISSING";
+      }
+    }
+    if (run.error || run.status !== 0 || verificationIssue) {
       refusal(
-        "VISUAL_QA_FAILED",
-        run.error ? run.error.code : "PowerShell exited with a failing status; inspect local QA evidence.",
+        verificationIssue ?? "VISUAL_QA_FAILED",
+        run.error ? run.error.code : "Windows QA did not produce independently verified local evidence.",
       );
     } else {
       process.stdout.write(
