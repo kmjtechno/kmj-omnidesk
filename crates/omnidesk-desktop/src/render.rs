@@ -884,6 +884,79 @@ fn draw_locked_session_tiles(
     }
 }
 
+fn draw_locked_details(
+    canvas: &mut Canvas<'_>,
+    p: Palette,
+    info_x: usize,
+    info_w: usize,
+    details_y: usize,
+) {
+    locked_label(
+        canvas,
+        info_x,
+        details_y + 18,
+        info_w,
+        "SESSION DETAILS",
+        p.foreground,
+    );
+    for (index, text) in [
+        "Duration        --",
+        "Resolution      --",
+        "Frame rate      --",
+        "Bandwidth       --",
+        "Codec           --",
+        "Encryption      --",
+    ]
+    .iter()
+    .enumerate()
+    {
+        locked_label(
+            canvas,
+            info_x,
+            details_y + 45 + index * 22,
+            info_w,
+            text,
+            p.muted,
+        );
+    }
+}
+
+fn draw_locked_action_buttons(
+    canvas: &mut Canvas<'_>,
+    p: Palette,
+    info_x: usize,
+    info_w: usize,
+    actions_y: usize,
+) {
+    locked_label(
+        canvas,
+        info_x,
+        actions_y + 16,
+        info_w,
+        "ACTIONS  /  UNAVAILABLE",
+        p.foreground,
+    );
+    for (index, text) in ["FILE TRANSFER", "REMOTE REBOOT", "CLIPBOARD", "UNATTENDED"]
+        .iter()
+        .enumerate()
+    {
+        let columns = 2;
+        let cell_w = info_w / columns;
+        let x = info_x + index % columns * cell_w + 2;
+        let y = actions_y + 37 + index / columns * 37;
+        let button_width = cell_w.saturating_sub(8);
+        canvas.fill_rect(x, y, button_width, 31, p.background);
+        canvas.stroke_rect(x, y, button_width, 31, 1, p.border);
+        locked_label(
+            canvas,
+            x + 5,
+            y + 12,
+            button_width.saturating_sub(10),
+            text,
+            p.muted,
+        );
+    }}
+
 fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
     let inspector = layout.inspector;
     // Right cards. Values remain unavailable until verified by transport.
@@ -952,62 +1025,8 @@ fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout
             p.muted,
         );
     }
-    locked_label(
-        canvas,
-        info_x,
-        details_y + 18,
-        info_w,
-        "SESSION DETAILS",
-        p.foreground,
-    );
-    for (index, text) in [
-        "Duration        --",
-        "Resolution      --",
-        "Frame rate      --",
-        "Bandwidth       --",
-        "Codec           --",
-        "Encryption      --",
-    ]
-    .iter()
-    .enumerate()
-    {
-        locked_label(
-            canvas,
-            info_x,
-            details_y + 45 + index * 22,
-            info_w,
-            text,
-            p.muted,
-        );
-    }
-    locked_label(
-        canvas,
-        info_x,
-        actions_y + 16,
-        info_w,
-        "ACTIONS  /  UNAVAILABLE",
-        p.foreground,
-    );
-    for (index, text) in ["FILE TRANSFER", "REMOTE REBOOT", "CLIPBOARD", "UNATTENDED"]
-        .iter()
-        .enumerate()
-    {
-        let columns = 2;
-        let cell_w = info_w / columns;
-        let x = info_x + index % columns * cell_w + 2;
-        let y = actions_y + 37 + index / columns * 37;
-        let button_width = cell_w.saturating_sub(8);
-        canvas.fill_rect(x, y, button_width, 31, p.background);
-        canvas.stroke_rect(x, y, button_width, 31, 1, p.border);
-        locked_label(
-            canvas,
-            x + 5,
-            y + 12,
-            button_width.saturating_sub(10),
-            text,
-            p.muted,
-        );
-    }
+    draw_locked_details(canvas, p, info_x, info_w, details_y);
+    draw_locked_action_buttons(canvas, p, info_x, info_w, actions_y);
 }
 
 fn draw_locked_dashboard(
