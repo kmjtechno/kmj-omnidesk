@@ -602,6 +602,32 @@ mod tests {
     }
 
     #[test]
+    fn quick_connect_identity_caption_stays_in_its_own_column() {
+        let width = 1200;
+        let height = 800;
+        let shell = ProductShell::new();
+        let presentation = presentation_for(&shell);
+        let mut pixels = vec![0_u32; width * height];
+        render_shell(&mut pixels, width, height, &presentation);
+        let layout = ShellLayout::for_window(width, height).expect("wide layout");
+        assert!(layout.content_width >= 560);
+        let split_x = layout.content_x + layout.content_width / 2;
+        let caption_y = layout.top_bar_height + 76 + 18 + 54;
+        let text_color = packed_rgb(presentation.visual.muted_rgb);
+        // Only the identity caption occupies this band: the remote input
+        // above it and connect CTA below it must remain visually independent.
+        for y in caption_y..caption_y + 8 {
+            for x in split_x..layout.content_x + layout.content_width {
+                assert_ne!(
+                    pixels[y * width + x],
+                    text_color,
+                    "identity caption crosses into remote device field at ({x},{y})"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn renderer_is_safe_for_zero_or_short_buffers() {
         let shell = ProductShell::new();
         let presentation = presentation_for(&shell);
