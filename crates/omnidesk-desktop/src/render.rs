@@ -683,13 +683,13 @@ fn draw_locked_devices(
         "ALL      ONLINE      OFFLINE",
         p.muted,
     );
-    let device_controls =
-        if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices {
-            presentation.controls.len()
-        } else {
-            0
-        };
-    if device_controls == 0 || !presentation.controls.iter().any(|control| control.enabled) {
+    // The disabled FocusDevices control is an accessibility placeholder, not
+    // a real registered peer. Rendering its row would cover the empty-state
+    // explanation; do not treat a list of offline real devices as empty.
+    let empty_directory = presentation.controls.len() == 1
+        && matches!(presentation.controls[0].action, crate::DesktopAction::FocusDevices)
+        && !presentation.controls[0].enabled;
+    if empty_directory {
         locked_label(
             canvas,
             devices.x + 14,
@@ -709,6 +709,9 @@ fn draw_locked_devices(
     }
     if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices {
         for (index, control) in presentation.controls.iter().enumerate() {
+            if matches!(control.action, crate::DesktopAction::FocusDevices) && !control.enabled {
+                continue;
+            }
             let rect = layout.device_row(index);
             if rect.y + rect.height >= devices.y + devices.height - 12 {
                 break;
@@ -1142,6 +1145,26 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn locked_empty_directory_is_not_covered_by_a_disabled_placeholder_row() {
+        let model = presentation_for(&ProductShell::new());
+        let width = 1419;
+        let height = 611;
+        let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+        let mut pixels = vec![0_u32; width * height];
+        render_shell(&mut pixels, width, height, &model);
+
+        // The placeholder must not paint a dark row behind the empty-state
+        // prompt. A genuine peer row begins at the same y-position.
+        let x = layout.devices.x + 9;
+        let y = layout.device_row(0).y + 20;
+        assert_eq!(
+            pixels[y * width + x],
+            packed_rgb(model.visual.surface_rgb),
+            "the fake placeholder row obscured the truthful empty-state text"
+        );
     }
 
     #[test]
