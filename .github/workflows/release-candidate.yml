@@ -41,7 +41,13 @@ jobs:
         run: python scripts/test_package_release_candidate.py
       - name: Package unsigned candidate
         shell: pwsh
-        run: python scripts/package_release_candidate.py --binary target/release/omnidesk-desktop.exe --output artifacts/release-candidate --version '${{ inputs.version }}' --platform windows --arch x86_64 --channel '${{ inputs.channel }}' | Tee-Object -FilePath artifacts/release-candidate-result.json
+        # workflow_dispatch values must never be interpolated into script source.
+        # Environment binding preserves them as data (no PowerShell injection).
+        env:
+          KMJ_RC_VERSION: ${{ inputs.version }}
+          KMJ_RC_CHANNEL: ${{ inputs.channel }}
+        run: |
+          python scripts/package_release_candidate.py --binary target/release/omnidesk-desktop.exe --output artifacts/release-candidate --version "$env:KMJ_RC_VERSION" --platform windows --arch x86_64 --channel "$env:KMJ_RC_CHANNEL" | Tee-Object -FilePath artifacts/release-candidate-result.json
       - name: Assert non-publishable candidate state
         shell: pwsh
         run: |
