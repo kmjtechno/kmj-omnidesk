@@ -316,29 +316,39 @@ jobs:
       - name: Build and exercise unsigned Windows NSIS candidate
         shell: pwsh
         run: |
-          # Chocolatey community index can temporarily omit a known approved
-          # version. Retry a bounded number of times, then use the separately
-          # pinned previous NSIS release. Never skip installer verification.
-          $installedNsis = $false
-          foreach ($version in @('3.13.0', '3.12.0')) {
-            for ($attempt = 1; $attempt -le 2; $attempt++) {
-              choco install nsis "--version=$version" --yes --no-progress
-              if ($LASTEXITCODE -eq 0) {
-                $installedNsis = $true
-                Write-Host "NSIS_CHOCOLATEY_PINNED_VERSION=$version"
-                break
+          # Use the official NSIS portable ZIP, bypassing Chocolatey's
+          # unreliable community V2 index. Verify the official SHA-256 before
+          # extraction; never use any unverifiable installer compiler.
+          $nsisUrl = @(
+            'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.12/nsis-3.12.zip',
+            'https://sourceforge.net/projects/nsis/files/NSIS%203/3.12/nsis-3.12.zip/download'
+          )
+          $trustedSha256 = '56581f90db321581c5381193d796fffcf2d24b2f8fed2160a6c6a3baa67f2c4f'
+          $zipPath = Join-Path $env:RUNNER_TEMP 'nsis-3.12.zip'
+          $verified = $false
+          foreach ($url in $nsisUrl) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $zipPath -MaximumRedirection 10 -TimeoutSec 60
+              $digest = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($digest -ne $trustedSha256) {
+                throw "NSIS SHA-256 mismatch; refusing untrusted toolchain"
               }
-              Write-Warning "NSIS $version install attempt $attempt failed: $LASTEXITCODE"
-              if ($attempt -lt 2) { Start-Sleep -Seconds 5 }
+              $verified = $true
+              break
+            } catch {
+              Write-Warning "NSIS official mirror unavailable or invalid: $($_.Exception.Message)"
+              Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
             }
-            if ($installedNsis) { break }
           }
-          if (-not $installedNsis) { throw 'Neither approved pinned NSIS version could be installed' }
-          $makensis = Join-Path $env:ProgramFiles "NSIS\makensis.exe"
-          if (-not (Test-Path $makensis)) {
-            $makensis = Join-Path ${env:ProgramFiles(x86)} "NSIS\makensis.exe"
-          }
-          if (-not (Test-Path $makensis)) { throw 'NSIS makensis.exe was not installed' }
+          if (-not $verified) { throw 'Official pinned NSIS archive could not be verified' }
+          $nsisDirectory = Join-Path $env:RUNNER_TEMP 'kmj-nsis-3.12-verified'
+          Expand-Archive -Path $zipPath -DestinationPath $nsisDirectory -Force
+          $compiler = Get-ChildItem -Path $nsisDirectory -Filter 'makensis.exe' -File -Recurse |
+            Select-Object -First 1
+          if ($null -eq $compiler) { throw 'Verified NSIS archive did not contain makensis.exe' }
+          $makensis = $compiler.FullName
+          Write-Host "NSIS_PINNED_VERSION=3.12"
+          Write-Host "NSIS_TOOLCHAIN_SHA256=$trustedSha256"
 
           New-Item -ItemType Directory -Force -Path artifacts\windows-installer | Out-Null
           $sourceExe = (Resolve-Path "target\release\omnidesk-desktop.exe").Path
