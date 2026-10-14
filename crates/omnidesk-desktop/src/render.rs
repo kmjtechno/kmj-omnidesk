@@ -1297,13 +1297,16 @@ mod tests {
 
     #[test]
     fn quick_connect_identity_caption_stays_in_its_own_column() {
-        let width = 1200;
+        // Quick-connect belongs to the compact fallback. At >=1180px the
+        // locked four-column dashboard intentionally replaces this view.
+        let width = 960;
         let height = 800;
         let shell = ProductShell::new();
         let presentation = presentation_for(&shell);
         let mut pixels = vec![0_u32; width * height];
         render_shell(&mut pixels, width, height, &presentation);
-        let layout = ShellLayout::for_window(width, height).expect("wide layout");
+        let layout = ShellLayout::for_window(width, height).expect("compact layout");
+        assert!(LockedDashboardLayout::for_window(width, height).is_none());
         assert!(layout.content_width >= 560);
         let split_x = layout.content_x + layout.content_width / 2;
         let caption_y = layout.top_bar_height + 76 + 18 + 54;
