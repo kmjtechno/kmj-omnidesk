@@ -1,0 +1,60 @@
+name: Build unsigned release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Candidate version label (not a public release)
+        required: true
+        default: 0.0.1-rc
+      channel:
+        description: Candidate channel
+        required: true
+        type: choice
+        options:
+          - beta
+          - stable
+        default: beta
+
+permissions:
+  contents: read
+
+jobs:
+  windows-rc:
+    name: Windows unsigned RC bundle
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Exact quality checks
+        shell: pwsh
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo test --workspace --all-targets --all-features
+      - name: Build desktop release binary
+        run: cargo build -p omnidesk-desktop --release
+      - name: Test packaging invariants
+        run: python scripts/test_package_release_candidate.py
+      - name: Package unsigned candidate
+        shell: pwsh
+        run: python scripts/package_release_candidate.py --binary target/release/omnidesk-desktop.exe --output artifacts/release-candidate --version '${{ inputs.version }}' --platform windows --arch x86_64 --channel '${{ inputs.channel }}' | Tee-Object -FilePath artifacts/release-candidate-result.json
+      - name: Assert non-publishable candidate state
+        shell: pwsh
+        run: |
+          $result = Get-Content -Raw artifacts/release-candidate-result.json | ConvertFrom-Json
+          if ($result.manifest.release_state -ne 'UNSIGNED_CANDIDATE') { throw 'candidate state is not fail-closed' }
+          if ($result.manifest.publishable -ne $false) { throw 'unsigned candidate became publishable' }
+          if ($result.manifest.signature_declared -ne $false) { throw 'unsigned candidate claims a signature' }
+      - name: Upload unsigned candidate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnidesk-${{ inputs.version }}-windows-x86_64-unsigned-candidate
+          path: |
+            artifacts/release-candidate/*.zip
+            artifacts/release-candidate/*.bundle.json
+            artifacts/release-candidate-result.json
+          if-no-files-found: error
