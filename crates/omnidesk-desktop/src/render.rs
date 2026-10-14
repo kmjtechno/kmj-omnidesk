@@ -178,7 +178,11 @@ impl Canvas<'_> {
 
     // Font APIs use f32 coordinates and signed raster bounds. The viewport
     // clips all pixel writes, and the glyph API bounds each local delta.
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap
+    )]
     fn text(&mut self, x: usize, y: usize, text: &str, scale: usize, color: u32) {
         if let Some(font) = native_ui_font() {
             let px = PxScale::from(native_text_size(scale));
