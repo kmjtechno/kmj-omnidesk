@@ -313,6 +313,23 @@ jobs:
           if ($result.manifest.release_state -ne 'UNSIGNED_CANDIDATE') { throw 'candidate state is not fail-closed' }
           if ($result.manifest.publishable -ne $false) { throw 'unsigned candidate became publishable' }
           if ($result.manifest.signature_declared -ne $false) { throw 'unsigned candidate claims a signature' }
+      - name: Build and exercise unsigned Windows MSI candidate
+        shell: pwsh
+        run: |
+          dotnet build packaging/windows/KMJ.OmniDesk.wixproj -c Release -p:SourceExe="$env:GITHUB_WORKSPACE\target\release\omnidesk-desktop.exe" -p:ProductVersion=0.0.1 -p:Platform=x64
+          $msi = Get-ChildItem packaging/windows -Recurse -Filter *.msi | Where-Object { $_.FullName -match '\\bin\\' } | Select-Object -First 1
+          if (-not $msi) { throw 'WiX build did not produce an MSI' }
+          New-Item -ItemType Directory -Force -Path artifacts/windows-installer | Out-Null
+          Copy-Item $msi.FullName artifacts/windows-installer/KMJ-OmniDesk-unsigned.msi
+          $signature = Get-AuthenticodeSignature $msi.FullName
+          if ($signature.Status -ne 'NotSigned') { throw "CI MSI must remain explicitly unsigned, got $($signature.Status)" }
+          $install = Start-Process msiexec.exe -ArgumentList @('/i', $msi.FullName, '/qn', '/norestart', '/l*v', 'artifacts\msi-install.log') -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI install failed with exit code $($install.ExitCode)" }
+          $installedExe = Join-Path $env:ProgramFiles 'KMJ OmniDesk\omnidesk-desktop.exe'
+          if (-not (Test-Path $installedExe)) { throw 'MSI install did not place the OmniDesk executable' }
+          $uninstall = Start-Process msiexec.exe -ArgumentList @('/x', $msi.FullName, '/qn', '/norestart', '/l*v', 'artifacts\msi-uninstall.log') -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "MSI uninstall failed with exit code $($uninstall.ExitCode)" }
+          if (Test-Path $installedExe) { throw 'MSI uninstall left the OmniDesk executable behind' }
       - name: Measure Windows desktop resource baseline
         shell: pwsh
         run: |
@@ -364,4 +381,7 @@ jobs:
             artifacts/release-candidate-result.json
             artifacts/release-candidate/*.zip
             artifacts/release-candidate/*.bundle.json
+            artifacts/windows-installer/*.msi
+            artifacts/msi-install.log
+            artifacts/msi-uninstall.log
           if-no-files-found: error
