@@ -103,7 +103,9 @@ impl Canvas<'_> {
     fn text(&mut self, x: usize, y: usize, text: &str, scale: usize, color: u32) {
         let mut cursor_x = x;
         for character in text.chars() {
-            let glyph_character = character.to_ascii_uppercase();
+            // The approved application uses mixed-case, human-readable labels.
+            // Do not transform names and navigation titles into pixel capitals.
+            let glyph_character = character;
             if let Some(glyph) = BASIC_FONTS.get(glyph_character) {
                 for (row, bits) in glyph.iter().enumerate() {
                     for column in 0..8 {
@@ -577,7 +579,7 @@ fn draw_locked_header(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p
     canvas.fill_rect(0, 0, canvas.width, 2, p.accent);
     canvas.h_line(0, layout.top_bar_height - 1, canvas.width, p.border);
     canvas.text(17, 21, "KMJ", 2, p.accent);
-    canvas.text(85, 21, "OMNIDESK", 2, p.foreground);
+    canvas.text(85, 21, "OmniDesk", 2, p.foreground);
     canvas.text(85, 45, "SECURE  /  ACCESSIBLE  /  EVERYWHERE", 1, p.muted);
 
     let search_x = canvas.width / 3;
@@ -602,31 +604,73 @@ fn draw_locked_header(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p
     );
 }
 
+fn draw_locked_nav_icon(canvas: &mut Canvas<'_>, index: usize, x: usize, y: usize, color: u32) {
+    // Low-overdraw monochrome vector-style icons; no external font/icon
+    // dependency or fabricated online/connection state.
+    match index {
+        0 => {
+            canvas.stroke_rect(x, y, 16, 12, 1, color);
+            canvas.fill_rect(x + 7, y + 12, 2, 3, color);
+            canvas.fill_rect(x + 4, y + 15, 8, 1, color);
+        }
+        1 => {
+            canvas.stroke_rect(x, y + 4, 10, 8, 1, color);
+            canvas.stroke_rect(x + 7, y, 10, 8, 1, color);
+        }
+        2 => {
+            canvas.stroke_rect(x + 2, y, 12, 16, 1, color);
+            canvas.fill_rect(x + 5, y + 6, 6, 1, color);
+        }
+        3 => {
+            for dy in [0, 8] {
+                for dx in [0, 8] {
+                    canvas.stroke_rect(x + dx, y + dy, 6, 6, 1, color);
+                }
+            }
+        }
+        4 => {
+            canvas.stroke_rect(x + 2, y + 2, 12, 12, 1, color);
+            canvas.dot(x + 8, y + 8, 3, color);
+        }
+        5 => {
+            canvas.stroke_rect(x + 3, y, 10, 13, 1, color);
+            canvas.fill_rect(x + 7, y + 8, 2, 5, color);
+        }
+        _ => {
+            canvas.dot(x + 8, y + 8, 7, color);
+            canvas.dot(x + 8, y + 8, 3, 0x0e_11_14);
+        }
+    }
+}
+
 fn draw_locked_navigation(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
     let nav = layout.navigation;
     let nav_labels = [
-        "DEVICES",
-        "CONNECTIONS",
-        "FILE TRANSFER",
-        "REMOTE ACTIONS",
-        "AUTOMATION",
-        "SECURITY",
-        "SETTINGS",
+        "Devices",
+        "Connections",
+        "File Transfer",
+        "Remote Actions",
+        "Automation",
+        "Security",
+        "Settings",
     ];
     for (index, label) in nav_labels.iter().enumerate() {
         let y = nav.y + 9 + index * 44;
         let enabled = index == 0;
         if enabled {
-            canvas.fill_rect(nav.x + 6, y, nav.width - 12, 36, p.accent);
+            canvas.fill_rect(nav.x + 6, y, nav.width - 12, 36, 0x6a_14_1d);
+            canvas.fill_rect(nav.x + 6, y, 3, 36, p.accent);
             canvas.stroke_rect(nav.x + 6, y, nav.width - 12, 36, 1, p.danger);
         }
+        let item_color = if enabled { p.foreground } else { p.muted };
+        draw_locked_nav_icon(canvas, index, nav.x + 13, y + 10, item_color);
         locked_label(
             canvas,
-            nav.x + 18,
+            nav.x + 35,
             y + 13,
-            nav.width.saturating_sub(32),
+            nav.width.saturating_sub(42),
             label,
-            if enabled { p.foreground } else { p.muted },
+            item_color,
         );
     }
     let nav_bottom = nav.y + nav.height;
@@ -638,7 +682,7 @@ fn draw_locked_navigation(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayou
         nav.x + 32,
         nav_bottom - 51,
         nav.width.saturating_sub(48),
-        "DISCONNECTED",
+        "Disconnected",
         p.foreground,
     );
     locked_label(
@@ -646,7 +690,7 @@ fn draw_locked_navigation(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayou
         nav.x + 17,
         nav_bottom - 28,
         nav.width.saturating_sub(28),
-        "LOCAL DEVICE",
+        "Local device",
         p.muted,
     );
 }
@@ -665,7 +709,7 @@ fn draw_locked_devices(
         devices.x + 14,
         devices.y + 21,
         devices.width - 28,
-        "DEVICES",
+        "Devices",
         p.foreground,
     );
     canvas.fill_rect(
@@ -698,7 +742,7 @@ fn draw_locked_devices(
             devices.x + 14,
             devices.y + 112,
             devices.width - 28,
-            "NO ONLINE DEVICE AVAILABLE",
+            "No online device available",
             p.muted,
         );
         locked_label(
@@ -706,7 +750,7 @@ fn draw_locked_devices(
             devices.x + 14,
             devices.y + 136,
             devices.width - 28,
-            "PAIR A TRUSTED DEVICE FIRST",
+            "Pair a trusted device first",
             p.muted,
         );
     }
@@ -787,7 +831,7 @@ fn draw_locked_remote_view(
         screen.x + 22,
         screen.y + 22,
         screen.width - 44,
-        "REMOTE DESKTOP",
+        "Remote desktop",
         p.foreground,
     );
     locked_label(
@@ -795,7 +839,7 @@ fn draw_locked_remote_view(
         screen.x + 22,
         screen.y + 48,
         screen.width - 44,
-        "NO AUTHENTICATED REMOTE VIDEO",
+        "No authenticated remote video",
         p.muted,
     );
     locked_label(
@@ -803,7 +847,7 @@ fn draw_locked_remote_view(
         screen.x + 22,
         screen.y + 73,
         screen.width - 44,
-        "CONNECT TO A VERIFIED DEVICE TO START",
+        "Connect to a verified device",
         p.muted,
     );
 }
@@ -902,7 +946,7 @@ fn draw_locked_details(
         info_x,
         details_y + 18,
         info_w,
-        "SESSION DETAILS",
+        "Session Details",
         p.foreground,
     );
     for (index, text) in [
@@ -1003,7 +1047,7 @@ fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout
         info_x,
         status_y + 18,
         info_w,
-        "CONNECTION STATUS",
+        "Connection Status",
         p.foreground,
     );
     canvas.dot(info_x + 5, status_y + 47, 4, p.muted);
@@ -1012,7 +1056,7 @@ fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout
         info_x + 17,
         status_y + 43,
         info_w - 17,
-        "NO VERIFIED CONNECTION",
+        "No verified connection",
         p.muted,
     );
     for (index, text) in [
@@ -1102,6 +1146,28 @@ mod tests {
 
     use super::*;
     use crate::{VisualSystem, presentation_for};
+
+    #[test]
+    fn locked_design_preserves_lowercase_typography() {
+        let mut lower_pixels = vec![0_u32; 16 * 12];
+        let mut upper_pixels = vec![0_u32; 16 * 12];
+        Canvas {
+            pixels: &mut lower_pixels,
+            width: 16,
+            height: 12,
+        }
+        .text(0, 0, "a", 1, 0x00_ff_ff);
+        Canvas {
+            pixels: &mut upper_pixels,
+            width: 16,
+            height: 12,
+        }
+        .text(0, 0, "A", 1, 0x00_ff_ff);
+        assert_ne!(
+            lower_pixels, upper_pixels,
+            "lowercase navigation must remain lowercase"
+        );
+    }
 
     #[test]
     fn renderer_uses_locked_black_red_visual_tokens() {
