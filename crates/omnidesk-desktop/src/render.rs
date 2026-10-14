@@ -600,7 +600,6 @@ fn draw_locked_header(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p
         "SETTINGS   HELP",
         p.muted,
     );
-
 }
 
 fn draw_locked_navigation(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
@@ -650,10 +649,14 @@ fn draw_locked_navigation(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayou
         "LOCAL DEVICE",
         p.muted,
     );
-
 }
 
-fn draw_locked_devices(canvas: &mut Canvas<'_>, presentation: &PresentationModel, layout: &LockedDashboardLayout, p: Palette) {
+fn draw_locked_devices(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
     let devices = layout.devices;
     // Device directory stays empty until an authoritative pairing service
     // provides real DeviceSummary records; never copy fake peers from mockup.
@@ -736,10 +739,14 @@ fn draw_locked_devices(canvas: &mut Canvas<'_>, presentation: &PresentationModel
             );
         }
     }
-
 }
 
-fn draw_locked_remote_view(canvas: &mut Canvas<'_>, presentation: &PresentationModel, layout: &LockedDashboardLayout, p: Palette) {
+fn draw_locked_remote_view(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
     let viewer = layout.viewer;
     // Remote canvas. A legitimate remote video frame must come from the
     // authenticated frame decoder, never from a screenshot of the reference.
@@ -795,7 +802,12 @@ fn draw_locked_remote_view(canvas: &mut Canvas<'_>, presentation: &PresentationM
     );
 }
 
-fn draw_locked_session_tiles(canvas: &mut Canvas<'_>, presentation: &PresentationModel, layout: &LockedDashboardLayout, p: Palette) {
+fn draw_locked_session_tiles(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
     let screen = layout.remote_screen;
     // Keyboard/device controls only become clickable in their real shell state.
     let toolbar = layout.session_toolbar;
@@ -870,7 +882,6 @@ fn draw_locked_session_tiles(canvas: &mut Canvas<'_>, presentation: &Presentatio
             );
         }
     }
-
 }
 
 fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
@@ -996,7 +1007,8 @@ fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout
             text,
             p.muted,
         );
-    }}
+    }
+}
 
 fn draw_locked_dashboard(
     canvas: &mut Canvas<'_>,
@@ -1005,7 +1017,12 @@ fn draw_locked_dashboard(
     p: Palette,
 ) {
     draw_locked_header(canvas, layout, p);
-    for rect in [layout.navigation, layout.devices, layout.viewer, layout.inspector] {
+    for rect in [
+        layout.navigation,
+        layout.devices,
+        layout.viewer,
+        layout.inspector,
+    ] {
         locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
     }
     draw_locked_navigation(canvas, layout, p);
