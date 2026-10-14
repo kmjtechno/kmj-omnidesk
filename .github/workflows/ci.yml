@@ -396,6 +396,9 @@ jobs:
             throw "Windows desktop idle CPU $($sample.idle_cpu_milli_percent) milli-percent exceeds $cpuBudgetMilliPercent budget"
           }
           Stop-Process -Id $process.Id -Force
+      - name: Capture real native UI window for visual QA
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/windows_native_visual_smoke.ps1 -BinaryPath target/release/omnidesk-desktop.exe -OutputDirectory artifacts/native-ui
       - name: Capture Windows desktop smoke frame
         shell: pwsh
         run: |
@@ -413,4 +416,6 @@ jobs:
             artifacts/release-candidate/*.bundle.json
             artifacts/windows-installer/*.exe
             artifacts/windows-installer/*.json
+            artifacts/native-ui/*.json
+            artifacts/native-ui/*.png
           if-no-files-found: error
