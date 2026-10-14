@@ -182,19 +182,17 @@ fn draw_top_bar(
     // Title on the left, status pill on the right. The red is spent here on
     // the status dot only -- enough to read the shell's state at a glance
     // without tinting the chrome.
-    canvas.fill_rect(layout.content_x, 18, 28, 28, palette.accent);
-    canvas.text(layout.content_x + 7, 24, "K", 2, palette.foreground);
     canvas.text(
-        layout.content_x + 42,
+        layout.content_x,
         (bar / 2).saturating_sub(9),
         presentation.title,
         2,
         palette.foreground,
     );
     canvas.text(
-        layout.content_x + 42,
+        layout.content_x,
         (bar / 2).saturating_add(13),
-        "SECURE REMOTE ACCESS",
+        "KMJ TECHNO  /  SECURE REMOTE ACCESS",
         1,
         palette.muted,
     );
