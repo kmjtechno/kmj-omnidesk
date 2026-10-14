@@ -281,7 +281,7 @@ impl LockedDashboardLayout {
     }
 
     #[must_use]
-    pub fn device_row(&self, index: usize) -> DashboardRect {
+    pub const fn device_row(&self, index: usize) -> DashboardRect {
         DashboardRect {
             x: self.devices.x + 8,
             y: self.first_device_row_y + index.saturating_mul(self.device_row_step),
