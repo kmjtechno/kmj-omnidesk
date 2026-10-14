@@ -655,14 +655,35 @@ fn draw_locked_dashboard(
 
     // Device directory stays empty until an authoritative pairing service
     // provides real DeviceSummary records; never copy fake peers from mockup.
-    locked_label(canvas, devices.x + 14, devices.y + 21, devices.width - 28, "DEVICES", p.foreground);
-    canvas.fill_rect(devices.x + 10, devices.y + 60, devices.width - 20, 1, p.border);
-    locked_label(canvas, devices.x + 15, devices.y + 75, devices.width - 26, "ALL      ONLINE      OFFLINE", p.muted);
-    let device_controls = if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices {
-        presentation.controls.len()
-    } else {
-        0
-    };
+    locked_label(
+        canvas,
+        devices.x + 14,
+        devices.y + 21,
+        devices.width - 28,
+        "DEVICES",
+        p.foreground,
+    );
+    canvas.fill_rect(
+        devices.x + 10,
+        devices.y + 60,
+        devices.width - 20,
+        1,
+        p.border,
+    );
+    locked_label(
+        canvas,
+        devices.x + 15,
+        devices.y + 75,
+        devices.width - 26,
+        "ALL      ONLINE      OFFLINE",
+        p.muted,
+    );
+    let device_controls =
+        if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices {
+            presentation.controls.len()
+        } else {
+            0
+        };
     if device_controls == 0 || !presentation.controls.iter().any(|control| control.enabled) {
         locked_label(
             canvas,
@@ -693,7 +714,11 @@ fn draw_locked_dashboard(
                 rect.x + 14,
                 rect.y + rect.height / 2,
                 4,
-                if control.enabled { VERIFIED_GREEN } else { p.muted },
+                if control.enabled {
+                    VERIFIED_GREEN
+                } else {
+                    p.muted
+                },
             );
             locked_label(
                 canvas,
@@ -701,7 +726,11 @@ fn draw_locked_dashboard(
                 rect.y + 18,
                 rect.width.saturating_sub(44),
                 &control.label,
-                if control.enabled { p.foreground } else { p.muted },
+                if control.enabled {
+                    p.foreground
+                } else {
+                    p.muted
+                },
             );
         }
     }
@@ -725,7 +754,13 @@ fn draw_locked_dashboard(
         p.muted,
     );
     let screen = layout.remote_screen;
-    canvas.fill_rect(screen.x, screen.y, screen.width, screen.height, p.background);
+    canvas.fill_rect(
+        screen.x,
+        screen.y,
+        screen.width,
+        screen.height,
+        p.background,
+    );
     canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
     canvas.fill_rect(screen.x + 1, screen.y + 1, screen.width - 2, 3, p.border);
     locked_label(
@@ -754,9 +789,18 @@ fn draw_locked_dashboard(
     );
     // Keyboard/device controls only become clickable in their real shell state.
     let toolbar = layout.session_toolbar;
-    let offline_labels = ["SEND KEYS", "CLIPBOARD", "FILE TRANSFER", "SHELL", "CAPTURE", "MORE"];
-    let active_session = presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session;
-    let prompt = presentation.primary_view == omnidesk_core::product_shell::PrimaryView::PermissionPrompt;
+    let offline_labels = [
+        "SEND KEYS",
+        "CLIPBOARD",
+        "FILE TRANSFER",
+        "SHELL",
+        "CAPTURE",
+        "MORE",
+    ];
+    let active_session =
+        presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session;
+    let prompt =
+        presentation.primary_view == omnidesk_core::product_shell::PrimaryView::PermissionPrompt;
     if prompt {
         locked_label(
             canvas,
@@ -768,8 +812,21 @@ fn draw_locked_dashboard(
         );
         for (index, control) in presentation.controls.iter().enumerate() {
             let rect = layout.permission_button(index);
-            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, if index == 0 { p.accent } else { p.border });
-            locked_label(canvas, rect.x + 12, rect.y + 19, rect.width - 24, &control.label, p.foreground);
+            canvas.fill_rect(
+                rect.x,
+                rect.y,
+                rect.width,
+                rect.height,
+                if index == 0 { p.accent } else { p.border },
+            );
+            locked_label(
+                canvas,
+                rect.x + 12,
+                rect.y + 19,
+                rect.width - 24,
+                &control.label,
+                p.foreground,
+            );
         }
     }
     if active_session {
@@ -777,7 +834,14 @@ fn draw_locked_dashboard(
             let rect = layout.session_button(index, presentation.controls.len());
             canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.border);
             canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.muted);
-            locked_label(canvas, rect.x + 6, rect.y + 18, rect.width.saturating_sub(12), &control.label, p.foreground);
+            locked_label(
+                canvas,
+                rect.x + 6,
+                rect.y + 18,
+                rect.width.saturating_sub(12),
+                &control.label,
+                p.foreground,
+            );
         }
     } else {
         let tile_width = toolbar.width / offline_labels.len();
@@ -786,7 +850,14 @@ fn draw_locked_dashboard(
             let width = tile_width.saturating_sub(6);
             canvas.fill_rect(x, toolbar.y + 5, width, toolbar.height - 10, p.background);
             canvas.stroke_rect(x, toolbar.y + 5, width, toolbar.height - 10, 1, p.border);
-            locked_label(canvas, x + 5, toolbar.y + 22, width.saturating_sub(10), label, p.muted);
+            locked_label(
+                canvas,
+                x + 5,
+                toolbar.y + 22,
+                width.saturating_sub(10),
+                label,
+                p.muted,
+            );
         }
     }
 
@@ -796,8 +867,22 @@ fn draw_locked_dashboard(
     let status_y = inspector.y + 5;
     let details_y = status_y + first + 6;
     let actions_y = details_y + second + 6;
-    locked_frame(canvas, inspector.x + 6, status_y, inspector.width - 12, first, p);
-    locked_frame(canvas, inspector.x + 6, details_y, inspector.width - 12, second, p);
+    locked_frame(
+        canvas,
+        inspector.x + 6,
+        status_y,
+        inspector.width - 12,
+        first,
+        p,
+    );
+    locked_frame(
+        canvas,
+        inspector.x + 6,
+        details_y,
+        inspector.width - 12,
+        second,
+        p,
+    );
     locked_frame(
         canvas,
         inspector.x + 6,
@@ -808,7 +893,14 @@ fn draw_locked_dashboard(
     );
     let info_x = inspector.x + 20;
     let info_w = inspector.width.saturating_sub(40);
-    locked_label(canvas, info_x, status_y + 18, info_w, "CONNECTION STATUS", p.foreground);
+    locked_label(
+        canvas,
+        info_x,
+        status_y + 18,
+        info_w,
+        "CONNECTION STATUS",
+        p.foreground,
+    );
     canvas.dot(info_x + 5, status_y + 47, 4, p.muted);
     locked_label(
         canvas,
@@ -818,10 +910,31 @@ fn draw_locked_dashboard(
         "NO VERIFIED CONNECTION",
         p.muted,
     );
-    for (index, text) in ["Path: unavailable", "Latency: unavailable", "Relay: not verified"].iter().enumerate() {
-        locked_label(canvas, info_x, status_y + 72 + index * 25, info_w, text, p.muted);
+    for (index, text) in [
+        "Path: unavailable",
+        "Latency: unavailable",
+        "Relay: not verified",
+    ]
+    .iter()
+    .enumerate()
+    {
+        locked_label(
+            canvas,
+            info_x,
+            status_y + 72 + index * 25,
+            info_w,
+            text,
+            p.muted,
+        );
     }
-    locked_label(canvas, info_x, details_y + 18, info_w, "SESSION DETAILS", p.foreground);
+    locked_label(
+        canvas,
+        info_x,
+        details_y + 18,
+        info_w,
+        "SESSION DETAILS",
+        p.foreground,
+    );
     for (index, text) in [
         "Duration        --",
         "Resolution      --",
@@ -833,10 +946,27 @@ fn draw_locked_dashboard(
     .iter()
     .enumerate()
     {
-        locked_label(canvas, info_x, details_y + 45 + index * 22, info_w, text, p.muted);
+        locked_label(
+            canvas,
+            info_x,
+            details_y + 45 + index * 22,
+            info_w,
+            text,
+            p.muted,
+        );
     }
-    locked_label(canvas, info_x, actions_y + 16, info_w, "ACTIONS  /  UNAVAILABLE", p.foreground);
-    for (index, text) in ["FILE TRANSFER", "REMOTE REBOOT", "CLIPBOARD", "UNATTENDED"].iter().enumerate() {
+    locked_label(
+        canvas,
+        info_x,
+        actions_y + 16,
+        info_w,
+        "ACTIONS  /  UNAVAILABLE",
+        p.foreground,
+    );
+    for (index, text) in ["FILE TRANSFER", "REMOTE REBOOT", "CLIPBOARD", "UNATTENDED"]
+        .iter()
+        .enumerate()
+    {
         let columns = 2;
         let cell_w = info_w / columns;
         let x = info_x + index % columns * cell_w + 2;
@@ -844,7 +974,14 @@ fn draw_locked_dashboard(
         let button_width = cell_w.saturating_sub(8);
         canvas.fill_rect(x, y, button_width, 31, p.background);
         canvas.stroke_rect(x, y, button_width, 31, 1, p.border);
-        locked_label(canvas, x + 5, y + 12, button_width.saturating_sub(10), text, p.muted);
+        locked_label(
+            canvas,
+            x + 5,
+            y + 12,
+            button_width.saturating_sub(10),
+            text,
+            p.muted,
+        );
     }
 }
 
