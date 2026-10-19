@@ -181,7 +181,7 @@ pub fn parse_binding_response(
     mapped.ok_or(StunError::MissingMappedAddress)
 }
 
-fn validated_mapped_address(ip: IpAddr, port: u16) -> Result<SocketAddr, StunError> {
+const fn validated_mapped_address(ip: IpAddr, port: u16) -> Result<SocketAddr, StunError> {
     // Mapped candidates cannot be dialed on port zero or at an unspecified
     // address. Treat either as malformed evidence, not a reachable peer.
     if port == 0 || ip.is_unspecified() {
