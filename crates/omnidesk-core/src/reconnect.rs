@@ -26,6 +26,7 @@ pub struct ReconnectSuccess {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReconnectError {
     MissingFreshNonce,
+    ReusedNonce,
     Exhausted {
         rounds: u32,
         candidate_attempts: u32,
@@ -79,12 +80,18 @@ pub fn reconnect_direct<P: CandidateProbe, S: ReconnectSleeper>(
     let started = Instant::now();
     let mut candidate_attempts = 0_u32;
     let mut last_error = DirectAttemptError::NoUsableDirectCandidate;
+    // A caller may accidentally supply the same challenge for two rounds.
+    // Reject replay before transmitting another probe or consuming backoff.
+    let mut used_nonces = std::collections::HashSet::new();
 
     for round in 1..=policy.max_rounds {
         let index = usize::try_from(round - 1).map_err(|_| ReconnectError::MissingFreshNonce)?;
         let nonce = *fresh_nonces
             .get(index)
             .ok_or(ReconnectError::MissingFreshNonce)?;
+        if !used_nonces.insert(nonce) {
+            return Err(ReconnectError::ReusedNonce);
+        }
         sleeper.sleep(policy.backoff_for_round(round));
 
         match connect_direct_candidates(probe, candidates, session_id, nonce) {
@@ -230,6 +237,40 @@ mod tests {
                 Duration::from_millis(50),
                 Duration::from_millis(100)
             ]
+        );
+    }
+
+    #[test]
+    fn repeated_nonce_is_refused_before_another_probe_or_delay() {
+        let probe = ScriptedProbe {
+            failures: 4,
+            calls: Cell::new(0),
+            nonces: RefCell::new(Vec::new()),
+        };
+        let sleeper = RecordingSleeper::default();
+        let repeated = [[7_u8; 32], [7_u8; 32], [9_u8; 32], [10_u8; 32]];
+
+        assert_eq!(
+            reconnect_direct(
+                &probe,
+                &sleeper,
+                policy(),
+                &[candidate()],
+                [9_u8; 16],
+                &repeated,
+            ),
+            Err(ReconnectError::ReusedNonce)
+        );
+        assert_eq!(
+            probe.calls.get(),
+            1,
+            "no second network probe on nonce reuse"
+        );
+        assert_eq!(&*probe.nonces.borrow(), &repeated[..1]);
+        assert_eq!(
+            &*sleeper.durations.borrow(),
+            &[Duration::ZERO],
+            "duplicate nonce must be rejected before any second backoff"
         );
     }
 
