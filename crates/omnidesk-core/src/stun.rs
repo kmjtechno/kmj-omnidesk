@@ -346,6 +346,37 @@ mod tests {
     }
 
     #[test]
+    fn unusable_server_reflexive_mappings_are_rejected() {
+        let transaction_id = [9_u8; 12];
+        for invalid in ["0.0.0.0:54321", "203.0.113.7:0", "0.0.0.0:0"] {
+            let mapped: SocketAddr = invalid.parse().expect("mapped");
+            let response = success_response(transaction_id, mapped);
+            assert_eq!(
+                parse_binding_response(&response, transaction_id),
+                Err(StunError::InvalidMessage),
+                "mapped candidate {invalid} must not be admitted"
+            );
+        }
+    }
+
+    #[test]
+    fn unspecified_ipv6_mapping_is_rejected() {
+        // Both AF_INET and AF_INET6 variants feed the same fail-closed
+        // mapped-address validator.
+        assert_eq!(
+            validated_mapped_address(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 34567),
+            Err(StunError::InvalidMessage)
+        );
+        assert_eq!(
+            validated_mapped_address(
+                IpAddr::V6("2001:db8::1".parse().expect("IPv6")),
+                0
+            ),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
     fn transaction_mismatch_is_rejected() {
         let response = success_response([1_u8; 12], "203.0.113.7:54321".parse().expect("mapped"));
 
