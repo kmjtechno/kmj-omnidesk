@@ -131,11 +131,14 @@ pub fn parse_binding_response(
     let end = HEADER_BYTES
         .checked_add(body_length)
         .ok_or(StunError::InvalidMessage)?;
-    if end > message.len() {
+    // STUN length is the complete (32-bit aligned) message body length.
+    // Extra trailing data or partial attributes are never valid evidence.
+    if end != message.len() || body_length % 4 != 0 {
         return Err(StunError::InvalidMessage);
     }
 
     let mut offset = HEADER_BYTES;
+    let mut mapped = None;
     while offset + 4 <= end {
         let attribute_type = u16::from_be_bytes([message[offset], message[offset + 1]]);
         let attribute_length = usize::from(u16::from_be_bytes([
@@ -151,7 +154,13 @@ pub fn parse_binding_response(
         }
 
         if attribute_type == XOR_MAPPED_ADDRESS {
-            return parse_xor_mapped(&message[value_start..value_end], transaction_id);
+            if mapped.is_some() {
+                return Err(StunError::InvalidMessage);
+            }
+            mapped = Some(parse_xor_mapped(
+                &message[value_start..value_end],
+                transaction_id,
+            )?);
         }
 
         let padded = attribute_length
@@ -161,9 +170,24 @@ pub fn parse_binding_response(
         offset = value_start
             .checked_add(padded)
             .ok_or(StunError::InvalidMessage)?;
+        if offset > end {
+            return Err(StunError::InvalidMessage);
+        }
     }
 
-    Err(StunError::MissingMappedAddress)
+    if offset != end {
+        return Err(StunError::InvalidMessage);
+    }
+    mapped.ok_or(StunError::MissingMappedAddress)
+}
+
+const fn validated_mapped_address(ip: IpAddr, port: u16) -> Result<SocketAddr, StunError> {
+    // Mapped candidates cannot be dialed on port zero or at an unspecified
+    // address. Treat either as malformed evidence, not a reachable peer.
+    if port == 0 || ip.is_unspecified() {
+        return Err(StunError::InvalidMessage);
+    }
+    Ok(SocketAddr::new(ip, port))
 }
 
 fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr, StunError> {
@@ -183,7 +207,7 @@ fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr
                 value[6] ^ cookie[2],
                 value[7] ^ cookie[3],
             ];
-            Ok(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(octets)), port))
+            validated_mapped_address(IpAddr::V4(Ipv4Addr::from(octets)), port)
         }
         0x02 if value.len() == 20 => {
             let mut mask = [0_u8; 16];
@@ -193,7 +217,7 @@ fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr
             for (index, octet) in octets.iter_mut().enumerate() {
                 *octet = value[4 + index] ^ mask[index];
             }
-            Ok(SocketAddr::new(IpAddr::V6(Ipv6Addr::from(octets)), port))
+            validated_mapped_address(IpAddr::V6(Ipv6Addr::from(octets)), port)
         }
         _ => Err(StunError::InvalidMessage),
     }
@@ -267,6 +291,85 @@ mod tests {
         assert_eq!(
             parse_binding_response(&response, transaction_id),
             Ok(mapped)
+        );
+    }
+
+    #[test]
+    fn malformed_attribute_after_valid_mapping_is_rejected() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        // The mapped address is valid; an additional attribute has a declared
+        // 8-byte value but no value bytes. The parser must not return early.
+        response.extend_from_slice(&[0x00, 0x24, 0x00, 0x08]);
+        response[2..4].copy_from_slice(&16_u16.to_be_bytes());
+        assert_eq!(
+            parse_binding_response(&response, id),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
+    fn duplicate_xor_mapped_attribute_is_rejected() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        let duplicate = response[HEADER_BYTES..].to_vec();
+        response.extend_from_slice(&duplicate);
+        response[2..4].copy_from_slice(&24_u16.to_be_bytes());
+        assert_eq!(
+            parse_binding_response(&response, id),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
+    fn valid_unknown_attribute_after_mapping_is_ignored() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        response.extend_from_slice(&[0x80, 0x22, 0x00, 0x00]);
+        response[2..4].copy_from_slice(&16_u16.to_be_bytes());
+        assert_eq!(parse_binding_response(&response, id), Ok(mapped));
+    }
+
+    #[test]
+    fn trailing_byte_not_counted_in_stun_header_is_rejected() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        response.push(0xff);
+        assert_eq!(
+            parse_binding_response(&response, id),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
+    fn unusable_server_reflexive_mappings_are_rejected() {
+        let transaction_id = [9_u8; 12];
+        for invalid in ["0.0.0.0:54321", "203.0.113.7:0", "0.0.0.0:0"] {
+            let mapped: SocketAddr = invalid.parse().expect("mapped");
+            let response = success_response(transaction_id, mapped);
+            assert_eq!(
+                parse_binding_response(&response, transaction_id),
+                Err(StunError::InvalidMessage),
+                "mapped candidate {invalid} must not be admitted"
+            );
+        }
+    }
+
+    #[test]
+    fn unspecified_ipv6_mapping_is_rejected() {
+        // Both AF_INET and AF_INET6 variants feed the same fail-closed
+        // mapped-address validator.
+        assert_eq!(
+            validated_mapped_address(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 34567),
+            Err(StunError::InvalidMessage)
+        );
+        assert_eq!(
+            validated_mapped_address(IpAddr::V6("2001:db8::1".parse().expect("IPv6")), 0),
+            Err(StunError::InvalidMessage)
         );
     }
 
