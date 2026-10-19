@@ -6,7 +6,7 @@
 use std::{
     io::ErrorKind,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const BINDING_REQUEST: u16 = 0x0001;
@@ -82,15 +82,29 @@ impl StunClient {
             .send_to(&request, server)
             .map_err(|error| io_error(&error))?;
 
+        let start = Instant::now();
         let mut response = [0_u8; 512];
-        let (received, source) = socket
-            .recv_from(&mut response)
-            .map_err(|error| map_receive_error(&error))?;
-        if source != server {
-            return Err(StunError::UnexpectedSource);
-        }
+        loop {
+            let (received, source) = socket
+                .recv_from(&mut response)
+                .map_err(|error| map_receive_error(&error))?;
+            if source == server {
+                // Never trust an unsolicited sender as the STUN authority.
+                // Validity and transaction ID are checked by the parser.
+                return parse_binding_response(&response[..received], transaction_id);
+            }
 
-        parse_binding_response(&response[..received], transaction_id)
+            // Stale replies from an earlier probe on this reused socket must
+            // not abort a legitimate in-flight request. A hard total deadline
+            // prevents an unrelated UDP flood from extending discovery.
+            let remaining = self.timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                return Err(StunError::Timeout);
+            }
+            socket
+                .set_read_timeout(Some(remaining))
+                .map_err(|error| io_error(&error))?;
+        }
     }
 }
 
@@ -381,6 +395,42 @@ mod tests {
             parse_binding_response(&response, [2_u8; 12]),
             Err(StunError::TransactionMismatch)
         );
+    }
+
+    #[test]
+    fn unrelated_udp_datagram_does_not_abort_discovery() {
+        let server = UdpSocket::bind("127.0.0.1:0").expect("STUN server");
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("server timeout");
+        let server_address = server.local_addr().expect("server addr");
+
+        let client_socket = UdpSocket::bind("127.0.0.1:0").expect("reused client");
+        let client_address = client_socket.local_addr().expect("client addr");
+        let unrelated = UdpSocket::bind("127.0.0.1:0").expect("stale sender");
+        assert_ne!(unrelated.local_addr().expect("sender"), server_address);
+
+        // Deterministic ordering: queue a stale datagram before the STUN
+        // request is sent. A single recv_from wrongly returns UnexpectedSource.
+        unrelated
+            .send_to(&[0x55; HEADER_BYTES], client_address)
+            .expect("queue unrelated packet");
+
+        let transaction_id = [8_u8; 12];
+        let responder = thread::spawn(move || {
+            let mut request = [0_u8; HEADER_BYTES];
+            let (n, address) = server.recv_from(&mut request).expect("request");
+            assert_eq!(n, HEADER_BYTES);
+            assert_eq!(request, binding_request(transaction_id));
+            let response = success_response(transaction_id, address);
+            server.send_to(&response, address).expect("STUN reply");
+        });
+        let client = StunClient::new(Duration::from_secs(2));
+        let observed = client
+            .discover_from(&client_socket, server_address, transaction_id)
+            .expect("stale sender must not abort valid STUN");
+        assert_eq!(observed, client_address);
+        responder.join().expect("STUN responder");
     }
 
     #[test]
