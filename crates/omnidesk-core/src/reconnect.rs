@@ -261,7 +261,11 @@ mod tests {
             ),
             Err(ReconnectError::ReusedNonce)
         );
-        assert_eq!(probe.calls.get(), 1, "no second network probe on nonce reuse");
+        assert_eq!(
+            probe.calls.get(),
+            1,
+            "no second network probe on nonce reuse"
+        );
         assert_eq!(&*probe.nonces.borrow(), &repeated[..1]);
         assert_eq!(
             &*sleeper.durations.borrow(),
