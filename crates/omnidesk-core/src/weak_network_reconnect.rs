@@ -424,11 +424,8 @@ mod tests {
     #[test]
     fn maximum_u32_budget_does_not_iterate_billions_of_rounds() {
         let policy = WeakNetworkReconnectPolicy::default();
-        let total = policy.total_backoff_for(
-            u32::MAX,
-            DisconnectCause::LinkDegraded,
-            Some(&sample(200)),
-        );
+        let total =
+            policy.total_backoff_for(u32::MAX, DisconnectCause::LinkDegraded, Some(&sample(200)));
         assert!(total > Duration::from_secs(30));
         assert!(total <= policy.max_backoff.saturating_mul(u32::MAX));
     }
