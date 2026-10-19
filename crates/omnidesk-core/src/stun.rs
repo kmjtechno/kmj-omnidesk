@@ -158,7 +158,8 @@ pub fn parse_binding_response(
                 return Err(StunError::InvalidMessage);
             }
             mapped = Some(parse_xor_mapped(
-                &message[value_start..value_end], transaction_id,
+                &message[value_start..value_end],
+                transaction_id,
             )?);
         }
 
