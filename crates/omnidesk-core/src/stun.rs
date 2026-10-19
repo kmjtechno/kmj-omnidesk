@@ -285,6 +285,57 @@ mod tests {
     }
 
     #[test]
+    fn malformed_attribute_after_valid_mapping_is_rejected() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        // The mapped address is valid; an additional attribute has a declared
+        // 8-byte value but no value bytes. The parser must not return early.
+        response.extend_from_slice(&[0x00, 0x24, 0x00, 0x08]);
+        response[2..4].copy_from_slice(&16_u16.to_be_bytes());
+        assert_eq!(
+            parse_binding_response(&response, id),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
+    fn duplicate_xor_mapped_attribute_is_rejected() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        let duplicate = response[HEADER_BYTES..].to_vec();
+        response.extend_from_slice(&duplicate);
+        response[2..4].copy_from_slice(&24_u16.to_be_bytes());
+        assert_eq!(
+            parse_binding_response(&response, id),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
+    fn valid_unknown_attribute_after_mapping_is_ignored() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        response.extend_from_slice(&[0x80, 0x22, 0x00, 0x00]);
+        response[2..4].copy_from_slice(&16_u16.to_be_bytes());
+        assert_eq!(parse_binding_response(&response, id), Ok(mapped));
+    }
+
+    #[test]
+    fn trailing_byte_not_counted_in_stun_header_is_rejected() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        response.push(0xff);
+        assert_eq!(
+            parse_binding_response(&response, id),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
     fn transaction_mismatch_is_rejected() {
         let response = success_response([1_u8; 12], "203.0.113.7:54321".parse().expect("mapped"));
 
