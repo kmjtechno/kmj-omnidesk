@@ -131,11 +131,14 @@ pub fn parse_binding_response(
     let end = HEADER_BYTES
         .checked_add(body_length)
         .ok_or(StunError::InvalidMessage)?;
-    if end > message.len() {
+    // STUN length is the complete (32-bit aligned) message body length.
+    // Extra trailing data or partial attributes are never valid evidence.
+    if end != message.len() || body_length % 4 != 0 {
         return Err(StunError::InvalidMessage);
     }
 
     let mut offset = HEADER_BYTES;
+    let mut mapped = None;
     while offset + 4 <= end {
         let attribute_type = u16::from_be_bytes([message[offset], message[offset + 1]]);
         let attribute_length = usize::from(u16::from_be_bytes([
@@ -151,7 +154,12 @@ pub fn parse_binding_response(
         }
 
         if attribute_type == XOR_MAPPED_ADDRESS {
-            return parse_xor_mapped(&message[value_start..value_end], transaction_id);
+            if mapped.is_some() {
+                return Err(StunError::InvalidMessage);
+            }
+            mapped = Some(parse_xor_mapped(
+                &message[value_start..value_end], transaction_id,
+            )?);
         }
 
         let padded = attribute_length
@@ -161,9 +169,15 @@ pub fn parse_binding_response(
         offset = value_start
             .checked_add(padded)
             .ok_or(StunError::InvalidMessage)?;
+        if offset > end {
+            return Err(StunError::InvalidMessage);
+        }
     }
 
-    Err(StunError::MissingMappedAddress)
+    if offset != end {
+        return Err(StunError::InvalidMessage);
+    }
+    mapped.ok_or(StunError::MissingMappedAddress)
 }
 
 fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr, StunError> {
