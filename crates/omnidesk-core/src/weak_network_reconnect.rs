@@ -173,9 +173,18 @@ impl WeakNetworkReconnectPolicy {
         cause: DisconnectCause,
         last: Option<&NetworkSample>,
     ) -> Duration {
+        // Backoff doubles at most MAX_DOUBLINGS times. Beyond round 18
+        // the duration is constant, so iterating a caller-supplied u32 count
+        // could waste billions of cycles without changing the answer.
+        const VARIABLE_ROUNDS: u32 = MAX_DOUBLINGS + 2;
+        let prefix = rounds.min(VARIABLE_ROUNDS);
         let mut total = Duration::ZERO;
-        for round in 1..=rounds {
+        for round in 1..=prefix {
             total = total.saturating_add(self.backoff_before(round, cause, last));
+        }
+        if rounds > prefix {
+            let fixed = self.backoff_before(VARIABLE_ROUNDS + 1, cause, last);
+            total = total.saturating_add(fixed.saturating_mul(rounds - prefix));
         }
         total
     }
@@ -388,6 +397,37 @@ mod tests {
             total <= policy.max_backoff * 10,
             "a 10-round sequence took {total:?}, which is not bounded as expected"
         );
+    }
+
+    #[test]
+    fn total_backoff_matches_explicit_sum_for_all_bounded_schedules() {
+        let policy = WeakNetworkReconnectPolicy::default();
+        let observed = sample(180);
+        for cause in [
+            DisconnectCause::PeerUnavailable,
+            DisconnectCause::LinkDegraded,
+            DisconnectCause::Unknown,
+        ] {
+            for rounds in [0, 1, 2, 8, 17, 18, 19, 25, 64, 200] {
+                let reference = (1..=rounds).fold(Duration::ZERO, |sum, round| {
+                    sum.saturating_add(policy.backoff_before(round, cause, Some(&observed)))
+                });
+                assert_eq!(
+                    policy.total_backoff_for(rounds, cause, Some(&observed)),
+                    reference,
+                    "mismatch for cause {cause:?}, rounds {rounds}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn maximum_u32_budget_does_not_iterate_billions_of_rounds() {
+        let policy = WeakNetworkReconnectPolicy::default();
+        let total =
+            policy.total_backoff_for(u32::MAX, DisconnectCause::LinkDegraded, Some(&sample(200)));
+        assert!(total > Duration::from_secs(30));
+        assert!(total <= policy.max_backoff.saturating_mul(u32::MAX));
     }
 
     #[test]
