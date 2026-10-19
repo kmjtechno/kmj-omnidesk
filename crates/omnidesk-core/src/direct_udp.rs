@@ -19,6 +19,7 @@ const PROBE_BYTES: usize = 4 + 2 + 16 + 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirectProbeError {
+    RepeatedNonce,
     Timeout,
     Io(ErrorKind),
     InvalidResponse,
@@ -106,6 +107,12 @@ impl DirectProbe {
         initial_nonce: [u8; 32],
         reconnect_nonce: [u8; 32],
     ) -> Result<DirectProbeResult, DirectProbeError> {
+        // A reconnect is not a fresh reachability proof if the challenge is
+        // identical. Reject before any network I/O (including the first probe)
+        // to avoid starting a session with a known-invalid measurement pair.
+        if initial_nonce == reconnect_nonce {
+            return Err(DirectProbeError::RepeatedNonce);
+        }
         let initial = self.connect(candidate, session_id, initial_nonce)?;
         let reconnected = self.connect(candidate, session_id, reconnect_nonce)?;
 
@@ -223,6 +230,21 @@ mod tests {
         assert_ne!(observed[0], observed[1]);
         assert_eq!(&observed[0][22..54], &[2_u8; 32]);
         assert_eq!(&observed[1][22..54], &[3_u8; 32]);
+    }
+
+    #[test]
+    fn reconnect_rejects_repeated_nonce_without_network_io() {
+        let probe = DirectProbe::new(Duration::from_millis(10));
+        let unreachable: SocketAddr = "127.0.0.1:9".parse().expect("candidate");
+        assert_eq!(
+            probe.connect_then_reconnect(
+                &candidate(unreachable),
+                [1_u8; 16],
+                [7_u8; 32],
+                [7_u8; 32],
+            ),
+            Err(DirectProbeError::RepeatedNonce)
+        );
     }
 
     #[test]
