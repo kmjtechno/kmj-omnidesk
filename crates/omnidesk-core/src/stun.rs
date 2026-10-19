@@ -368,10 +368,7 @@ mod tests {
             Err(StunError::InvalidMessage)
         );
         assert_eq!(
-            validated_mapped_address(
-                IpAddr::V6("2001:db8::1".parse().expect("IPv6")),
-                0
-            ),
+            validated_mapped_address(IpAddr::V6("2001:db8::1".parse().expect("IPv6")), 0),
             Err(StunError::InvalidMessage)
         );
     }
