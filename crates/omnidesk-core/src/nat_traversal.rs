@@ -25,6 +25,7 @@ pub struct MappingObservation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NatTraversalError {
+    InvalidObservationSetup,
     Bind,
     Primary(StunError),
     Secondary(StunError),
@@ -55,7 +56,8 @@ pub fn classify_mapping(primary: SocketAddr, secondary: SocketAddr) -> MappingBe
 ///
 /// # Errors
 ///
-/// Returns bind failure or the exact primary/secondary STUN failure.
+/// Returns a configuration error, bind failure or the exact STUN failure.
+/// A single server cannot independently confirm endpoint mapping behaviour.
 pub fn observe_mapping(
     client: &StunClient,
     primary_server: SocketAddr,
@@ -63,6 +65,13 @@ pub fn observe_mapping(
     primary_transaction: [u8; 12],
     secondary_transaction: [u8; 12],
 ) -> Result<MappingObservation, NatTraversalError> {
+    // An identical server probes the same endpoint twice, yielding a false
+    // EndpointIndependentObserved result irrespective of NAT behaviour.
+    // Separate transaction IDs also prevent response replay across probes.
+    // Reject these configurations before binding or transmitting UDP.
+    if primary_server == secondary_server || primary_transaction == secondary_transaction {
+        return Err(NatTraversalError::InvalidObservationSetup);
+    }
     let bind = if primary_server.is_ipv4() && secondary_server.is_ipv4() {
         "0.0.0.0:0"
     } else if primary_server.is_ipv6() && secondary_server.is_ipv6() {
@@ -105,6 +114,21 @@ mod tests {
         assert_eq!(
             classify_mapping(first, second),
             MappingBehavior::EndpointDependentObserved
+        );
+    }
+
+    #[test]
+    fn rejects_nonindependent_probe_setup_without_udp() {
+        let client = StunClient::new(std::time::Duration::from_millis(10));
+        let first: SocketAddr = "127.0.0.1:9".parse().expect("server");
+        let second: SocketAddr = "127.0.0.1:10".parse().expect("other server");
+        assert_eq!(
+            observe_mapping(&client, first, first, [1; 12], [2; 12]),
+            Err(NatTraversalError::InvalidObservationSetup)
+        );
+        assert_eq!(
+            observe_mapping(&client, first, second, [1; 12], [1; 12]),
+            Err(NatTraversalError::InvalidObservationSetup)
         );
     }
 
