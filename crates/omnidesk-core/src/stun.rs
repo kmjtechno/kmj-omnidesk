@@ -6,7 +6,7 @@
 use std::{
     io::ErrorKind,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const BINDING_REQUEST: u16 = 0x0001;
@@ -82,15 +82,29 @@ impl StunClient {
             .send_to(&request, server)
             .map_err(|error| io_error(&error))?;
 
+        let start = Instant::now();
         let mut response = [0_u8; 512];
-        let (received, source) = socket
-            .recv_from(&mut response)
-            .map_err(|error| map_receive_error(&error))?;
-        if source != server {
-            return Err(StunError::UnexpectedSource);
-        }
+        loop {
+            let (received, source) = socket
+                .recv_from(&mut response)
+                .map_err(|error| map_receive_error(&error))?;
+            if source == server {
+                // Never trust an unsolicited sender as the STUN authority.
+                // Validity and transaction ID are checked by the parser.
+                return parse_binding_response(&response[..received], transaction_id);
+            }
 
-        parse_binding_response(&response[..received], transaction_id)
+            // Stale replies from an earlier probe on this reused socket must
+            // not abort a legitimate in-flight request. A hard total deadline
+            // prevents an unrelated UDP flood from extending discovery.
+            let remaining = self.timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                return Err(StunError::Timeout);
+            }
+            socket
+                .set_read_timeout(Some(remaining))
+                .map_err(|error| io_error(&error))?;
+        }
     }
 }
 
