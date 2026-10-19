@@ -181,6 +181,15 @@ pub fn parse_binding_response(
     mapped.ok_or(StunError::MissingMappedAddress)
 }
 
+fn validated_mapped_address(ip: IpAddr, port: u16) -> Result<SocketAddr, StunError> {
+    // Mapped candidates cannot be dialed on port zero or at an unspecified
+    // address. Treat either as malformed evidence, not a reachable peer.
+    if port == 0 || ip.is_unspecified() {
+        return Err(StunError::InvalidMessage);
+    }
+    Ok(SocketAddr::new(ip, port))
+}
+
 fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr, StunError> {
     if value.len() < 4 || value[0] != 0 {
         return Err(StunError::InvalidMessage);
@@ -198,7 +207,7 @@ fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr
                 value[6] ^ cookie[2],
                 value[7] ^ cookie[3],
             ];
-            Ok(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(octets)), port))
+            validated_mapped_address(IpAddr::V4(Ipv4Addr::from(octets)), port)
         }
         0x02 if value.len() == 20 => {
             let mut mask = [0_u8; 16];
@@ -208,7 +217,7 @@ fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr
             for (index, octet) in octets.iter_mut().enumerate() {
                 *octet = value[4 + index] ^ mask[index];
             }
-            Ok(SocketAddr::new(IpAddr::V6(Ipv6Addr::from(octets)), port))
+            validated_mapped_address(IpAddr::V6(Ipv6Addr::from(octets)), port)
         }
         _ => Err(StunError::InvalidMessage),
     }
