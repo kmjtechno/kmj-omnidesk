@@ -13,6 +13,8 @@ omnidesk-core = { path = "../omnidesk-core" }
 font8x8 = "0.3.1"
 ab_glyph = "0.2.32"
 accesskit = "0.25.1"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(windows)'.dependencies]
 winit = "0.30"
