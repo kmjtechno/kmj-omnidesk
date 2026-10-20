@@ -170,9 +170,8 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         if self.window.is_none() {
             let presentation = presentation_for(&self.shell);
             let title = format!("{} — {}", presentation.title, presentation.status);
-            let window_icon = official_kmj_mark().and_then(|mark| {
-                Icon::from_rgba(mark.rgba.clone(), mark.width, mark.height).ok()
-            });
+            let window_icon = official_kmj_mark()
+                .and_then(|mark| Icon::from_rgba(mark.rgba.clone(), mark.width, mark.height).ok());
             let attributes = WindowAttributes::default()
                 .with_title(title)
                 .with_visible(false)
