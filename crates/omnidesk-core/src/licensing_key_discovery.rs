@@ -1,4 +1,4 @@
-//! Strict parser for KMJ Main Platform OmniDesk verification-key discovery.
+//! Strict parser for KMJ Main Platform `OmniDesk` verification-key discovery.
 //!
 //! The network transport is intentionally outside this module. Callers provide
 //! the response bytes from the trusted Main Platform endpoint and this boundary
@@ -130,7 +130,7 @@ pub fn verifier_from_main_platform_keys(
 
 #[cfg(test)]
 mod tests {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::engine::general_purpose::STANDARD;
     use ed25519_dalek::{Signer, SigningKey};
 
     use super::*;
