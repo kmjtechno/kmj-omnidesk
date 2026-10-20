@@ -66,14 +66,12 @@ impl Canvas<'_> {
 
     fn image_rgba(
         &mut self,
-        x: usize,
-        y: usize,
-        width: usize,
-        height: usize,
-        source_width: usize,
-        source_height: usize,
+        destination: (usize, usize, usize, usize),
+        source_size: (usize, usize),
         rgba: &[u8],
     ) {
+        let (x, y, width, height) = destination;
+        let (source_width, source_height) = source_size;
         if width == 0
             || height == 0
             || source_width == 0
@@ -730,12 +728,11 @@ fn draw_locked_header(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p
     canvas.h_line(0, layout.top_bar_height - 1, canvas.width, p.border);
     if let Some(mark) = official_kmj_mark() {
         canvas.image_rgba(
-            14,
-            12,
-            44,
-            44,
-            usize::try_from(mark.width).unwrap_or(0),
-            usize::try_from(mark.height).unwrap_or(0),
+            (14, 12, 44, 44),
+            (
+                usize::try_from(mark.width).unwrap_or(0),
+                usize::try_from(mark.height).unwrap_or(0),
+            ),
             &mark.rgba,
         );
     }
