@@ -2,7 +2,7 @@ use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use std::sync::OnceLock;
 
-use crate::{LockedDashboardLayout, PresentationModel, ShellLayout, control_rects_for};
+use crate::{LockedDashboardLayout, PresentationModel, ShellLayout, brand::official_kmj_mark, control_rects_for};
 
 #[must_use]
 pub const fn packed_rgb(rgb: [u8; 3]) -> u32 {
@@ -57,6 +57,48 @@ impl Canvas<'_> {
             let row = py * self.width;
             for px in x.min(self.width)..max_x {
                 self.pixels[row + px] = color;
+            }
+        }
+    }
+
+    fn image_rgba(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        source_width: usize,
+        source_height: usize,
+        rgba: &[u8],
+    ) {
+        if width == 0
+            || height == 0
+            || source_width == 0
+            || source_height == 0
+            || rgba.len() < source_width.saturating_mul(source_height).saturating_mul(4)
+        {
+            return;
+        }
+
+        for dy in 0..height {
+            let sy = dy.saturating_mul(source_height) / height;
+            for dx in 0..width {
+                let sx = dx.saturating_mul(source_width) / width;
+                let source_index = sy
+                    .saturating_mul(source_width)
+                    .saturating_add(sx)
+                    .saturating_mul(4);
+                let red = u32::from(rgba[source_index]);
+                let green = u32::from(rgba[source_index + 1]);
+                let blue = u32::from(rgba[source_index + 2]);
+                let alpha = f32::from(rgba[source_index + 3]) / 255.0;
+                let color = (red << 16) | (green << 8) | blue;
+                self.blend_coverage(
+                    i32::try_from(x.saturating_add(dx)).unwrap_or(i32::MAX),
+                    i32::try_from(y.saturating_add(dy)).unwrap_or(i32::MAX),
+                    color,
+                    alpha,
+                );
             }
         }
     }
@@ -683,9 +725,19 @@ fn draw_locked_header(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p
     canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, p.surface);
     canvas.fill_rect(0, 0, canvas.width, 2, p.accent);
     canvas.h_line(0, layout.top_bar_height - 1, canvas.width, p.border);
-    canvas.text(17, 21, "KMJ", 2, p.accent);
-    canvas.text(85, 21, "OmniDesk", 2, p.foreground);
-    canvas.text(85, 45, "SECURE  /  ACCESSIBLE  /  EVERYWHERE", 1, p.muted);
+    if let Some(mark) = official_kmj_mark() {
+        canvas.image_rgba(
+            14,
+            12,
+            44,
+            44,
+            usize::try_from(mark.width).unwrap_or(0),
+            usize::try_from(mark.height).unwrap_or(0),
+            &mark.rgba,
+        );
+    }
+    canvas.text(70, 19, "KMJ OmniDesk", 2, p.foreground);
+    canvas.text(70, 45, "INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
 
     let search_x = canvas.width / 3;
     let search_w = canvas.width / 3;
