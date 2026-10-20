@@ -6,7 +6,7 @@
 use std::{
     io::ErrorKind,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const BINDING_REQUEST: u16 = 0x0001;
@@ -82,15 +82,29 @@ impl StunClient {
             .send_to(&request, server)
             .map_err(|error| io_error(&error))?;
 
+        let start = Instant::now();
         let mut response = [0_u8; 512];
-        let (received, source) = socket
-            .recv_from(&mut response)
-            .map_err(|error| map_receive_error(&error))?;
-        if source != server {
-            return Err(StunError::UnexpectedSource);
-        }
+        loop {
+            let (received, source) = socket
+                .recv_from(&mut response)
+                .map_err(|error| map_receive_error(&error))?;
+            if source == server {
+                // Never trust an unsolicited sender as the STUN authority.
+                // Validity and transaction ID are checked by the parser.
+                return parse_binding_response(&response[..received], transaction_id);
+            }
 
-        parse_binding_response(&response[..received], transaction_id)
+            // Stale replies from an earlier probe on this reused socket must
+            // not abort a legitimate in-flight request. A hard total deadline
+            // prevents an unrelated UDP flood from extending discovery.
+            let remaining = self.timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                return Err(StunError::Timeout);
+            }
+            socket
+                .set_read_timeout(Some(remaining))
+                .map_err(|error| io_error(&error))?;
+        }
     }
 }
 
@@ -131,11 +145,14 @@ pub fn parse_binding_response(
     let end = HEADER_BYTES
         .checked_add(body_length)
         .ok_or(StunError::InvalidMessage)?;
-    if end > message.len() {
+    // STUN length is the complete (32-bit aligned) message body length.
+    // Extra trailing data or partial attributes are never valid evidence.
+    if end != message.len() || body_length % 4 != 0 {
         return Err(StunError::InvalidMessage);
     }
 
     let mut offset = HEADER_BYTES;
+    let mut mapped = None;
     while offset + 4 <= end {
         let attribute_type = u16::from_be_bytes([message[offset], message[offset + 1]]);
         let attribute_length = usize::from(u16::from_be_bytes([
@@ -151,7 +168,13 @@ pub fn parse_binding_response(
         }
 
         if attribute_type == XOR_MAPPED_ADDRESS {
-            return parse_xor_mapped(&message[value_start..value_end], transaction_id);
+            if mapped.is_some() {
+                return Err(StunError::InvalidMessage);
+            }
+            mapped = Some(parse_xor_mapped(
+                &message[value_start..value_end],
+                transaction_id,
+            )?);
         }
 
         let padded = attribute_length
@@ -161,9 +184,24 @@ pub fn parse_binding_response(
         offset = value_start
             .checked_add(padded)
             .ok_or(StunError::InvalidMessage)?;
+        if offset > end {
+            return Err(StunError::InvalidMessage);
+        }
     }
 
-    Err(StunError::MissingMappedAddress)
+    if offset != end {
+        return Err(StunError::InvalidMessage);
+    }
+    mapped.ok_or(StunError::MissingMappedAddress)
+}
+
+const fn validated_mapped_address(ip: IpAddr, port: u16) -> Result<SocketAddr, StunError> {
+    // Mapped candidates cannot be dialed on port zero or at an unspecified
+    // address. Treat either as malformed evidence, not a reachable peer.
+    if port == 0 || ip.is_unspecified() {
+        return Err(StunError::InvalidMessage);
+    }
+    Ok(SocketAddr::new(ip, port))
 }
 
 fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr, StunError> {
@@ -183,7 +221,7 @@ fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr
                 value[6] ^ cookie[2],
                 value[7] ^ cookie[3],
             ];
-            Ok(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(octets)), port))
+            validated_mapped_address(IpAddr::V4(Ipv4Addr::from(octets)), port)
         }
         0x02 if value.len() == 20 => {
             let mut mask = [0_u8; 16];
@@ -193,7 +231,7 @@ fn parse_xor_mapped(value: &[u8], transaction_id: [u8; 12]) -> Result<SocketAddr
             for (index, octet) in octets.iter_mut().enumerate() {
                 *octet = value[4 + index] ^ mask[index];
             }
-            Ok(SocketAddr::new(IpAddr::V6(Ipv6Addr::from(octets)), port))
+            validated_mapped_address(IpAddr::V6(Ipv6Addr::from(octets)), port)
         }
         _ => Err(StunError::InvalidMessage),
     }
@@ -271,6 +309,85 @@ mod tests {
     }
 
     #[test]
+    fn malformed_attribute_after_valid_mapping_is_rejected() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        // The mapped address is valid; an additional attribute has a declared
+        // 8-byte value but no value bytes. The parser must not return early.
+        response.extend_from_slice(&[0x00, 0x24, 0x00, 0x08]);
+        response[2..4].copy_from_slice(&16_u16.to_be_bytes());
+        assert_eq!(
+            parse_binding_response(&response, id),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
+    fn duplicate_xor_mapped_attribute_is_rejected() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        let duplicate = response[HEADER_BYTES..].to_vec();
+        response.extend_from_slice(&duplicate);
+        response[2..4].copy_from_slice(&24_u16.to_be_bytes());
+        assert_eq!(
+            parse_binding_response(&response, id),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
+    fn valid_unknown_attribute_after_mapping_is_ignored() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        response.extend_from_slice(&[0x80, 0x22, 0x00, 0x00]);
+        response[2..4].copy_from_slice(&16_u16.to_be_bytes());
+        assert_eq!(parse_binding_response(&response, id), Ok(mapped));
+    }
+
+    #[test]
+    fn trailing_byte_not_counted_in_stun_header_is_rejected() {
+        let id = [9_u8; 12];
+        let mapped: SocketAddr = "203.0.113.7:54321".parse().expect("mapped");
+        let mut response = success_response(id, mapped);
+        response.push(0xff);
+        assert_eq!(
+            parse_binding_response(&response, id),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
+    fn unusable_server_reflexive_mappings_are_rejected() {
+        let transaction_id = [9_u8; 12];
+        for invalid in ["0.0.0.0:54321", "203.0.113.7:0", "0.0.0.0:0"] {
+            let mapped: SocketAddr = invalid.parse().expect("mapped");
+            let response = success_response(transaction_id, mapped);
+            assert_eq!(
+                parse_binding_response(&response, transaction_id),
+                Err(StunError::InvalidMessage),
+                "mapped candidate {invalid} must not be admitted"
+            );
+        }
+    }
+
+    #[test]
+    fn unspecified_ipv6_mapping_is_rejected() {
+        // Both AF_INET and AF_INET6 variants feed the same fail-closed
+        // mapped-address validator.
+        assert_eq!(
+            validated_mapped_address(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 34567),
+            Err(StunError::InvalidMessage)
+        );
+        assert_eq!(
+            validated_mapped_address(IpAddr::V6("2001:db8::1".parse().expect("IPv6")), 0),
+            Err(StunError::InvalidMessage)
+        );
+    }
+
+    #[test]
     fn transaction_mismatch_is_rejected() {
         let response = success_response([1_u8; 12], "203.0.113.7:54321".parse().expect("mapped"));
 
@@ -278,6 +395,42 @@ mod tests {
             parse_binding_response(&response, [2_u8; 12]),
             Err(StunError::TransactionMismatch)
         );
+    }
+
+    #[test]
+    fn unrelated_udp_datagram_does_not_abort_discovery() {
+        let server = UdpSocket::bind("127.0.0.1:0").expect("STUN server");
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("server timeout");
+        let server_address = server.local_addr().expect("server addr");
+
+        let client_socket = UdpSocket::bind("127.0.0.1:0").expect("reused client");
+        let client_address = client_socket.local_addr().expect("client addr");
+        let unrelated = UdpSocket::bind("127.0.0.1:0").expect("stale sender");
+        assert_ne!(unrelated.local_addr().expect("sender"), server_address);
+
+        // Deterministic ordering: queue a stale datagram before the STUN
+        // request is sent. A single recv_from wrongly returns UnexpectedSource.
+        unrelated
+            .send_to(&[0x55; HEADER_BYTES], client_address)
+            .expect("queue unrelated packet");
+
+        let transaction_id = [8_u8; 12];
+        let responder = thread::spawn(move || {
+            let mut request = [0_u8; HEADER_BYTES];
+            let (n, address) = server.recv_from(&mut request).expect("request");
+            assert_eq!(n, HEADER_BYTES);
+            assert_eq!(request, binding_request(transaction_id));
+            let response = success_response(transaction_id, address);
+            server.send_to(&response, address).expect("STUN reply");
+        });
+        let client = StunClient::new(Duration::from_secs(2));
+        let observed = client
+            .discover_from(&client_socket, server_address, transaction_id)
+            .expect("stale sender must not abort valid STUN");
+        assert_eq!(observed, client_address);
+        responder.join().expect("STUN responder");
     }
 
     #[test]
