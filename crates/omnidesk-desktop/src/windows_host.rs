@@ -10,13 +10,15 @@ use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle},
-    window::{Window, WindowAttributes, WindowId},
+    window::{Icon, Window, WindowAttributes, WindowId},
 };
 
 use crate::{
     AccessibilityNode, accessibility_snapshot,
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
-    action_at_point, apply_action, apply_key, presentation_for,
+    action_at_point, apply_action, apply_key,
+    brand::official_kmj_mark,
+    presentation_for,
     render::render_shell,
 };
 
@@ -168,9 +170,13 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         if self.window.is_none() {
             let presentation = presentation_for(&self.shell);
             let title = format!("{} — {}", presentation.title, presentation.status);
+            let window_icon = official_kmj_mark().and_then(|mark| {
+                Icon::from_rgba(mark.rgba.clone(), mark.width, mark.height).ok()
+            });
             let attributes = WindowAttributes::default()
                 .with_title(title)
                 .with_visible(false)
+                .with_window_icon(window_icon)
                 .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
             let window = Arc::new(
                 event_loop
