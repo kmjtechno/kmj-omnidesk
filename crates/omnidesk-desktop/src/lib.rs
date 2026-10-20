@@ -5,6 +5,7 @@ use omnidesk_core::product_shell::{
 };
 
 pub mod accesskit_tree;
+pub mod brand;
 pub mod layout;
 pub mod render;
 
