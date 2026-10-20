@@ -2,7 +2,10 @@ use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use std::sync::OnceLock;
 
-use crate::{LockedDashboardLayout, PresentationModel, ShellLayout, brand::official_kmj_mark, control_rects_for};
+use crate::{
+    LockedDashboardLayout, PresentationModel, ShellLayout, brand::official_kmj_mark,
+    control_rects_for,
+};
 
 #[must_use]
 pub const fn packed_rgb(rgb: [u8; 3]) -> u32 {
