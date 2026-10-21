@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -106,6 +107,8 @@ def load_manifest(path: Path) -> Manifest:
     missing fields would let absent data satisfy a check.
     """
     raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("manifest must be a JSON object")
 
     required = ("version", "channel", "platform", "minimum_client_version")
     missing = [key for key in required if key not in raw]
@@ -126,14 +129,27 @@ def load_manifest(path: Path) -> Manifest:
     if not isinstance(artifacts, dict):
         raise ValueError("artifacts must be an object mapping name to digest")
 
+    cleanup = raw.get("cleanup", {})
+    if not isinstance(cleanup, dict) or any(
+        not isinstance(platform, str)
+        or not isinstance(targets, list)
+        or any(not isinstance(target, str) for target in targets)
+        for platform, targets in cleanup.items()
+    ):
+        raise ValueError("cleanup must map platforms to lists of entry names")
+
+    verifier = raw.get("signature_verified_by")
+    if verifier is not None and not isinstance(verifier, str):
+        raise ValueError("signature_verified_by must be a string when present")
+
     return Manifest(
         version=version,
         channel=raw["channel"],
         platform=raw["platform"],
         minimum_client_version=minimum,
         artifacts=artifacts,
-        signature_verified_by=raw.get("signature_verified_by"),
-        cleanup=raw.get("cleanup", {}),
+        signature_verified_by=verifier,
+        cleanup=cleanup,
     )
 
 
@@ -181,16 +197,59 @@ def check_platform(manifest: Manifest, client_platform: str) -> list[Violation]:
 
 
 def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
-    """U4: every listed artifact exists and matches its recorded digest."""
+    """U4: require real, explicitly named artifacts with verified SHA-256 digests.
+
+    Artifact names are single safe filenames, not paths. Refusing absolute paths,
+    traversal, separators, and symlinks prevents a manifest from using files
+    outside the selected artifact directory as supposed release evidence.
+    """
     violations: list[Violation] = []
-    for name, expected in sorted(manifest.artifacts.items()):
+    if not manifest.artifacts:
+        return [Violation("U4", "release manifest lists no artifacts")]
+
+    for name, expected in sorted(
+        manifest.artifacts.items(), key=lambda item: str(item[0])
+    ):
+        if (
+            not isinstance(name, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name)
+            or name.endswith(".")
+        ):
+            violations.append(
+                Violation("U4", f"unsafe artifact filename {name!r}")
+            )
+            continue
+        if not isinstance(expected, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", expected
+        ):
+            violations.append(
+                Violation("U4", f"{name} has an invalid SHA-256 digest")
+            )
+            continue
+
         artifact = artifacts_dir / name
+        if artifact.is_symlink():
+            violations.append(
+                Violation("U4", f"{name} is a symbolic link, not a release artifact")
+            )
+            continue
         if not artifact.is_file():
             violations.append(
                 Violation("U4", f"{name} is listed in the manifest but is not present")
             )
             continue
-        actual = hashlib.sha256(artifact.read_bytes()).hexdigest()
+
+        digest = hashlib.sha256()
+        try:
+            with artifact.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError as error:
+            violations.append(
+                Violation("U4", f"{name} cannot be read: {error}")
+            )
+            continue
+        actual = digest.hexdigest()
         if actual != expected:
             violations.append(
                 Violation(
@@ -209,7 +268,7 @@ def check_signature_declared(manifest: Manifest) -> list[Violation]:
     the manifest to name who did verify the signature. A manifest that cannot
     say is rejected, so the gate cannot pass on unsigned material by accident.
     """
-    if not manifest.signature_verified_by:
+    if not isinstance(manifest.signature_verified_by, str) or not manifest.signature_verified_by.strip():
         return [
             Violation(
                 "U1",
