@@ -26,6 +26,7 @@ pub mod pipeline;
 pub mod product_shell;
 pub mod reconnect;
 pub mod relay;
+pub mod renewal_proof;
 pub mod session;
 pub mod stun;
 pub mod transport;

@@ -22,6 +22,19 @@ Every accepted artifact binds at least the protocol/contract version, unique tok
 
 Verification order is strict: schema → trusted key → signature → version/product → time → device binding → sequence/replay → revocation → capability/limit enforcement.
 
+## Renewal proof of possession
+
+Lease renewal uses the domain-separated proof scheme `KMJ-OMNIDESK-RENEW-v1`.
+The device signs a canonical length-prefixed message containing the activation
+ID, current entitlement JTI, current sequence, server challenge, fresh client
+nonce, and client version. The current sequence is encoded as its decimal
+ASCII representation before length-prefixing.
+
+This binds the renewal signature to one activation and one server challenge and
+prevents an activation proof or an older renewal signature from being reused as
+a valid renewal proof. The deterministic cross-language vector lives at
+`protocol/licensing/test-vectors/renewal-proof-v1.json`.
+
 ## Renewal and offline operation
 
 A short-lived renewable lease is cached as the last-known-good authorization. Renewal proves possession of the activated device key and advances sequence/nonce. A central outage does not instantly terminate a valid session authorization: the state machine is:
