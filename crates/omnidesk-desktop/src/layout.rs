@@ -163,7 +163,10 @@ mod tests {
     fn native_window_placement_keeps_its_monitor_origin() {
         assert_eq!(initial_window_origin(0, 0), (8, 8));
         assert_eq!(initial_window_origin(-1920, 0), (-1912, 8));
-        assert_eq!(initial_window_origin(i32::MAX, i32::MAX), (i32::MAX, i32::MAX));
+        assert_eq!(
+            initial_window_origin(i32::MAX, i32::MAX),
+            (i32::MAX, i32::MAX)
+        );
     }
 
     #[test]
