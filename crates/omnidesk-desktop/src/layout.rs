@@ -173,8 +173,8 @@ mod tests {
         );
         let (width, height) = initial_window_inner_size(Some((2560, 1440, 2.0)));
         assert_eq!((width, height), (1252.0, 678.0));
-        assert!(width * 2.0 + 56.0 <= 2560.0);
-        assert!(height * 2.0 + 84.0 <= 1440.0);
+        assert!(width.mul_add(2.0, 56.0) <= 2560.0);
+        assert!(height.mul_add(2.0, 84.0) <= 1440.0);
     }
 
     #[test]
