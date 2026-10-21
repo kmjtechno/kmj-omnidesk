@@ -14,7 +14,7 @@ Production entitlement signatures use Ed25519. The private signing key is isolat
 
 ## Activation
 
-On first install OmniDesk creates a local asymmetric device keypair. Activation binds the commercial entitlement to an `activation_id`, device public-key fingerprint, and installation identity. Activation is idempotent and Main Platform enforces device limits, duplicate-activation policy, replay protection, and suspicious-activation rate controls.
+On first install OmniDesk creates a local asymmetric device keypair. Activation binds the commercial entitlement to an `activation_id`, device public-key fingerprint, and installation identity. The first activation must also prove possession of that device key: the client signs the domain-separated `KMJ-OMNIDESK-ACTIVATE-v1` message containing the idempotency key and every security-relevant activation field. Main Platform verifies that exact signature before creating or replaying a binding. Activation remains idempotent and Main Platform enforces device limits, duplicate-activation policy, replay protection, and suspicious-activation rate controls.
 
 ## Signed entitlement
 

@@ -141,6 +141,26 @@ activation:
     - platform
     - architecture
     - client_nonce
+    - proof_scheme
+    - device_signature
+  proof_of_possession:
+    scheme: KMJ-OMNIDESK-ACTIVATE-v1
+    algorithm: Ed25519
+    encoding: base64url_without_padding
+    canonical_message:
+      framing: domain_separator_then_u32be_length_prefixed_utf8_fields
+      fields:
+        - idempotency_key
+        - license_or_entitlement_reference
+        - device_public_key
+        - device_public_key_fingerprint
+        - installation_id
+        - client_version
+        - protocol_version
+        - platform
+        - architecture
+        - client_nonce
+    server_rule: supplied_public_key_must_verify_device_signature_over_exact_request
   response:
     - activation_id
     - signed_entitlement
@@ -154,6 +174,8 @@ activation:
     - plan_device_limit
     - duplicate_activation_policy
     - device_binding_consistency
+    - ed25519_device_proof_of_possession
+    - idempotency_key_bound_into_device_proof
     - replay_protection
     - suspicious_activation_rate
   errors:

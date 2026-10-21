@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod activation_proof;
 pub mod adaptive_session;
 pub mod authentication;
 pub mod collaboration;
