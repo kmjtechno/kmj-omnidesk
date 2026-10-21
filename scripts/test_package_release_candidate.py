@@ -124,6 +124,35 @@ class ReleaseCandidatePackagingTests(unittest.TestCase):
 
 
 
+    def test_nsis_customer_installer_is_interactive_with_silent_ci_fallback(self):
+        installer = (
+            Path(__file__).resolve().parents[1]
+            / "packaging"
+            / "windows"
+            / "KMJ-OmniDesk.nsi"
+        ).read_text(encoding="utf-8")
+        self.assertIn('!include "MUI2.nsh"', installer)
+        self.assertIn("SilentInstall normal", installer)
+        self.assertIn("SilentUnInstall normal", installer)
+        self.assertIn("!insertmacro MUI_PAGE_WELCOME", installer)
+        self.assertIn("!insertmacro MUI_PAGE_DIRECTORY", installer)
+        self.assertIn("!insertmacro MUI_PAGE_INSTFILES", installer)
+        self.assertIn("!insertmacro MUI_UNPAGE_CONFIRM", installer)
+        self.assertIn("!insertmacro MUI_UNPAGE_INSTFILES", installer)
+        self.assertIn('!define APP_VERSION "0.0.1"', installer)
+        self.assertIn('"DisplayVersion" "${APP_VERSION}"', installer)
+        self.assertIn('CreateShortCut "$SMPROGRAMS\\KMJ OmniDesk.lnk"', installer)
+        self.assertIn('Delete "$SMPROGRAMS\\KMJ OmniDesk.lnk"', installer)
+        # Current Windows CI deliberately exercises /S install *and* uninstall.
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "ci.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Start-Process -FilePath $outputExe -ArgumentList '/S'", workflow)
+        self.assertIn("Start-Process -FilePath $uninstaller -ArgumentList '/S'", workflow)
+
     def test_manual_release_workflow_treats_untrusted_inputs_as_data(self):
         workflow = (
             Path(__file__).resolve().parents[1]
