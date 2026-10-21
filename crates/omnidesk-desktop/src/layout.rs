@@ -144,9 +144,27 @@ pub fn initial_window_inner_size(monitor: Option<(u32, u32, f64)>) -> (f64, f64)
     )
 }
 
+/// Place a new native window just inside its monitor, not at an arbitrary
+/// OS-chosen offset. A window can be smaller than the display yet still
+/// extend beyond its right and bottom boundaries after default placement.
+#[must_use]
+pub const fn initial_window_origin(monitor_left: i32, monitor_top: i32) -> (i32, i32) {
+    (
+        monitor_left.saturating_add(8),
+        monitor_top.saturating_add(8),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_window_placement_keeps_its_monitor_origin() {
+        assert_eq!(initial_window_origin(0, 0), (8, 8));
+        assert_eq!(initial_window_origin(-1920, 0), (-1912, 8));
+        assert_eq!(initial_window_origin(i32::MAX, i32::MAX), (i32::MAX, i32::MAX));
+    }
 
     #[test]
     fn initial_window_fits_a_small_physical_monitor() {
