@@ -120,7 +120,7 @@ impl ShellLayout {
 /// Initial desktop size fitted to the available physical monitor.
 ///
 /// Winit's initial size is in logical pixels. A 1280 logical-pixel window
-/// does not fit on a 1024-pixel hosted display, and PrintWindow can then
+/// does not fit on a 1024-pixel hosted display, and `PrintWindow` can then
 /// capture an unpainted right-hand region rather than the inspector. Leave
 /// physical room for non-client borders, a taskbar, and OS window placement.
 /// This affects only the initial window size; normal user resizing remains
@@ -156,8 +156,8 @@ mod tests {
         assert!(height + 84.0 <= 768.0);
         // A small monitor uses the compact fallback rather than clipping the
         // locked four-column dashboard beyond the visible screen.
-        assert!(LockedDashboardLayout::for_window(width as usize, height as usize).is_none());
-        assert!(ShellLayout::for_window(width as usize, height as usize).is_some());
+        assert!(LockedDashboardLayout::for_window(968, 684).is_none());
+        assert!(ShellLayout::for_window(968, 684).is_some());
     }
 
     #[test]
