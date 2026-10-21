@@ -1,7 +1,7 @@
 param([string]$BinaryPath='target/release/omnidesk-desktop.exe',[string]$OutputDirectory='artifacts/native-ui')
 $ErrorActionPreference='Stop'
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
-$ev=[ordered]@{schema_version=1;evidence_type='real_windows_native_window';process_started=$false;window_found=$false;title_verified=$false;screenshot_state='UNVERIFIED';sampled_colors=0;visual_review_required=$true;display_width=$null;display_height=$null;right_edge_white_fraction=$null;reason=$null}
+$ev=[ordered]@{schema_version=1;evidence_type='real_windows_native_window';process_started=$false;window_found=$false;title_verified=$false;screenshot_state='UNVERIFIED';sampled_colors=0;visual_review_required=$true;display_width=$null;display_height=$null;right_edge_white_fraction=$null;bottom_edge_white_fraction=$null;reason=$null}
 $p=$null
 try {
   $p=Start-Process -FilePath (Resolve-Path $BinaryPath).Path -PassThru
@@ -63,11 +63,24 @@ public class KmjCapture {
       }
     }
     $ev.right_edge_white_fraction=if($rightSamples -gt 0){[Math]::Round($rightWhite/$rightSamples,3)}else{$null}
+    $bottomWhite=0
+    $bottomSamples=0
+    for($y=[int]($h*0.85);$y -lt ($h-20);$y += [Math]::Max(1,[int]($h/65))){
+      for($x=[int]($w*0.2);$x -lt [int]($w*0.8);$x += [Math]::Max(1,[int]($w/35))){
+        $pixel=$bmp.GetPixel($x,$y)
+        $bottomSamples++
+        if($pixel.R -ge 245 -and $pixel.G -ge 245 -and $pixel.B -ge 245){$bottomWhite++}
+      }
+    }
+    $ev.bottom_edge_white_fraction=if($bottomSamples -gt 0){[Math]::Round($bottomWhite/$bottomSamples,3)}else{$null}
     $bmp.Save((Join-Path $OutputDirectory 'native-window.png'),[System.Drawing.Imaging.ImageFormat]::Png)
     if($colors.Count -lt 5){throw 'Capture is blank/flat'}
-    if($null -ne $ev.right_edge_white_fraction -and $ev.right_edge_white_fraction -gt 0.80){
+    if(
+      ($null -ne $ev.right_edge_white_fraction -and $ev.right_edge_white_fraction -gt 0.20) -or
+      ($null -ne $ev.bottom_edge_white_fraction -and $ev.bottom_edge_white_fraction -gt 0.20)
+    ){
       $ev.screenshot_state='PARTIAL_CAPTURE'
-      throw 'Native capture has an unpainted right interior; do not certify visual QA'
+      throw 'Native capture has an unpainted right or bottom interior; do not certify visual QA'
     }
     $ev.screenshot_state='CAPTURED_FROM_RUNNING_APP'
   } finally { $bmp.Dispose() }
