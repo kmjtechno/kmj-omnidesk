@@ -27,8 +27,6 @@ SilentInstall normal
 SilentUnInstall normal
 ShowInstDetails show
 ShowUninstDetails show
-SetShellVarContext all
-
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "KMJ OmniDesk Setup"
 !define MUI_WELCOMEPAGE_TEXT "Install KMJ OmniDesk remote access on this device. Internet connectivity and commercial activation require separately verified services."
@@ -41,6 +39,7 @@ SetShellVarContext all
 !insertmacro MUI_LANGUAGE "English"
 
 Section "KMJ OmniDesk" SEC_MAIN
+  SetShellVarContext all
   SetOutPath "$INSTDIR"
   File /oname=omnidesk-desktop.exe "${SOURCE_EXE}"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -55,6 +54,7 @@ Section "KMJ OmniDesk" SEC_MAIN
 SectionEnd
 
 Section "Uninstall"
+  SetShellVarContext all
   Delete "$SMPROGRAMS\KMJ OmniDesk.lnk"
   Delete "$INSTDIR\omnidesk-desktop.exe"
   Delete "$INSTDIR\Uninstall.exe"
