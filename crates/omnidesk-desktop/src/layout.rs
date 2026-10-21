@@ -110,17 +110,10 @@ impl ShellLayout {
     /// How many device rows fit in the content column without scrolling.
     #[must_use]
     pub const fn visible_rows(&self) -> usize {
-        // `first_row_y - top_bar_height` is the header block under the top
-        // bar; subtracting it from `content_height` leaves the space below
-        // the header, and `top_bar_height` is added back because
-        // `first_row_y` is measured from the window origin while
-        // `content_height` is measured from below the top bar.
-        let header = 246;
-        let below_rows = self
-            .content_height
-            .saturating_sub(header)
-            .saturating_sub(self.footer_height);
-        below_rows / self.row_height
+        // content_height already excludes the footer. Subtracting it again
+        // would hide a device row even when that row fully fits above it.
+        let header = self.first_row_y().saturating_sub(self.top_bar_height);
+        self.content_height.saturating_sub(header) / self.row_height
     }
 }
 
@@ -157,6 +150,36 @@ mod tests {
         let layout = ShellLayout::for_window(700, 800).expect("laid out");
         assert!(!layout.shows_panel());
         assert!(layout.content_width >= 200);
+    }
+
+    #[test]
+    fn compact_shell_shows_every_full_row_above_the_footer() {
+        let layout = ShellLayout::for_window(700, 800).expect("laid out");
+        assert_eq!(layout.first_row_y(), 314);
+        // 800 - 42 (footer) - 314 (first row) = 444 pixels: seven full
+        // 58-pixel rows fit. The old double-footer subtraction showed six.
+        assert_eq!(layout.visible_rows(), 7);
+        assert_eq!(
+            layout.first_row_y() + layout.visible_rows() * layout.row_height,
+            720
+        );
+    }
+
+    #[test]
+    fn compact_visible_row_count_is_maximal_without_footer_overlap() {
+        for height in [220, 300, 371, 372, 400, 600, 800, 1080] {
+            let layout = ShellLayout::for_window(700, height).expect("laid out");
+            let content_bottom = layout.top_bar_height + layout.content_height;
+            let first = layout.first_row_y();
+            let count = layout.visible_rows();
+            if content_bottom < first {
+                assert_eq!(count, 0);
+                continue;
+            }
+            let rows_bottom = first + count * layout.row_height;
+            assert!(rows_bottom <= content_bottom);
+            assert!(content_bottom - rows_bottom < layout.row_height);
+        }
     }
 
     #[test]
