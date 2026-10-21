@@ -160,6 +160,59 @@ class TestArtifacts(unittest.TestCase):
             [],
         )
 
+    def test_no_artifacts_is_not_a_valid_release(self):
+        violations = check_artifacts(good_manifest(), self.artifacts)
+        self.assertEqual(rules(violations), {"U4"})
+        self.assertIn("no artifacts", str(violations[0]))
+
+    def test_unsafe_paths_are_refused_even_when_the_external_file_matches(self):
+        outside = self.artifacts.parent / (self.artifacts.name + "-outside.exe")
+        outside.write_bytes(PAYLOAD)
+        self.addCleanup(outside.unlink, missing_ok=True)
+        digest = hashlib.sha256(PAYLOAD).hexdigest()
+        for name in (
+            "../" + outside.name,
+            str(outside),
+            r"..\escape.exe",
+            r"C:\escape.exe",
+            "nested/app.exe",
+            "app.exe:alternate",
+            ".hidden.exe",
+            "trailing.",
+        ):
+            with self.subTest(name=name):
+                violations = check_artifacts(
+                    good_manifest(artifacts={name: digest}), self.artifacts
+                )
+                self.assertEqual(rules(violations), {"U4"})
+                self.assertIn("unsafe artifact filename", str(violations[0]))
+
+    def test_symlink_to_external_payload_is_refused(self):
+        external = self.artifacts.parent / (self.artifacts.name + "-linked.exe")
+        external.write_bytes(PAYLOAD)
+        self.addCleanup(external.unlink, missing_ok=True)
+        link = self.artifacts / "app.exe"
+        try:
+            link.symlink_to(external)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlink creation is not supported by this environment")
+        violations = check_artifacts(
+            good_manifest(artifacts={"app.exe": hashlib.sha256(PAYLOAD).hexdigest()}),
+            self.artifacts,
+        )
+        self.assertEqual(rules(violations), {"U4"})
+        self.assertIn("symbolic link", str(violations[0]))
+
+    def test_malformed_digest_is_refused(self):
+        self.write("app.exe")
+        for digest in ("", "abc", "F" * 64, 123, None):
+            with self.subTest(digest=digest):
+                violations = check_artifacts(
+                    good_manifest(artifacts={"app.exe": digest}), self.artifacts
+                )
+                self.assertEqual(rules(violations), {"U4"})
+                self.assertIn("invalid SHA-256", str(violations[0]))
+
     def test_a_missing_artifact_is_refused(self):
         violations = check_artifacts(
             good_manifest(artifacts={"app.exe": "0" * 64}), self.artifacts
@@ -290,6 +343,37 @@ class TestLoadManifest(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_manifest(path)
 
+    def test_a_top_level_array_is_rejected_cleanly(self):
+        path = self.dir / "manifest.json"
+        path.write_text("[]", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "JSON object"):
+            load_manifest(path)
+
+    def test_invalid_cleanup_shape_is_rejected_cleanly(self):
+        base = {
+            "version": 1,
+            "channel": "stable",
+            "platform": "linux-x86_64",
+            "minimum_client_version": 1,
+        }
+        for bad in (["task"], {"linux-x86_64": "task"}, {"linux-x86_64": [9]}):
+            with self.subTest(cleanup=bad):
+                with self.assertRaisesRegex(ValueError, "cleanup"):
+                    load_manifest(self.write({**base, "cleanup": bad}))
+
+    def test_nonstring_verifier_is_rejected_cleanly(self):
+        path = self.write(
+            {
+                "version": 1,
+                "channel": "stable",
+                "platform": "linux-x86_64",
+                "minimum_client_version": 1,
+                "signature_verified_by": ["self"],
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "signature_verified_by"):
+            load_manifest(path)
+
     def test_non_object_artifacts_are_rejected(self):
         path = self.write(
             {
@@ -313,9 +397,13 @@ class TestVerifyComposition(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
 
     def test_a_good_manifest_passes(self):
+        (self.artifacts / "app.exe").write_bytes(PAYLOAD)
+        valid = good_manifest(
+            artifacts={"app.exe": hashlib.sha256(PAYLOAD).hexdigest()}
+        )
         self.assertEqual(
             verify(
-                good_manifest(),
+                valid,
                 client_version=4,
                 client_channel="stable",
                 client_platform="windows-x86_64",
