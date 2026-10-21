@@ -117,9 +117,69 @@ impl ShellLayout {
     }
 }
 
+/// Initial desktop size fitted to the available physical monitor.
+///
+/// Winit's initial size is in logical pixels. A 1280 logical-pixel window
+/// does not fit on a 1024-pixel hosted display, and PrintWindow can then
+/// capture an unpainted right-hand region rather than the inspector. Leave
+/// physical room for non-client borders, a taskbar, and OS window placement.
+/// This affects only the initial window size; normal user resizing remains
+/// available and the narrow shell is the explicit responsive fallback.
+#[must_use]
+pub fn initial_window_inner_size(monitor: Option<(u32, u32, f64)>) -> (f64, f64) {
+    const PREFERRED_WIDTH: f64 = 1280.0;
+    const PREFERRED_HEIGHT: f64 = 720.0;
+    let Some((physical_width, physical_height, scale_factor)) = monitor else {
+        return (PREFERRED_WIDTH, PREFERRED_HEIGHT);
+    };
+    if !scale_factor.is_finite() || scale_factor <= 0.0 {
+        return (PREFERRED_WIDTH, PREFERRED_HEIGHT);
+    }
+
+    let usable_width = f64::from(physical_width.saturating_sub(56));
+    let usable_height = f64::from(physical_height.saturating_sub(84));
+    (
+        (usable_width / scale_factor).clamp(360.0, PREFERRED_WIDTH),
+        (usable_height / scale_factor).clamp(220.0, PREFERRED_HEIGHT),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn initial_window_fits_a_small_physical_monitor() {
+        let (width, height) = initial_window_inner_size(Some((1024, 768, 1.0)));
+        assert_eq!((width, height), (968.0, 684.0));
+        assert!(width + 56.0 <= 1024.0);
+        assert!(height + 84.0 <= 768.0);
+        // A small monitor uses the compact fallback rather than clipping the
+        // locked four-column dashboard beyond the visible screen.
+        assert!(LockedDashboardLayout::for_window(width as usize, height as usize).is_none());
+        assert!(ShellLayout::for_window(width as usize, height as usize).is_some());
+    }
+
+    #[test]
+    fn initial_window_respects_dpi_and_preferred_desktop_size() {
+        assert_eq!(initial_window_inner_size(None), (1280.0, 720.0));
+        assert_eq!(initial_window_inner_size(Some((1920, 1080, 1.0))), (1280.0, 720.0));
+        assert_eq!(initial_window_inner_size(Some((1024, 768, 1.25))), (774.4, 547.2));
+        let (width, height) = initial_window_inner_size(Some((2560, 1440, 2.0)));
+        assert_eq!((width, height), (1252.0, 678.0));
+        assert!(width * 2.0 + 56.0 <= 2560.0);
+        assert!(height * 2.0 + 84.0 <= 1440.0);
+    }
+
+    #[test]
+    fn invalid_monitor_scale_does_not_break_native_startup() {
+        for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(
+                initial_window_inner_size(Some((1024, 768, scale))),
+                (1280.0, 720.0)
+            );
+        }
+    }
 
     #[test]
     fn refuses_to_lay_out_a_window_too_small_to_read() {
