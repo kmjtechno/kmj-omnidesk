@@ -17,7 +17,10 @@ jobs:
   rust:
     name: Rust quality gates
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Mutation verification, nightly fuzz smoke and release-mode evidence are
+    # all mandatory. Ten minutes cancelled a healthy run during M7 evidence;
+    # allow those gates to finish rather than silently dropping any of them.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
