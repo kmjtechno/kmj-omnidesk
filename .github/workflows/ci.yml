@@ -354,6 +354,20 @@ jobs:
             throw "CI installer must remain explicitly unsigned, got $($signature.Status)"
           }
 
+          # The protected-release verifier must fail closed on this unsigned
+          # CI candidate even when the artifact SHA-256 is otherwise correct.
+          # Execute as a child PowerShell so an expected nonzero exit cannot
+          # abort the parent CI job before the negative assertion.
+          $unsignedSha = (Get-FileHash $outputExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $PSNativeCommandUseErrorActionPreference = $false
+          & pwsh -NoProfile -File scripts/windows_release_signing_gate.ps1 `
+            -InstallerPath $outputExe `
+            -ExpectedSha256 $unsignedSha `
+            -ExpectedSignerThumbprint ('0' * 40) *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'unsigned installer passed protected production signature gate' }
+          $global:LASTEXITCODE = 0
+          Write-Host 'UNSIGNED_INSTALLER_RELEASE_GATE_REFUSAL=PASS'
+
           $install = Start-Process -FilePath $outputExe -ArgumentList '/S' -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "NSIS install failed with exit code $($install.ExitCode)" }
 
