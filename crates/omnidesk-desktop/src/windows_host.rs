@@ -18,6 +18,7 @@ use crate::{
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
+    layout::{initial_window_inner_size, initial_window_origin},
     presentation_for,
     render::render_shell,
 };
@@ -172,11 +173,29 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
             let title = format!("{} — {}", presentation.title, presentation.status);
             let window_icon = official_kmj_mark()
                 .and_then(|mark| Icon::from_rgba(mark.rgba.clone(), mark.width, mark.height).ok());
+            let monitor = event_loop
+                .primary_monitor()
+                .or_else(|| event_loop.available_monitors().next());
+            let initial_size = monitor.as_ref().map(|monitor| {
+                let size = monitor.size();
+                (size.width, size.height, monitor.scale_factor())
+            });
+            let (inner_width, inner_height) = initial_window_inner_size(initial_size);
             let attributes = WindowAttributes::default()
                 .with_title(title)
                 .with_visible(false)
                 .with_window_icon(window_icon)
-                .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
+                .with_inner_size(winit::dpi::LogicalSize::new(inner_width, inner_height));
+            // Physical initial placement is as important as inner-size
+            // fitting: hosted desktops can default to (156,156) on a
+            // 1024x768 display and crop an otherwise well-sized window.
+            let attributes = if let Some(monitor) = monitor {
+                let position = monitor.position();
+                let (left, top) = initial_window_origin(position.x, position.y);
+                attributes.with_position(winit::dpi::PhysicalPosition::new(left, top))
+            } else {
+                attributes
+            };
             let window = Arc::new(
                 event_loop
                     .create_window(attributes)
