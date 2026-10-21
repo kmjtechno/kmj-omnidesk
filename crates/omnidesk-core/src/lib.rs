@@ -25,6 +25,7 @@ pub mod nat_traversal;
 pub mod pipeline;
 pub mod product_shell;
 pub mod reconnect;
+pub mod renewal_proof;
 pub mod relay;
 pub mod session;
 pub mod stun;
