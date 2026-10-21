@@ -147,13 +147,18 @@ components:
     RenewLeaseRequest:
       type: object
       additionalProperties: false
-      required: [activation_id,current_jti,current_sequence,server_challenge,device_signature,client_nonce,client_version]
+      required: [activation_id,current_jti,current_sequence,server_challenge,proof_scheme,device_signature,client_nonce,client_version]
       properties:
         activation_id: {type: string, format: uuid}
         current_jti: {type: string, minLength: 16, maxLength: 128}
         current_sequence: {type: integer, minimum: 1}
         server_challenge: {type: string, minLength: 16, maxLength: 512}
-        device_signature: {type: string, minLength: 32, maxLength: 4096}
+        proof_scheme: {const: KMJ-OMNIDESK-RENEW-v1}
+        device_signature:
+          type: string
+          minLength: 86
+          maxLength: 86
+          pattern: "^[A-Za-z0-9_-]{86}$"
         client_nonce: {type: string, minLength: 16, maxLength: 256}
         client_version: {type: string, minLength: 1, maxLength: 64}
     RenewLeaseResponse:
