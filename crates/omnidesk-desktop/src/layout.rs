@@ -163,8 +163,14 @@ mod tests {
     #[test]
     fn initial_window_respects_dpi_and_preferred_desktop_size() {
         assert_eq!(initial_window_inner_size(None), (1280.0, 720.0));
-        assert_eq!(initial_window_inner_size(Some((1920, 1080, 1.0))), (1280.0, 720.0));
-        assert_eq!(initial_window_inner_size(Some((1024, 768, 1.25))), (774.4, 547.2));
+        assert_eq!(
+            initial_window_inner_size(Some((1920, 1080, 1.0))),
+            (1280.0, 720.0)
+        );
+        assert_eq!(
+            initial_window_inner_size(Some((1024, 768, 1.25))),
+            (774.4, 547.2)
+        );
         let (width, height) = initial_window_inner_size(Some((2560, 1440, 2.0)));
         assert_eq!((width, height), (1252.0, 678.0));
         assert!(width * 2.0 + 56.0 <= 2560.0);
