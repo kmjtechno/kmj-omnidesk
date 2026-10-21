@@ -125,6 +125,23 @@ mod tests {
     }
 
     #[test]
+    fn golden_vector_is_stable_for_cross_language_verifiers() {
+        let key = SigningKey::from_bytes(&[17_u8; 32]);
+        let public = URL_SAFE_NO_PAD.encode(key.verifying_key().to_bytes());
+        let fingerprint = device_public_key_fingerprint(&key);
+        let proof = input(&public, &fingerprint);
+
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(activation_proof_message(proof)),
+            "S01KLU9NTklERVNLLUFDVElWQVRFLXYxAAAAFWlkZW0tMDEyMzQ1Njc4OWFiY2RlZgAAAA9lbnRpdGxlbWVudC0xMjMAAAArMEVxeU1uUXJ0S3M2RTJpOVJoWGs1dEFpU3JjYUFXdXZoU0NqTXNsM2h6YwAAAEdzaGEyNTY6MTBiYTY4MmM4YWQxMzUxMzk3MWU4YjU2ODgxYWFiOGJkNzAyYmI4MDc3OTZlY2E4MTkzMmM3MzVhOTRkNmU2ZAAAABBpbnN0YWxsLTEyMzQ1Njc4AAAABTAuMC4xAAAAB0tTTFAtdjEAAAAHd2luZG93cwAAAAZ4ODZfNjQAAAAWbm9uY2UtMDEyMzQ1Njc4OWFiY2RlZg"
+        );
+        assert_eq!(
+            sign_activation_proof(&key, proof),
+            "rWbwyRQJupT44i7OcuSWqJnpQ0Ff6rXhZOw_OXSY_y8mAWnwpZq40uDIsHu1aUrvl461jvsuNJQqLhx9n4hYBg"
+        );
+    }
+
+    #[test]
     fn idempotency_key_is_cryptographically_bound() {
         let key = SigningKey::from_bytes(&[18_u8; 32]);
         let public = URL_SAFE_NO_PAD.encode(key.verifying_key().to_bytes());
