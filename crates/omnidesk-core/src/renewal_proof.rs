@@ -32,10 +32,11 @@ fn push_field(output: &mut Vec<u8>, value: &str) {
 pub fn renewal_proof_message(input: RenewalProofInput<'_>) -> Vec<u8> {
     let mut output = Vec::with_capacity(256);
     output.extend_from_slice(RENEWAL_PROOF_DOMAIN);
+    let sequence = input.current_sequence.to_string();
     for value in [
         input.activation_id,
         input.current_jti,
-        &input.current_sequence.to_string(),
+        sequence.as_str(),
         input.server_challenge,
         input.client_nonce,
         input.client_version,
