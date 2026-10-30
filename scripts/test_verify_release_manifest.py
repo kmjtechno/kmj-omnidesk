@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -264,6 +266,32 @@ class TestArtifacts(unittest.TestCase):
         self.assertEqual(rules(violations), {"U4"})
         self.assertIn("hard links", str(violations[0]))
         self.assertEqual(external.read_bytes(), PAYLOAD)
+
+    def test_same_bytes_replacement_between_inspection_and_open_is_refused(self):
+        # Matching content is not enough: a replaced inode must not attest
+        # the release artifact that was inspected before opening.
+        digest = self.write("app.exe")
+        artifact = self.artifacts / "app.exe"
+        replacement = self.artifacts / "replacement.tmp"
+        replacement.write_bytes(PAYLOAD)
+        original_open = os.open
+        swapped = False
+
+        def replace_before_open(path, flags, *args, **kwargs):
+            nonlocal swapped
+            if Path(path) == artifact and not swapped:
+                swapped = True
+                os.replace(replacement, artifact)
+            return original_open(path, flags, *args, **kwargs)
+
+        with patch("verify_release_manifest.os.open", side_effect=replace_before_open):
+            violations = check_artifacts(
+                good_manifest(artifacts={"app.exe": digest}), self.artifacts
+            )
+        self.assertTrue(swapped)
+        self.assertEqual(rules(violations), {"U4"})
+        self.assertIn("changed between inspection and open", str(violations[0]))
+        self.assertEqual(artifact.read_bytes(), PAYLOAD)
 
     def test_malformed_digest_is_refused(self):
         self.write("app.exe")
