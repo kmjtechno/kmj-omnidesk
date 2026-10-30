@@ -611,6 +611,18 @@ class TestLedgerPathSafety(Fixture):
         self.assertIn("symlinked evidence ledger", str(refusal.exception))
         self.assertEqual(external.read_bytes(), before)
 
+    def test_read_ledger_refuses_non_object_json_lines(self):
+        # Valid JSON can still be an invalid ledger entry. Refuse it with
+        # the exact line number instead of crashing in a later .get() call.
+        ledger = self.root / "ledger.jsonl"
+        for invalid in ("[]", "null", '"string"', "42"):
+            with self.subTest(invalid=invalid):
+                ledger.write_text('{"run_id":"M5-VALID-R001"}\n' + invalid + "\n", encoding="utf-8")
+                with self.assertRaises(SystemExit) as refusal:
+                    m5.read_ledger(self.root)
+                self.assertIn(":2:", str(refusal.exception))
+                self.assertIn("ledger entry must be a JSON object", str(refusal.exception))
+
     def test_record_rejects_symlinked_ledger_before_copy(self):
         ledger = self.root / "ledger.jsonl"
         external = Path(self.directory.name) / "external-ledger.jsonl"
