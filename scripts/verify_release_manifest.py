@@ -311,6 +311,13 @@ def check_uninstall_cleanup(manifest: Manifest) -> list[Violation]:
             )
         ]
 
+    # Cleanup for another architecture cannot prove that this build's updater
+    # and autostart entries are removed. The manifest platform must be covered.
+    if not isinstance(manifest.platform, str) or manifest.platform not in manifest.cleanup:
+        violations.append(
+            Violation("U8", f"cleanup omits manifest platform {manifest.platform!r}")
+        )
+
     for platform, targets in sorted(manifest.cleanup.items()):
         if platform not in PLATFORMS:
             violations.append(
