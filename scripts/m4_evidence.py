@@ -77,6 +77,14 @@ def command_artifact(args: argparse.Namespace) -> None:
         fail(f"unsupported artifact kind: {args.kind}")
     root = Path(args.root)
     resolved, relative = safe_relative(root, Path(args.file))
+    # A run-scoped artifact must actually belong to the named run. Merely
+    # hashing a file elsewhere in the package lets a manifest claim that an
+    # unrelated run supplied the observation. Global artifacts use run_id=null
+    # in the manifest and are not produced by this run-scoped subcommand.
+    if len(relative.parts) < 3 or relative.parts[:2] != ("runs", run_id):
+        fail("artifact is not inside its declared run directory")
+    if not resolved.is_file():
+        fail("artifact must be a regular file")
     checksum, size = sha256_file(resolved)
     created_at = args.created_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     entry = {
