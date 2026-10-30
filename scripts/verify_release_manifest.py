@@ -99,6 +99,16 @@ class Manifest:
     cleanup: dict[str, list[str]] = field(default_factory=dict)
 
 
+def _reject_duplicate_manifest_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Refuse ambiguous JSON keys, including inside artifacts and cleanup."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"manifest contains duplicate JSON key {key!r}")
+        result[key] = value
+    return result
+
+
 def load_manifest(path: Path) -> Manifest:
     """Parse a release manifest.
 
@@ -106,7 +116,10 @@ def load_manifest(path: Path) -> Manifest:
     is a hard failure, never a partial load: a manifest that parses with
     missing fields would let absent data satisfy a check.
     """
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw = json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_manifest_keys,
+    )
     if not isinstance(raw, dict):
         raise ValueError("manifest must be a JSON object")
 
