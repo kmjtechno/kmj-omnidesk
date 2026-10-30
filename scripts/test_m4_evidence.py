@@ -63,6 +63,61 @@ class EvidenceToolTests(unittest.TestCase):
             lines = result.stdout.strip().splitlines()
             self.assertEqual([line.split("  ", 1)[1] for line in lines], ["a.txt", "b.txt"])
 
+    def test_symlinked_package_root_rejected_for_all_commands(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            actual = base / "actual"
+            actual.mkdir()
+            linked = base / "linked"
+            try:
+                linked.symlink_to(actual, target_is_directory=True)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"directory symlinks unavailable: {error}")
+            artifact = actual / "runs" / "M4-T1-R01" / "events.jsonl"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("observed\\n", encoding="utf-8")
+            commands = [
+                ("prepare-run", "--root", str(linked), "--run-id", "M4-T2-R01"),
+                ("checksums", "--root", str(linked)),
+                (
+                    "artifact", "--root", str(linked), "--file",
+                    str(linked / "runs" / "M4-T1-R01" / "events.jsonl"),
+                    "--artifact-id", "root-link", "--run-id", "M4-T1-R01",
+                    "--kind", "EVENT_LOG", "--content-type", "application/jsonl",
+                    "--component", "agent", "--version", "1",
+                ),
+            ]
+            before = artifact.read_bytes()
+            for command in commands:
+                with self.subTest(command=command[0]):
+                    result = self.run_tool(*command, ok=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("symlinked evidence root path", result.stderr)
+            self.assertFalse((actual / "runs" / "M4-T2-R01").exists())
+            self.assertEqual(artifact.read_bytes(), before)
+
+    def test_symlinked_parent_and_parent_traversal_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            real_parent = base / "real-parent"
+            real_parent.mkdir()
+            linked_parent = base / "linked-parent"
+            try:
+                linked_parent.symlink_to(real_parent, target_is_directory=True)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"directory symlinks unavailable: {error}")
+            root = linked_parent / "evidence"
+            result = self.run_tool(
+                "prepare-run", "--root", str(root), "--run-id", "M4-T1-R01",
+                ok=False,
+            )
+            self.assertIn("symlinked evidence root path", result.stderr)
+            self.assertFalse((real_parent / "evidence").exists())
+
+            traversed = base / "safe" / ".." / "actual"
+            result = self.run_tool("checksums", "--root", str(traversed), ok=False)
+            self.assertIn("parent traversal in evidence root", result.stderr)
+
     def test_rejects_cross_run_artifact_claim(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
