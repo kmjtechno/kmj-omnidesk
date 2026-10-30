@@ -108,10 +108,14 @@ def command_checksums(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     rows: list[str] = []
     for path in sorted(root.rglob("*")):
-        if path.is_dir():
-            continue
+        # Check links *before* directories: is_dir() follows directory
+        # symlinks and otherwise silently omits them from the package digest.
         if path.is_symlink():
             fail(f"symlink forbidden: {path}")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            fail(f"non-regular evidence path forbidden: {path}")
         relative = path.resolve(strict=True).relative_to(root)
         if relative.as_posix() == "checksums.sha256":
             continue
