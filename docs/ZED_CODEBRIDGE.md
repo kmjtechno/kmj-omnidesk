@@ -9,7 +9,7 @@ On the owner's approved development computer, open a trusted checkout of `kmjtec
 ```json
 {
   "context_servers": {
-    "kmj-codebridge": {
+    "CodeBridge": {
       "url": "https://kmjtechno.com/mcp"
     }
   }
@@ -18,7 +18,7 @@ On the owner's approved development computer, open a trusted checkout of `kmjtec
 
 Zed can load project-level settings. Review any workspace trust prompt; only trust workspaces you control. Never commit access tokens, OAuth cookies, signing material or personal credentials into `.zed/settings.json`.
 
-If another Zed setup already provides a CodeBridge server, avoid creating duplicate servers. Use **Settings → AI → MCP Servers** to review `kmj-codebridge`; if the project setting is not loaded, use **Add Server → Add Remote Server**, name it `kmj-codebridge`, and enter the HTTPS URL above. To edit your local/global settings, use the Command Palette action `zed: open settings file` and merge the `context_servers` entry rather than replacing existing settings.
+Keep the server name **`CodeBridge`**, matching the owner’s Zed global setting, to avoid duplicate entries. If another Zed setup already provides a CodeBridge server, avoid creating duplicate servers. Use **Settings → AI → MCP Servers** to review `CodeBridge`; if the project setting is not loaded, use **Add Server → Add Remote Server**, name it `CodeBridge`, and enter the HTTPS URL above. To edit your local/global settings, use the Command Palette action `zed: open settings file` and merge the `context_servers` entry rather than replacing existing settings.
 
 Reference: https://zed.dev/docs/ai/mcp
 
@@ -26,7 +26,7 @@ Reference: https://zed.dev/docs/ai/mcp
 
 1. In Zed's MCP Servers view, inspect the connection indicator. Green / **Server is active** means the MCP server is reachable, **not** that any project is authorized.
 2. If prompted, complete the **standard OAuth browser flow**. Do not paste bearer tokens, passwords, personal access tokens or cookies into project files or chat.
-3. In KMJ Main Platform / CodeBridge, approve **the intended device and the exact `kmj-omnidesk` project**, with the correct repository root. A different project's grant (including `kmj-main-platform` or `kmj-codebridge`) does not authorize this one.
+3. In KMJ Main Platform / CodeBridge, approve **the intended device and the exact `kmj-omnidesk` project**, with the correct repository root. A different project's grant (including `kmj-main-platform` or `CodeBridge`) does not authorize this one.
 4. Verify that the agent can call `list_devices`, then check `connection_overview` for the exact chosen device and `kmj-omnidesk`. If it reports `ACCOUNT_PROJECT_GRANT_MISSING`, `ACCOUNT_GRANT_MISSING`, `OFFLINE`, or `UNKNOWN_TOOL`, stop and resolve the actual grant/runtime issue. Do not infer success from a green UI indicator.
 
 The desktop agent must be online with a separately approved project root. Do **not** connect via a retired/offline device, widen another project's root, disable OAuth, bypass owner consent, or grant unrestricted shell access as a workaround.
@@ -55,7 +55,7 @@ Open Agent Panel and ask:
 | Red / disconnected indicator | Check the canonical HTTPS endpoint, gateway/service health and Zed network access |
 | OAuth prompt fails | Verify supported OAuth redirects and server/client compatibility; do not embed credentials in Git |
 | Green server but no OmniDesk tools | Ask `list_devices` and `connection_overview`; request a separate device/project authorization |
-| Existing `kmj-codebridge` project only | That scope is insufficient: approve `kmj-omnidesk` separately |
+| Existing `CodeBridge` project only | That scope is insufficient: approve `kmj-omnidesk` separately |
 | Files cannot be edited or quality gate unavailable | Inspect configured project permissions and gate profiles; do not bypass policy |
 | Tests green but product not publishable | Follow `ROADMAP.yaml` and the real evidence checklist in issue #89 |
 
