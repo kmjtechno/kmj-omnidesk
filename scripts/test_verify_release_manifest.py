@@ -255,6 +255,30 @@ class TestUninstallCleanup(unittest.TestCase):
         )
         self.assertEqual(rules(violations), {"U8"})
 
+    def test_cleanup_for_another_platform_cannot_attest_this_build(self):
+        violations = check_uninstall_cleanup(
+            good_manifest(cleanup={"linux-x86_64": ["OmniDeskUpdaterService"]})
+        )
+        self.assertEqual(rules(violations), {"U8"})
+        self.assertIn("omits manifest platform", str(violations[0]))
+
+    def test_multi_platform_cleanup_must_include_current_platform(self):
+        manifest = good_manifest(
+            cleanup={
+                "linux-x86_64": ["OmniDeskUpdaterService"],
+                "windows-aarch64": ["OmniDeskUpdateTask"],
+            }
+        )
+        self.assertEqual(rules(check_uninstall_cleanup(manifest)), {"U8"})
+        manifest.cleanup["windows-x86_64"] = ["OmniDeskUpdateTask"]
+        self.assertEqual(check_uninstall_cleanup(manifest), [])
+
+    def test_nonstring_manifest_platform_fails_closed(self):
+        violations = check_uninstall_cleanup(
+            good_manifest(platform=["windows-x86_64"], cleanup={"windows-x86_64": ["OmniDeskUpdateTask"]})
+        )
+        self.assertEqual(rules(violations), {"U8"})
+
     def test_an_updater_scheduled_task_is_named_as_removable(self):
         violations = check_uninstall_cleanup(
             good_manifest(cleanup={"windows-x86_64": ["OmniDeskUpdateTask"]})
