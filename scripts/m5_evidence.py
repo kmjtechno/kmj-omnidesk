@@ -586,7 +586,10 @@ def command_record(args: argparse.Namespace) -> None:
     """
     root = Path(args.root).resolve()
     root.mkdir(parents=True, exist_ok=True)
-    (root / "raw").mkdir(parents=True, exist_ok=True)
+    raw_directory = root / "raw"
+    if raw_directory.is_symlink():
+        fail(f"refusing symlinked raw observation directory: {raw_directory}")
+    raw_directory.mkdir(parents=True, exist_ok=True)
     run_id = validate_run_id(args.run_id)
 
     evidence_class = args.evidence_class
