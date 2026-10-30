@@ -377,8 +377,26 @@ def entry_problems(entry: dict, run_id: str, raw_root: Path) -> list[str]:
     if not digest:
         return [f"{run_id}: no raw observation hashed"]
 
-    name = str(entry.get("raw_path", ""))
+    name = entry.get("raw_path")
+    # A ledger must reference its own packaged observation, not an absolute,
+    # traversed, symlinked or another run's file. Hash equality alone cannot
+    # make an external file admissible release evidence.
+    if (
+        not isinstance(name, str)
+        or not name
+        or "/" in name
+        or "\\" in name
+        or ":" in name
+        or not RUN_ID.fullmatch(str(run_id))
+        or not Path(name).suffix
+        or name != f"{run_id}{Path(name).suffix}"
+    ):
+        return [f"{run_id}: invalid or cross-run raw observation path"]
+    if raw_root.is_symlink():
+        return [f"{run_id}: symlinked raw observation directory forbidden"]
     path = raw_root / name
+    if path.is_symlink():
+        return [f"{run_id}: symlinked raw observation forbidden"]
     if not path.is_file():
         problems.append(f"{run_id}: raw observation {name} is gone")
         return problems
@@ -575,16 +593,39 @@ def command_record(args: argparse.Namespace) -> None:
     if evidence_class not in EVIDENCE_CLASSES:
         fail(f"unknown evidence class {evidence_class!r}; expected one of {sorted(EVIDENCE_CLASSES)}")
 
-    raw = Path(args.raw).resolve(strict=True)
-    raw_name = f"{run_id}{raw.suffix or '.json'}"
-    (root / "raw" / raw_name).write_bytes(raw.read_bytes())
-    digest, size = sha256_file(root / "raw" / raw_name)
-
     gates = [gate for gate in (args.gate or []) if gate]
     known = set(EXIT_CRITERIA) | set(SECURITY_GATES)
     unknown = [gate for gate in gates if gate not in known]
     if unknown:
         fail(f"run names gates M5 does not declare: {', '.join(sorted(unknown))}")
+
+    # Validate the complete record before touching any existing evidence.
+    # A rejected duplicate or unknown gate must never overwrite raw bytes.
+    for prior in read_ledger(root):
+        if prior.get("run_id") == run_id:
+            fail(f"run_id {run_id} is already in the ledger; a run cannot be replaced under the same name")
+
+    environment = load_json_or_empty(args.environment, "environment metadata")
+    impairment = (
+        load_json_or_empty(args.impairment, "impairment description")
+        if args.impairment else None
+    )
+
+    raw = Path(args.raw).resolve(strict=True)
+    if not raw.is_file():
+        fail(f"raw observation is not a regular file: {raw}")
+    raw_name = f"{run_id}{raw.suffix or '.json'}"
+    destination = root / "raw" / raw_name
+    if destination.is_symlink():
+        fail(f"refusing symlinked raw observation destination: {destination}")
+    try:
+        # Exclusive creation protects even an orphaned file not in the ledger.
+        with destination.open("xb") as output, raw.open("rb") as source:
+            while chunk := source.read(1024 * 1024):
+                output.write(chunk)
+    except FileExistsError:
+        fail(f"raw observation destination already exists: {destination}")
+    digest, size = sha256_file(destination)
 
     entry = {
         "run_id": run_id,
@@ -594,7 +635,7 @@ def command_record(args: argparse.Namespace) -> None:
         "raw_bytes": size,
         "raw_path": raw_name,
         "gates_observed": gates,
-        "environment": load_json_or_empty(args.environment, "environment metadata"),
+        "environment": environment,
     }
 
     for field in ("test_binary", "relay_endpoint", "client_endpoint", "server_endpoint"):
@@ -602,17 +643,13 @@ def command_record(args: argparse.Namespace) -> None:
         if value:
             entry[field] = value
 
-    if args.impairment:
-        entry["impairment"] = load_json_or_empty(args.impairment, "impairment description")
+    if impairment is not None:
+        entry["impairment"] = impairment
 
     if args.unauthorized_attempted is not None:
         entry["unauthorized_attempted"] = args.unauthorized_attempted
     if args.unauthorized_outcome is not None:
         entry["unauthorized_outcome"] = args.unauthorized_outcome
-
-    for entry_ in read_ledger(root):
-        if entry_.get("run_id") == run_id:
-            fail(f"run_id {run_id} is already in the ledger; a run cannot be replaced under the same name")
 
     with ledger_path(root).open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, sort_keys=True) + "\n")
