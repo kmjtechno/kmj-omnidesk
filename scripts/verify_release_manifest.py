@@ -254,14 +254,34 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
             continue
 
         artifact = artifacts_dir / name
-        if artifact.is_symlink():
-            violations.append(
-                Violation("U4", f"{name} is a symbolic link, not a release artifact")
-            )
-            continue
-        if not artifact.is_file():
+        # lstat, unlike is_file(), does not follow the final path component.
+        # Refuse Windows reparse files and multiply-linked files as well as
+        # POSIX symlinks. A release artifact must be an unshared regular file.
+        try:
+            metadata = artifact.lstat()
+        except FileNotFoundError:
             violations.append(
                 Violation("U4", f"{name} is listed in the manifest but is not present")
+            )
+            continue
+        except OSError as error:
+            violations.append(Violation("U4", f"{name} cannot be inspected: {error}"))
+            continue
+        reparse = bool(
+            getattr(metadata, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        )
+        if stat.S_ISLNK(metadata.st_mode) or reparse:
+            violations.append(
+                Violation("U4", f"{name} is a symbolic link or reparse point, not a release artifact")
+            )
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            violations.append(Violation("U4", f"{name} is not a regular release artifact"))
+            continue
+        if metadata.st_nlink != 1:
+            violations.append(
+                Violation("U4", f"{name} has {metadata.st_nlink} hard links; release artifacts must be unshared")
             )
             continue
 
