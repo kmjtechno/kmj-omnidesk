@@ -144,7 +144,7 @@ MUTATIONS: list[tuple[str, str, str]] = [
     # --- recording ---------------------------------------------------------
     (
         "a duplicate run id is accepted",
-        "if entry_.get(\"run_id\") == run_id:",
+        "if prior.get(\"run_id\") == run_id:",
         "if False:",
     ),
     (

@@ -401,6 +401,37 @@ class TestEvidenceIntegrity(Fixture):
         self.assertEqual(report["gates"][DECRYPT]["status"], "unmet")
 
 
+    def test_absolute_raw_path_cannot_satisfy_transport_gate(self) -> None:
+        entry = self.transport_run()
+        outside = Path(self.directory.name) / "outside.json"
+        outside.write_bytes((self.root / "raw" / entry["raw_path"]).read_bytes())
+        entry["raw_path"] = str(outside)
+        self.append(entry)
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertTrue(any("raw observation path" in p for p in report["problems"]))
+
+    def test_parent_traversal_raw_path_cannot_satisfy_transport_gate(self) -> None:
+        entry = self.transport_run()
+        outside = self.root / "outside.json"
+        outside.write_bytes((self.root / "raw" / entry["raw_path"]).read_bytes())
+        entry["raw_path"] = "../outside.json"
+        self.append(entry)
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertTrue(any("raw observation path" in p for p in report["problems"]))
+
+    def test_other_run_raw_file_cannot_satisfy_transport_gate(self) -> None:
+        entry = self.transport_run()
+        foreign = self.root / "raw" / "M5-OTHER-R001.json"
+        foreign.write_bytes((self.root / "raw" / entry["raw_path"]).read_bytes())
+        entry["raw_path"] = foreign.name
+        self.append(entry)
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertTrue(any("raw observation path" in p for p in report["problems"]))
+
+
 class TestFailClosed(Fixture):
     """The gate that must not pass on absence."""
 
@@ -568,8 +599,93 @@ class TestRecording(Fixture):
             unauthorized_attempted=None,
             unauthorized_outcome=None,
         )
+        with self.assertRaises(SystemExit) as refusal:
+            m5.command_record(args)
+        # An existing ledger identity must be refused *before* attempting a
+        # destination write. Exclusive file creation is a separate safeguard;
+        # it must not conceal a missing duplicate-ledger preflight.
+        self.assertIn("already in the ledger", str(refusal.exception))
+
+    def test_duplicate_run_refusal_preserves_original_raw_bytes(self) -> None:
+        import argparse
+
+        run = self.code_run()
+        self.append(run)
+        original = self.root / "raw" / run["raw_path"]
+        before = original.read_bytes()
+        source = self.raw("different", '{"observed": false}')
+        args = argparse.Namespace(
+            root=str(self.root), run_id="M5-CODE-R001",
+            evidence_class="code_observed", raw=source, gate=[DECRYPT],
+            environment=None, test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None, unauthorized_outcome=None,
+        )
         with self.assertRaises(SystemExit):
             m5.command_record(args)
+        self.assertEqual(original.read_bytes(), before)
+        self.assertEqual(len(m5.read_ledger(self.root)), 1)
+
+    def test_unknown_gate_refusal_creates_no_raw_artifact(self) -> None:
+        import argparse
+
+        args = argparse.Namespace(
+            root=str(self.root), run_id="M5-NEW-R001",
+            evidence_class="code_observed", raw=self.raw("new"),
+            gate=["unrecognized_gate"], environment=None,
+            test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None, unauthorized_outcome=None,
+        )
+        with self.assertRaises(SystemExit):
+            m5.command_record(args)
+        self.assertFalse((self.root / "raw" / "M5-NEW-R001.json").exists())
+        self.assertEqual(m5.read_ledger(self.root), [])
+
+    def test_orphaned_raw_file_is_not_overwritten(self) -> None:
+        import argparse
+
+        destination = self.root / "raw" / "M5-NEW-R001.json"
+        destination.write_text("protected evidence", encoding="utf-8")
+        args = argparse.Namespace(
+            root=str(self.root), run_id="M5-NEW-R001",
+            evidence_class="code_observed", raw=self.raw("different"),
+            gate=[DECRYPT], environment=None,
+            test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None, unauthorized_outcome=None,
+        )
+        with self.assertRaises(SystemExit):
+            m5.command_record(args)
+        self.assertEqual(destination.read_text(encoding="utf-8"), "protected evidence")
+        self.assertEqual(m5.read_ledger(self.root), [])
+
+
+    def test_symlinked_raw_directory_is_refused_before_recording(self) -> None:
+        import argparse
+
+        source = Path(self.directory.name) / "input.json"
+        source.write_text('{"observed": true}', encoding="utf-8")
+        outside = Path(self.directory.name) / "external"
+        outside.mkdir()
+        raw_directory = self.root / "raw"
+        raw_directory.rmdir()
+        try:
+            raw_directory.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"directory symlinks unavailable: {error}")
+        args = argparse.Namespace(
+            root=str(self.root), run_id="M5-NEW-R001",
+            evidence_class="code_observed", raw=str(source), gate=[DECRYPT],
+            environment=None, test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None, unauthorized_outcome=None,
+        )
+        with self.assertRaises(SystemExit):
+            m5.command_record(args)
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertEqual(m5.read_ledger(self.root), [])
+
 
     def test_recording_a_gate_m5_does_not_declare_is_refused(self) -> None:
         """Mutation: drop the `unknown` gate refusal."""
