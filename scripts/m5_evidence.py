@@ -494,7 +494,11 @@ def check_fail_closed_authorization(entries: list[dict], raw_root: Path) -> list
                 problems.extend(integrity)
                 problems.extend(class_errors)
                 continue
-            refused = True
+            # The refusal must belong to a run that actually claims this
+            # gate. A different run's unrelated refusal cannot lend its
+            # outcome to a gate-claiming run that never exercised denial.
+            if "authorization_failure_is_fail_closed" in (entry.get("gates_observed") or []):
+                refused = True
         else:
             problems.append(
                 f"{run_id}: unauthorized attempt was {outcome!r} rather than refused -- "
