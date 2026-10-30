@@ -63,6 +63,51 @@ class EvidenceToolTests(unittest.TestCase):
             lines = result.stdout.strip().splitlines()
             self.assertEqual([line.split("  ", 1)[1] for line in lines], ["a.txt", "b.txt"])
 
+    def test_rejects_cross_run_artifact_claim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run_a = root / "runs" / "M4-T1-R01"
+            run_b = root / "runs" / "M4-T2-R01"
+            run_a.mkdir(parents=True)
+            run_b.mkdir(parents=True)
+            artifact = run_a / "events.jsonl"
+            artifact.write_text('{"event":"real-observation"}\n', encoding="utf-8")
+            result = self.run_tool(
+                "artifact", "--root", temp, "--file", str(artifact),
+                "--artifact-id", "artifact-a", "--run-id", "M4-T2-R01",
+                "--kind", "EVENT_LOG", "--content-type", "application/jsonl",
+                "--component", "agent", "--version", "1", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("declared run directory", result.stderr)
+
+    def test_rejects_package_level_artifact_with_run_claim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            artifact = root / "summary.json"
+            artifact.write_text("{}", encoding="utf-8")
+            result = self.run_tool(
+                "artifact", "--root", temp, "--file", str(artifact),
+                "--artifact-id", "summary", "--run-id", "M4-T1-R01",
+                "--kind", "SUMMARY", "--content-type", "application/json",
+                "--component", "agent", "--version", "1", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("declared run directory", result.stderr)
+
+    def test_rejects_directory_as_artifact(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "runs" / "M4-T1-R01"
+            run_dir.mkdir(parents=True)
+            result = self.run_tool(
+                "artifact", "--root", temp, "--file", str(run_dir),
+                "--artifact-id", "directory", "--run-id", "M4-T1-R01",
+                "--kind", "OTHER", "--content-type", "application/octet-stream",
+                "--component", "agent", "--version", "1", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("regular file", result.stderr)
+
     def test_rejects_artifact_outside_root(self):
         with tempfile.TemporaryDirectory() as temp, tempfile.NamedTemporaryFile() as outside:
             result = self.run_tool(
