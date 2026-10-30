@@ -310,6 +310,40 @@ class TestLoadManifest(unittest.TestCase):
         self.assertEqual(manifest.version, 3)
         self.assertEqual(manifest.artifacts, {"app": "abc"})
 
+    def test_duplicate_json_keys_are_rejected_at_every_depth(self):
+        # Python's default json.loads silently keeps the final duplicate.
+        # Release metadata must not admit two interpretations of a key.
+        base = (
+            '{"version":1,"channel":"stable","platform":"windows-x86_64",'
+            '"minimum_client_version":1}'
+        )
+        cases = (
+            (
+                "top-level",
+                base.replace('"version":1', '"version":1,"version":2', 1),
+                "version",
+            ),
+            (
+                "artifact digest",
+                base[:-1] + ',"artifacts":{"app.exe":"bad","app.exe":"good"}}',
+                "app.exe",
+            ),
+            (
+                "cleanup entries",
+                base[:-1]
+                + ',"cleanup":{"windows-x86_64":[],"windows-x86_64":["OmniDeskUpdateTask"]}}',
+                "windows-x86_64",
+            ),
+        )
+        path = self.dir / "manifest.json"
+        for case, content, key in cases:
+            with self.subTest(case=case):
+                path.write_text(content, encoding="utf-8")
+                with self.assertRaisesRegex(
+                    ValueError, f"duplicate JSON key '{key}'"
+                ):
+                    load_manifest(path)
+
     def test_a_missing_required_key_is_rejected(self):
         path = self.write({"version": 1, "channel": "stable", "platform": "linux-x86_64"})
         with self.assertRaises(ValueError) as context:
