@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import stat
 import sys
@@ -287,9 +288,62 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
 
         digest = hashlib.sha256()
         try:
-            with artifact.open("rb") as handle:
+            # Open without following the final symlink where supported. O_NONBLOCK
+            # prevents a swapped-in FIFO from hanging the release verifier.
+            flags = (
+                os.O_RDONLY
+                | getattr(os, "O_BINARY", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_NONBLOCK", 0)
+            )
+            descriptor = os.open(artifact, flags)
+            with os.fdopen(descriptor, "rb") as handle:
+                opened = os.fstat(handle.fileno())
+                # Bind the bytes being hashed to the exact file inspected by
+                # lstat, not merely a pathname an attacker may have replaced.
+                if (
+                    not stat.S_ISREG(opened.st_mode)
+                    or opened.st_nlink != 1
+                    or bool(
+                        getattr(opened, "st_file_attributes", 0)
+                        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                    )
+                    or opened.st_dev != metadata.st_dev
+                    or opened.st_ino != metadata.st_ino
+                ):
+                    violations.append(
+                        Violation("U4", f"{name} changed between inspection and open")
+                    )
+                    continue
                 for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                     digest.update(chunk)
+                after_read = os.fstat(handle.fileno())
+                if (
+                    after_read.st_size != opened.st_size
+                    or after_read.st_mtime_ns != opened.st_mtime_ns
+                    or after_read.st_ctime_ns != opened.st_ctime_ns
+                ):
+                    violations.append(
+                        Violation("U4", f"{name} changed while being hashed")
+                    )
+                    continue
+            # Detect a rename or path substitution during the read. This is
+            # defense in depth, not a claim of race-free Windows directory IO.
+            after_path = artifact.lstat()
+            if (
+                after_path.st_dev != opened.st_dev
+                or after_path.st_ino != opened.st_ino
+                or not stat.S_ISREG(after_path.st_mode)
+                or after_path.st_nlink != 1
+                or bool(
+                    getattr(after_path, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                )
+            ):
+                violations.append(
+                    Violation("U4", f"{name} changed after opening for hashing")
+                )
+                continue
         except OSError as error:
             violations.append(
                 Violation("U4", f"{name} cannot be read: {error}")
