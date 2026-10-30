@@ -39,6 +39,7 @@ import argparse
 import hashlib
 import json
 import re
+import stat
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -206,6 +207,31 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
     violations: list[Violation] = []
     if not manifest.artifacts:
         return [Violation("U4", "release manifest lists no artifacts")]
+
+    # Reject a redirected *directory*, not only redirected artifact files.
+    # Otherwise a valid digest in a symlinked artifact directory can attest
+    # an unrelated tree. Check before resolving any supplied path.
+    if ".." in artifacts_dir.parts:
+        return [Violation("U4", "artifact directory parent traversal is forbidden")]
+    selected = artifacts_dir.absolute()
+    if not selected.is_dir():
+        return [Violation("U4", "artifact directory is not an existing directory")]
+    for component in (selected, *selected.parents):
+        try:
+            metadata = component.lstat()
+            reparse = bool(
+                getattr(metadata, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            )
+            is_junction = getattr(component, "is_junction", lambda: False)
+            if component.is_symlink() or is_junction() or reparse:
+                return [
+                    Violation("U4", f"redirected artifact directory component: {component}")
+                ]
+        except OSError as error:
+            return [
+                Violation("U4", f"cannot inspect artifact directory component {component}: {error}")
+            ]
 
     for name, expected in sorted(
         manifest.artifacts.items(), key=lambda item: str(item[0])
