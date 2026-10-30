@@ -68,6 +68,8 @@ jobs:
         run: |
           python3 scripts/check_zed_codebridge_config.py
           python3 scripts/test_zed_codebridge_config.py
+          python3 scripts/check_zed_tasks_config.py
+          python3 scripts/test_zed_tasks_config.py
       # M12. These scripts check the update-integrity properties that can be
       # verified offline -- downgrade, digest, channel, platform, and
       # uninstall residue. They do NOT verify signatures; the manifest must
