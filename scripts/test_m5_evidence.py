@@ -577,6 +577,89 @@ class TestReportShape(Fixture):
         self.assertNotIn("security_gate_pass", m5.EXIT_CRITERIA)
 
 
+class TestLedgerPathSafety(Fixture):
+    """An external or missing ledger cannot be used as an M5 evidence source."""
+
+    def record_args(self):
+        import argparse
+
+        return argparse.Namespace(
+            root=str(self.root), run_id="M5-NEW-R001",
+            evidence_class="code_observed", raw=self.raw("source"),
+            gate=[DECRYPT], environment=None,
+            test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None,
+            unauthorized_outcome=None,
+        )
+
+    def symlink_or_skip(self, link: Path, target: Path, directory=False):
+        try:
+            link.symlink_to(target, target_is_directory=directory)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+
+    def test_read_ledger_refuses_external_symlink(self):
+        ledger = self.root / "ledger.jsonl"
+        external = Path(self.directory.name) / "external-ledger.jsonl"
+        external.write_text('{"run_id":"M5-OTHER-R001"}\\n', encoding="utf-8")
+        before = external.read_bytes()
+        ledger.unlink()
+        self.symlink_or_skip(ledger, external)
+        with self.assertRaises(SystemExit) as refusal:
+            m5.read_ledger(self.root)
+        self.assertIn("symlinked evidence ledger", str(refusal.exception))
+        self.assertEqual(external.read_bytes(), before)
+
+    def test_record_rejects_symlinked_ledger_before_copy(self):
+        ledger = self.root / "ledger.jsonl"
+        external = Path(self.directory.name) / "external-ledger.jsonl"
+        external.write_text("protected external data\\n", encoding="utf-8")
+        before = external.read_bytes()
+        ledger.unlink()
+        self.symlink_or_skip(ledger, external)
+        with self.assertRaises(SystemExit) as refusal:
+            m5.command_record(self.record_args())
+        self.assertIn("unsafe evidence ledger", str(refusal.exception))
+        self.assertFalse((self.root / "raw" / "M5-NEW-R001.json").exists())
+        self.assertEqual(external.read_bytes(), before)
+
+    def test_record_requires_initialized_ledger(self):
+        (self.root / "ledger.jsonl").unlink()
+        with self.assertRaises(SystemExit) as refusal:
+            m5.command_record(self.record_args())
+        self.assertIn("run init first", str(refusal.exception))
+        self.assertFalse((self.root / "raw" / "M5-NEW-R001.json").exists())
+
+    def test_init_refuses_dangling_ledger_symlink(self):
+        import argparse
+
+        ledger = self.root / "ledger.jsonl"
+        ledger.unlink()
+        missing = Path(self.directory.name) / "outside-missing-ledger.jsonl"
+        self.symlink_or_skip(ledger, missing)
+        with self.assertRaises(SystemExit) as refusal:
+            m5.command_init(argparse.Namespace(root=str(self.root)))
+        self.assertIn("already exists", str(refusal.exception))
+        self.assertTrue(ledger.is_symlink())
+        self.assertFalse(missing.exists())
+
+    def test_init_refuses_symlinked_raw_directory(self):
+        import argparse
+
+        (self.root / "ledger.jsonl").unlink()
+        raw = self.root / "raw"
+        raw.rmdir()
+        external = Path(self.directory.name) / "outside-raw"
+        external.mkdir()
+        self.symlink_or_skip(raw, external, directory=True)
+        with self.assertRaises(SystemExit) as refusal:
+            m5.command_init(argparse.Namespace(root=str(self.root)))
+        self.assertIn("symlinked raw observation directory", str(refusal.exception))
+        self.assertFalse((self.root / "ledger.jsonl").exists())
+        self.assertEqual(list(external.iterdir()), [])
+
+
 class TestRecording(Fixture):
     def test_a_duplicate_run_id_is_refused(self) -> None:
         """Mutation: drop the duplicate-run_id refusal."""

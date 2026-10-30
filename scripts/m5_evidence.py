@@ -52,7 +52,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NoReturn
@@ -217,8 +219,14 @@ def ledger_path(root: Path) -> Path:
 
 def read_ledger(root: Path) -> list[dict]:
     path = ledger_path(root)
+    # A ledger must be a real file in this evidence package. Following a
+    # symlink could import somebody else's observations as release evidence.
+    if path.is_symlink():
+        fail(f"symlinked evidence ledger forbidden: {path}")
     if not path.exists():
         return []
+    if not path.is_file():
+        fail(f"evidence ledger is not a regular file: {path}")
     entries = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
@@ -570,10 +578,21 @@ def command_init(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     path = ledger_path(root)
-    if path.exists():
+    # exists() is false for a dangling symlink. Exclusive creation is also
+    # required to avoid following it or overwriting an existing ledger.
+    if path.exists() or path.is_symlink():
         fail(f"{path} already exists; refusing to overwrite a run ledger")
-    (root / "raw").mkdir(parents=True, exist_ok=True)
-    path.write_text("", encoding="utf-8")
+    raw_directory = root / "raw"
+    if raw_directory.is_symlink():
+        fail(f"refusing symlinked raw observation directory: {raw_directory}")
+    raw_directory.mkdir(parents=True, exist_ok=True)
+    if not raw_directory.is_dir():
+        fail(f"raw observation directory is not a directory: {raw_directory}")
+    try:
+        with path.open("x", encoding="utf-8"):
+            pass
+    except FileExistsError:
+        fail(f"{path} already exists; refusing to overwrite a run ledger")
     print(json.dumps({"ledger": str(path), "created_at": utc_now()}, sort_keys=True))
 
 
@@ -601,6 +620,13 @@ def command_record(args: argparse.Namespace) -> None:
     unknown = [gate for gate in gates if gate not in known]
     if unknown:
         fail(f"run names gates M5 does not declare: {', '.join(sorted(unknown))}")
+
+    # The ledger must already exist as a regular file created by init.
+    # Without this preflight, append mode silently creates a new ledger or
+    # follows a symlink to another package after the raw file was copied.
+    ledger = ledger_path(root)
+    if ledger.is_symlink() or not ledger.is_file():
+        fail(f"missing or unsafe evidence ledger (run init first): {ledger}")
 
     # Validate the complete record before touching any existing evidence.
     # A rejected duplicate or unknown gate must never overwrite raw bytes.
@@ -654,7 +680,17 @@ def command_record(args: argparse.Namespace) -> None:
     if args.unauthorized_outcome is not None:
         entry["unauthorized_outcome"] = args.unauthorized_outcome
 
-    with ledger_path(root).open("a", encoding="utf-8") as handle:
+    # Do not create a missing ledger. O_NOFOLLOW protects the final path on
+    # POSIX even if a symlink is substituted after the preflight; Windows
+    # still has the explicit symlink check above.
+    flags = os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(ledger, flags)
+    except OSError:
+        fail(f"cannot safely append to evidence ledger: {ledger}")
+    with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            fail(f"evidence ledger is not a regular file: {ledger}")
         handle.write(json.dumps(entry, sort_keys=True) + "\n")
     print(json.dumps({"run_id": run_id, "recorded": True}, sort_keys=True))
 
