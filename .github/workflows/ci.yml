@@ -61,6 +61,13 @@ jobs:
         run: |
           python3 scripts/scan_secrets.py
           python3 scripts/test_scan_secrets.py
+      # Static-only: prevents a future Zed settings edit from embedding credentials
+      # or silently changing the approved HTTPS MCP endpoint. OAuth and grants
+      # still require independent owner/device verification.
+      - name: Zed CodeBridge configuration gate
+        run: |
+          python3 scripts/check_zed_codebridge_config.py
+          python3 scripts/test_zed_codebridge_config.py
       # M12. These scripts check the update-integrity properties that can be
       # verified offline -- downgrade, digest, channel, platform, and
       # uninstall residue. They do NOT verify signatures; the manifest must
