@@ -657,6 +657,32 @@ class TestRecording(Fixture):
         self.assertEqual(m5.read_ledger(self.root), [])
 
 
+    def test_symlinked_raw_directory_is_refused_before_recording(self) -> None:
+        import argparse
+
+        source = Path(self.directory.name) / "input.json"
+        source.write_text('{"observed": true}', encoding="utf-8")
+        outside = Path(self.directory.name) / "external"
+        outside.mkdir()
+        raw_directory = self.root / "raw"
+        raw_directory.rmdir()
+        try:
+            raw_directory.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"directory symlinks unavailable: {error}")
+        args = argparse.Namespace(
+            root=str(self.root), run_id="M5-NEW-R001",
+            evidence_class="code_observed", raw=str(source), gate=[DECRYPT],
+            environment=None, test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None, unauthorized_outcome=None,
+        )
+        with self.assertRaises(SystemExit):
+            m5.command_record(args)
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertEqual(m5.read_ledger(self.root), [])
+
+
     def test_recording_a_gate_m5_does_not_declare_is_refused(self) -> None:
         """Mutation: drop the `unknown` gate refusal."""
         import argparse
