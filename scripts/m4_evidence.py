@@ -83,7 +83,16 @@ def checked_evidence_root(value: str) -> Path:
 def command_prepare_run(args: argparse.Namespace) -> None:
     run_id = validate_run_id(args.run_id)
     root = checked_evidence_root(args.root)
-    run_dir = root / "runs" / run_id
+    # A clean package root does not make a redirected child safe. Without
+    # this check, a pre-existing runs/ symlink or Windows junction sends
+    # prepare-run's mkdir outside the evidence package.
+    runs_root = root / "runs"
+    is_junction = getattr(runs_root, "is_junction", lambda: False)
+    if runs_root.is_symlink() or is_junction():
+        fail(f"redirected runs directory forbidden: {runs_root}")
+    if runs_root.exists() and not runs_root.is_dir():
+        fail(f"runs path is not a directory: {runs_root}")
+    run_dir = runs_root / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     print(run_dir)
 
