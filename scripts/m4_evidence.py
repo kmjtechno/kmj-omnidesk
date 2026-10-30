@@ -63,9 +63,26 @@ def sha256_file(path: Path) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
+def checked_evidence_root(value: str) -> Path:
+    """Refuse redirected package roots before reading or creating evidence.
+
+    resolve() alone follows a supplied root symlink (or a symlinked ancestor),
+    which could make an external tree look like this run's evidence package.
+    """
+    supplied = Path(value)
+    if ".." in supplied.parts:
+        fail("parent traversal in evidence root forbidden")
+    absolute = supplied.absolute()
+    for component in (absolute, *absolute.parents):
+        is_junction = getattr(component, "is_junction", lambda: False)
+        if component.is_symlink() or is_junction():
+            fail(f"symlinked evidence root path forbidden: {component}")
+    return absolute.resolve()
+
+
 def command_prepare_run(args: argparse.Namespace) -> None:
     run_id = validate_run_id(args.run_id)
-    root = Path(args.root).resolve()
+    root = checked_evidence_root(args.root)
     run_dir = root / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     print(run_dir)
@@ -75,7 +92,7 @@ def command_artifact(args: argparse.Namespace) -> None:
     run_id = validate_run_id(args.run_id)
     if args.kind not in KINDS:
         fail(f"unsupported artifact kind: {args.kind}")
-    root = Path(args.root)
+    root = checked_evidence_root(args.root)
     resolved, relative = safe_relative(root, Path(args.file))
     # A run-scoped artifact must actually belong to the named run. Merely
     # hashing a file elsewhere in the package lets a manifest claim that an
@@ -105,7 +122,7 @@ def command_artifact(args: argparse.Namespace) -> None:
 
 
 def command_checksums(args: argparse.Namespace) -> None:
-    root = Path(args.root).resolve()
+    root = checked_evidence_root(args.root)
     rows: list[str] = []
     for path in sorted(root.rglob("*")):
         if path.is_dir():
