@@ -208,6 +208,21 @@ def m5_sections_from_roadmap(path: Path) -> tuple[list[str], list[str]]:
     return collect("exit_criteria"), collect("security_gates")
 
 
+# Evidence roots are security boundaries, not convenient path aliases. Calling
+# resolve() first would hide symlinked ancestors and let a caller redirect the
+# ledger or raw observation writes into an unrelated package.
+def checked_evidence_root(value: str) -> Path:
+    supplied = Path(value)
+    if ".." in supplied.parts:
+        fail("parent traversal in M5 evidence root forbidden")
+    absolute = supplied.absolute()
+    for component in (absolute, *absolute.parents):
+        is_junction = getattr(component, "is_junction", lambda: False)
+        if component.is_symlink() or is_junction():
+            fail(f"redirected M5 evidence root forbidden: {component}")
+    return absolute.resolve()
+
+
 # --- ledger --------------------------------------------------------------
 
 
@@ -567,7 +582,7 @@ def evaluate(root: Path, roadmap: Path) -> dict:
 
 
 def command_init(args: argparse.Namespace) -> None:
-    root = Path(args.root).resolve()
+    root = checked_evidence_root(args.root)
     root.mkdir(parents=True, exist_ok=True)
     path = ledger_path(root)
     if path.exists():
@@ -584,7 +599,7 @@ def command_record(args: argparse.Namespace) -> None:
     `cherry_picking_forbidden` names in M13: a bad run cannot be replaced by a
     good one under the same name, because the name is taken.
     """
-    root = Path(args.root).resolve()
+    root = checked_evidence_root(args.root)
     root.mkdir(parents=True, exist_ok=True)
     raw_directory = root / "raw"
     if raw_directory.is_symlink():
@@ -685,7 +700,7 @@ def load_json_or_empty(value: str | None, label: str) -> dict:
 
 
 def command_verify(args: argparse.Namespace) -> None:
-    report = evaluate(Path(args.root).resolve(), Path(args.roadmap).resolve())
+    report = evaluate(checked_evidence_root(args.root), Path(args.roadmap).resolve())
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
