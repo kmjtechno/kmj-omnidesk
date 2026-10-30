@@ -472,6 +472,41 @@ class TestFailClosed(Fixture):
         report = self.report()
         self.assertEqual(report["gates"][FAILCLOSED]["status"], "observed")
 
+
+    def test_unclaimed_refusal_cannot_complete_a_different_runs_gate(self) -> None:
+        """Mutation: count any valid refusal, even from a run not claiming the gate.
+
+        A gate-claiming run that never attempted unauthorized access cannot
+        borrow the refusal from another run that did not claim this gate.
+        """
+        self.append(
+            self.code_run("M5-CODE-R001", gates_observed=[FAILCLOSED]),
+            self.code_run(
+                "M5-CODE-R002", gates_observed=[DECRYPT],
+                unauthorized_attempted=True, unauthorized_outcome="refused",
+            ),
+        )
+        report = self.report()
+        self.assertEqual(report["gates"][FAILCLOSED]["status"], "unmet")
+        self.assertTrue(any("no recorded unauthorized attempt was refused" in p
+                            for p in report["problems"]))
+
+    def test_unclaimed_forwarded_attempt_still_blocks_claimed_refusal(self) -> None:
+        """Mutation: filter all attempts to gate claimants, hiding a real failure."""
+        self.append(
+            self.code_run(
+                "M5-CODE-R001", gates_observed=[FAILCLOSED],
+                unauthorized_attempted=True, unauthorized_outcome="refused",
+            ),
+            self.code_run(
+                "M5-CODE-R002", gates_observed=[DECRYPT],
+                unauthorized_attempted=True, unauthorized_outcome="forwarded",
+            ),
+        )
+        report = self.report()
+        self.assertEqual(report["gates"][FAILCLOSED]["status"], "unmet")
+        self.assertTrue(any("rather than refused" in p for p in report["problems"]))
+
     def test_an_attempt_recording_no_outcome_is_refused(self) -> None:
         """Mutation: treat a missing outcome as a refusal."""
         self.append(self.code_run(unauthorized_attempted=True))
