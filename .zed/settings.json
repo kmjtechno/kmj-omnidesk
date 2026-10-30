@@ -1,6 +1,6 @@
 {
   "context_servers": {
-    "kmj-codebridge": {
+    "CodeBridge": {
       "url": "https://kmjtechno.com/mcp"
     }
   }
