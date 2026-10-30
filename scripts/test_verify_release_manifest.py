@@ -203,6 +203,50 @@ class TestArtifacts(unittest.TestCase):
         self.assertEqual(rules(violations), {"U4"})
         self.assertIn("symbolic link", str(violations[0]))
 
+    def test_symlinked_artifact_directory_and_parent_are_refused(self):
+        with tempfile.TemporaryDirectory() as external_dir:
+            external = Path(external_dir)
+            (external / "app.exe").write_bytes(PAYLOAD)
+            nested = external / "nested"
+            nested.mkdir()
+            (nested / "app.exe").write_bytes(PAYLOAD)
+            redirected = self.artifacts / "redirected"
+            try:
+                redirected.symlink_to(external, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks unavailable")
+            manifest = good_manifest(
+                artifacts={"app.exe": hashlib.sha256(PAYLOAD).hexdigest()}
+            )
+            before = (external / "app.exe").read_bytes()
+            for selected in (redirected, redirected / "nested"):
+                with self.subTest(selected=selected):
+                    violations = check_artifacts(manifest, selected)
+                    self.assertEqual(rules(violations), {"U4"})
+                    self.assertIn("redirected artifact directory", str(violations[0]))
+            self.assertEqual((external / "app.exe").read_bytes(), before)
+
+    def test_artifact_directory_parent_traversal_is_refused(self):
+        digest = self.write("app.exe")
+        (self.artifacts / "empty").mkdir()
+        selected = self.artifacts / "empty" / ".."
+        violations = check_artifacts(
+            good_manifest(artifacts={"app.exe": digest}), selected
+        )
+        self.assertEqual(rules(violations), {"U4"})
+        self.assertIn("parent traversal", str(violations[0]))
+
+    def test_artifact_directory_must_be_a_directory(self):
+        digest = self.write("app.exe")
+        not_directory = self.artifacts / "not-a-directory"
+        not_directory.write_text("owner data", encoding="utf-8")
+        violations = check_artifacts(
+            good_manifest(artifacts={"app.exe": digest}), not_directory
+        )
+        self.assertEqual(rules(violations), {"U4"})
+        self.assertIn("not an existing directory", str(violations[0]))
+        self.assertEqual(not_directory.read_text(encoding="utf-8"), "owner data")
+
     def test_malformed_digest_is_refused(self):
         self.write("app.exe")
         for digest in ("", "abc", "F" * 64, 123, None):
