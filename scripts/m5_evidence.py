@@ -232,9 +232,12 @@ def read_ledger(root: Path) -> list[dict]:
         if not line.strip():
             continue
         try:
-            entries.append(json.loads(line))
+            entry = json.loads(line)
         except json.JSONDecodeError as error:
             fail(f"{path}:{number}: corrupt ledger line: {error}")
+        if not isinstance(entry, dict):
+            fail(f"{path}:{number}: ledger entry must be a JSON object")
+        entries.append(entry)
     return entries
 
 
