@@ -599,8 +599,12 @@ class TestRecording(Fixture):
             unauthorized_attempted=None,
             unauthorized_outcome=None,
         )
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(SystemExit) as refusal:
             m5.command_record(args)
+        # An existing ledger identity must be refused *before* attempting a
+        # destination write. Exclusive file creation is a separate safeguard;
+        # it must not conceal a missing duplicate-ledger preflight.
+        self.assertIn("already in the ledger", str(refusal.exception))
 
     def test_duplicate_run_refusal_preserves_original_raw_bytes(self) -> None:
         import argparse
