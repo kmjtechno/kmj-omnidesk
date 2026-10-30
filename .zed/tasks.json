@@ -1,0 +1,49 @@
+[
+  {
+    "label": "KMJ OmniDesk · Rust format check",
+    "command": "cargo.exe",
+    "args": [
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "save": "none",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false
+  },
+  {
+    "label": "KMJ OmniDesk · Rust Clippy (locked)",
+    "command": "cargo.exe",
+    "args": [
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--all-features",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "save": "none",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false
+  },
+  {
+    "label": "KMJ OmniDesk · Rust tests (locked)",
+    "command": "cargo.exe",
+    "args": [
+      "test",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--all-features"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "save": "none",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false
+  }
+]
