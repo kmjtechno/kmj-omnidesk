@@ -118,6 +118,39 @@ class EvidenceToolTests(unittest.TestCase):
             result = self.run_tool("checksums", "--root", str(traversed), ok=False)
             self.assertIn("parent traversal in evidence root", result.stderr)
 
+    def test_prepare_run_rejects_redirected_runs_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            package = base / "package"
+            package.mkdir()
+            outside = base / "outside"
+            outside.mkdir()
+            redirected = package / "runs"
+            try:
+                redirected.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"directory symlinks unavailable: {error}")
+            result = self.run_tool(
+                "prepare-run", "--root", str(package),
+                "--run-id", "M4-T1-R01", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("redirected runs directory forbidden", result.stderr)
+            self.assertFalse((outside / "M4-T1-R01").exists())
+            self.assertEqual(list(outside.iterdir()), [])
+
+    def test_prepare_run_rejects_non_directory_runs_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "runs").write_text("owner data", encoding="utf-8")
+            result = self.run_tool(
+                "prepare-run", "--root", temp,
+                "--run-id", "M4-T1-R01", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("runs path is not a directory", result.stderr)
+            self.assertEqual((root / "runs").read_text(encoding="utf-8"), "owner data")
+
     def test_rejects_cross_run_artifact_claim(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
