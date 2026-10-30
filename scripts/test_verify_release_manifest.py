@@ -247,6 +247,24 @@ class TestArtifacts(unittest.TestCase):
         self.assertIn("not an existing directory", str(violations[0]))
         self.assertEqual(not_directory.read_text(encoding="utf-8"), "owner data")
 
+    def test_hardlinked_external_payload_is_refused_without_modifying_it(self):
+        external = self.artifacts.parent / (self.artifacts.name + "-hardlink-source.exe")
+        external.write_bytes(PAYLOAD)
+        self.addCleanup(external.unlink, missing_ok=True)
+        artifact = self.artifacts / "app.exe"
+        try:
+            artifact.hardlink_to(external)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard links are unavailable on this filesystem")
+        self.assertGreater(artifact.stat().st_nlink, 1)
+        violations = check_artifacts(
+            good_manifest(artifacts={"app.exe": hashlib.sha256(PAYLOAD).hexdigest()}),
+            self.artifacts,
+        )
+        self.assertEqual(rules(violations), {"U4"})
+        self.assertIn("hard links", str(violations[0]))
+        self.assertEqual(external.read_bytes(), PAYLOAD)
+
     def test_malformed_digest_is_refused(self):
         self.write("app.exe")
         for digest in ("", "abc", "F" * 64, 123, None):
