@@ -47,3 +47,5 @@ python3 scripts/m4_evidence.py checksums \
 ```
 
 All run outcomes, network observations, authentication results, timings, and failure codes must come from the real endpoints under test. The helper refuses path escape and symlink artifacts and computes SHA-256 from the collected bytes.
+
+The `artifact` subcommand is **run-scoped**: `--run-id M4-T1-R01` accepts only regular files inside `runs/M4-T1-R01/`. It refuses a path belonging to a different run even when that file exists and its hash is correct. Package-wide build metadata or summaries that do not belong to a single run must be declared separately with `run_id: null` under the manifest contract; do not mislabel them with an arbitrary run ID. This is evidence binding, **not** proof that the endpoint produced the observations or that M4 has passed.
