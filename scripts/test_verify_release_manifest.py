@@ -691,6 +691,143 @@ class TestVerifyComposition(unittest.TestCase):
         self.assertEqual(rules(violations), {"U1", "U3", "U4", "U5", "U8"})
         self.assertGreaterEqual(len(violations), 5)
 
+    def test_pre_signing_mode_defers_u1_signature_check(self):
+        (self.artifacts / "app.exe").write_bytes(PAYLOAD)
+        digest = hashlib.sha256(PAYLOAD).hexdigest()
+        manifest = good_manifest(
+            version=6,
+            signature_verified_by=None,
+            artifacts={"app.exe": digest},
+        )
+        violations = verify(
+            manifest,
+            client_version=5,
+            client_channel="stable",
+            client_platform="windows-x86_64",
+            artifacts_dir=self.artifacts,
+            pre_signing=True,
+        )
+        self.assertEqual(violations, [])
+
+    def test_pre_signing_mode_still_enforces_u3_downgrade(self):
+        (self.artifacts / "app.exe").write_bytes(PAYLOAD)
+        digest = hashlib.sha256(PAYLOAD).hexdigest()
+        manifest = good_manifest(
+            version=4,
+            signature_verified_by=None,
+            artifacts={"app.exe": digest},
+        )
+        violations = verify(
+            manifest,
+            client_version=5,
+            client_channel="stable",
+            client_platform="windows-x86_64",
+            artifacts_dir=self.artifacts,
+            pre_signing=True,
+        )
+        self.assertEqual(rules(violations), {"U3"})
+
+    def test_pre_signing_mode_still_enforces_u4_artifact_digest(self):
+        (self.artifacts / "app.exe").write_bytes(PAYLOAD)
+        manifest = good_manifest(
+            version=6,
+            signature_verified_by=None,
+            artifacts={"app.exe": "f" * 64},
+        )
+        violations = verify(
+            manifest,
+            client_version=5,
+            client_channel="stable",
+            client_platform="windows-x86_64",
+            artifacts_dir=self.artifacts,
+            pre_signing=True,
+        )
+        self.assertEqual(rules(violations), {"U4"})
+
+    def test_pre_signing_mode_still_enforces_u8_cleanup(self):
+        (self.artifacts / "app.exe").write_bytes(PAYLOAD)
+        digest = hashlib.sha256(PAYLOAD).hexdigest()
+        manifest = good_manifest(
+            version=6,
+            signature_verified_by=None,
+            artifacts={"app.exe": digest},
+            cleanup={"windows-x86_64": []},
+        )
+        violations = verify(
+            manifest,
+            client_version=5,
+            client_channel="stable",
+            client_platform="windows-x86_64",
+            artifacts_dir=self.artifacts,
+            pre_signing=True,
+        )
+        self.assertEqual(rules(violations), {"U8"})
+
+    def test_unsigned_candidate_refused_without_pre_signing_flag(self):
+        (self.artifacts / "app.exe").write_bytes(PAYLOAD)
+        digest = hashlib.sha256(PAYLOAD).hexdigest()
+        manifest = good_manifest(
+            version=6,
+            signature_verified_by=None,
+            artifacts={"app.exe": digest},
+        )
+        violations = verify(
+            manifest,
+            client_version=5,
+            client_channel="stable",
+            client_platform="windows-x86_64",
+            artifacts_dir=self.artifacts,
+            pre_signing=False,
+        )
+        self.assertEqual(rules(violations), {"U1"})
+
+    def test_load_manifest_accepts_artifacts_list_and_bundle_wrapper(self):
+        bundle = {
+            "bundle": "test.zip",
+            "manifest": {
+                "version": "0.0.2",
+                "version_code": 2,
+                "channel": "beta",
+                "platform": "windows",
+                "arch": "x86_64",
+                "minimum_client_version": 1,
+                "artifacts": [
+                    {"name": "app.exe", "sha256": "a" * 64, "size_bytes": 100}
+                ],
+                "cleanup": {"windows-x86_64": ["OmniDeskUpdateTask"]},
+            },
+        }
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as handle:
+            json.dump(bundle, handle)
+            temp_path = Path(handle.name)
+        try:
+            manifest = load_manifest(temp_path)
+            self.assertEqual(manifest.version, 2)
+            self.assertEqual(manifest.platform, "windows-x86_64")
+            self.assertEqual(manifest.artifacts, {"app.exe": "a" * 64})
+        finally:
+            temp_path.unlink()
+
+    def test_load_manifest_rejects_duplicate_artifacts_in_list(self):
+        bad_bundle = {
+            "version": 2,
+            "channel": "beta",
+            "platform": "windows-x86_64",
+            "minimum_client_version": 1,
+            "artifacts": [
+                {"name": "app.exe", "sha256": "a" * 64},
+                {"name": "app.exe", "sha256": "b" * 64},
+            ],
+        }
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as handle:
+            json.dump(bad_bundle, handle)
+            temp_path = Path(handle.name)
+        try:
+            with self.assertRaisesRegex(ValueError, "duplicate artifact name"):
+                load_manifest(temp_path)
+        finally:
+            temp_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
