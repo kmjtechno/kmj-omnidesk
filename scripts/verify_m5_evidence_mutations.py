@@ -132,6 +132,11 @@ MUTATIONS: list[tuple[str, str, str]] = [
         'if outcome is not None:',
     ),
     (
+        "a refusal from an unclaimed gate counts as fail-closed",
+        'if "authorization_failure_is_fail_closed" in (entry.get("gates_observed") or []):',
+        "if True:",
+    ),
+    (
         "a missing unauthorized outcome counts as a refusal",
         "if outcome is None:\n            problems.append(f\"{run_id}: unauthorized attempt records no outcome\")\n            continue",
         "if outcome is None:\n            outcome = 'refused'",

@@ -472,6 +472,40 @@ class TestFailClosed(Fixture):
         report = self.report()
         self.assertEqual(report["gates"][FAILCLOSED]["status"], "observed")
 
+    def test_unclaimed_refusal_cannot_complete_a_different_runs_gate(self) -> None:
+        """Mutation: count any valid refusal, even from a run not claiming the gate.
+
+        A gate-claiming run that never attempted unauthorized access cannot
+        borrow the refusal from another run that did not claim this gate.
+        """
+        self.append(
+            self.code_run("M5-CODE-R001", gates_observed=[FAILCLOSED]),
+            self.code_run(
+                "M5-CODE-R002", gates_observed=[DECRYPT],
+                unauthorized_attempted=True, unauthorized_outcome="refused",
+            ),
+        )
+        report = self.report()
+        self.assertEqual(report["gates"][FAILCLOSED]["status"], "unmet")
+        self.assertTrue(any("no recorded unauthorized attempt was refused" in p
+                            for p in report["problems"]))
+
+    def test_unclaimed_forwarded_attempt_still_blocks_claimed_refusal(self) -> None:
+        """Mutation: filter all attempts to gate claimants, hiding a real failure."""
+        self.append(
+            self.code_run(
+                "M5-CODE-R001", gates_observed=[FAILCLOSED],
+                unauthorized_attempted=True, unauthorized_outcome="refused",
+            ),
+            self.code_run(
+                "M5-CODE-R002", gates_observed=[DECRYPT],
+                unauthorized_attempted=True, unauthorized_outcome="forwarded",
+            ),
+        )
+        report = self.report()
+        self.assertEqual(report["gates"][FAILCLOSED]["status"], "unmet")
+        self.assertTrue(any("rather than refused" in p for p in report["problems"]))
+
     def test_an_attempt_recording_no_outcome_is_refused(self) -> None:
         """Mutation: treat a missing outcome as a refusal."""
         self.append(self.code_run(unauthorized_attempted=True))
@@ -1006,6 +1040,56 @@ class TestUnreadableOptionalDocument(Fixture):
             with self.assertRaises(SystemExit) as caught:
                 m5.command_record(args)
             self.assertIn(str(path), str(caught.exception), field)
+
+
+class TestEvidenceRootSafety(Fixture):
+    """An operator-supplied root must never redirect evidence IO."""
+
+    def test_symlinked_root_refused_by_all_entry_points(self) -> None:
+        import argparse
+
+        linked = Path(self.directory.name) / "redirected-root"
+        try:
+            linked.symlink_to(self.root, target_is_directory=True)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"directory symlinks unavailable: {error}")
+
+        ledger = self.root / "ledger.jsonl"
+        before = ledger.read_bytes()
+        commands = (
+            (m5.command_init, argparse.Namespace(root=str(linked))),
+            (m5.command_record, argparse.Namespace(root=str(linked))),
+            (m5.command_verify, argparse.Namespace(
+                root=str(linked), roadmap=str(self.roadmap), json=True,
+            )),
+        )
+        for command, args in commands:
+            with self.subTest(command=command.__name__):
+                with self.assertRaises(SystemExit) as caught:
+                    command(args)
+                self.assertIn("redirected M5 evidence root", str(caught.exception))
+        self.assertEqual(ledger.read_bytes(), before)
+        self.assertEqual(list((self.root / "raw").iterdir()), [])
+
+    def test_symlinked_parent_and_traversal_refused(self) -> None:
+        import argparse
+
+        parent_link = Path(self.directory.name) / "parent-link"
+        try:
+            parent_link.symlink_to(self.root.parent, target_is_directory=True)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"directory symlinks unavailable: {error}")
+
+        redirected = parent_link / self.root.name
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_init(argparse.Namespace(root=str(redirected)))
+        self.assertIn("redirected M5 evidence root", str(caught.exception))
+
+        traversed = self.root / ".." / self.root.name
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_init(argparse.Namespace(root=str(traversed)))
+        self.assertIn("parent traversal", str(caught.exception))
+        self.assertEqual((self.root / "ledger.jsonl").read_bytes(), b"")
 
 
 if __name__ == "__main__":
