@@ -410,5 +410,56 @@ class MatrixToolTests(unittest.TestCase):
 
 
 
+
+    def test_nonnumeric_or_nonfinite_metrics_refused_by_verify_and_compare(self):
+        for value in (None, True, "42", float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=repr(value)), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                self.make_run(root, "M13-office-R001", metrics={"interactive_latency_ms": value})
+                self.make_run(root, "M13-office-R002")
+                verified = self.run_tool("verify", "--root", str(root), ok=False)
+                self.assertNotEqual(verified.returncode, 0)
+                self.assertIn("interactive_latency_ms", self.output(verified))
+                compared = self.run_tool(
+                    "compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002", ok=False,
+                )
+                self.assertNotEqual(compared.returncode, 0)
+                self.assertIn("incomplete metrics", self.output(compared))
+
+    def test_invalid_environment_types_refused_by_verify_and_compare(self):
+        for field, value in (("machine_id", 42), ("profile", []), ("os_build", "  ")):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                self.make_run(root, "M13-office-R001", environment={field: value})
+                self.make_run(root, "M13-office-R002")
+                verified = self.run_tool("verify", "--root", str(root), ok=False)
+                self.assertNotEqual(verified.returncode, 0)
+                self.assertIn(field, self.output(verified))
+                compared = self.run_tool(
+                    "compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002", ok=False,
+                )
+                self.assertNotEqual(compared.returncode, 0)
+                self.assertIn("incomplete environment", self.output(compared))
+
+    def test_self_comparison_is_not_independent_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            result = self.run_tool(
+                "compare", "--root", str(root),
+                "--baseline", "M13-office-R001",
+                "--candidate", "M13-office-R001", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("distinct runs required", self.output(result))
+
+
 if __name__ == "__main__":
     unittest.main()
