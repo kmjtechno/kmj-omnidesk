@@ -392,5 +392,23 @@ class MatrixToolTests(unittest.TestCase):
 
 
 
+    def test_redirected_ledger_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            ledger = root / "ledger.jsonl"
+            outside = root / "other-ledger.jsonl"
+            outside.write_text("", encoding="utf-8")
+            ledger.unlink()
+            try:
+                ledger.symlink_to(outside)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"symlink unavailable: {error}")
+            result = self.run_tool("verify", "--root", str(root), ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("redirected M13 evidence ledger", self.output(result))
+
+
+
 if __name__ == "__main__":
     unittest.main()
