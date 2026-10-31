@@ -8,6 +8,7 @@ not evidence of anything.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -580,6 +581,57 @@ class MatrixToolTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("expected R002", self.output(result))
             self.assertEqual(len((root / "ledger.jsonl").read_text().splitlines()), 1)
+
+
+
+    def test_record_refuses_empty_raw_sample_file(self):
+        # A zero-byte file is not per-sample benchmark evidence.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            raw_dir = root / "raw"
+            raw_dir.mkdir()
+            raw = raw_dir / "M13-office-R001.samples.jsonl"
+            raw.write_bytes(b"")
+            env = root / "env.json"
+            env.write_text(json.dumps(ENVIRONMENT), encoding="utf-8")
+            metrics = root / "metrics.json"
+            metrics.write_text(json.dumps(FULL_METRICS), encoding="utf-8")
+            result = self.run_tool(
+                "record", "--root", str(root), "--run-id", "M13-office-R001",
+                "--raw", str(raw), "--environment", str(env),
+                "--metrics", str(metrics), ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("empty raw sample file", self.output(result))
+            self.assertEqual((root / "ledger.jsonl").read_text(), "")
+
+    def test_empty_raw_with_matching_hash_and_size_refuses_verify_compare(self):
+        # Forged metadata must not turn zero observations into a valid run.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            self.make_run(root, "M13-office-R002")
+            raw = root / "raw" / "M13-office-R001.samples.jsonl"
+            raw.write_bytes(b"")
+            ledger = root / "ledger.jsonl"
+            entries = [json.loads(line) for line in ledger.read_text().splitlines()]
+            entries[0]["raw_sha256"] = hashlib.sha256(b"").hexdigest()
+            entries[0]["raw_bytes"] = 0
+            ledger.write_text(
+                "".join(json.dumps(entry) + "\\n" for entry in entries),
+                encoding="utf-8",
+            )
+            for args in (
+                ("verify", "--root", str(root)),
+                ("compare", "--root", str(root),
+                 "--baseline", "M13-office-R001",
+                 "--candidate", "M13-office-R002"),
+            ):
+                result = self.run_tool(*args, ok=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("empty raw sample file", self.output(result))
 
 
 if __name__ == "__main__":
