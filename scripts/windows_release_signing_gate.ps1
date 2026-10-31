@@ -32,11 +32,11 @@ function Assert-NoRedirectedInstallerAncestors([string]$Path) {
         throw 'Installer path cannot contain parent traversal'
     }
     # Reject Windows path aliases before filesystem access or signature checks.
-    # ADS, trailing dot/space normalization and DOS devices are not canonical
+    # ADS, trailing dot/space normalization and DOS devices (including Windows\n    # superscript-digit COM/LPT aliases) are not canonical
     # local installer paths and must not be accepted as release artifacts.
     foreach ($component in ($Path.Substring(3) -split '[\\/]')) {
         if ($component -match ':' -or $component -match '[. ]$' -or
-            $component -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$') {
+            $component -match '^(?i:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\..*)?$') {
             throw 'Installer path contains unsupported Windows path syntax'
         }
     }
