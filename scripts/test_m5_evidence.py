@@ -460,6 +460,21 @@ class TestLedgerClaimIntegrity(Fixture):
         self.assertEqual(report["gates"][CONF]["status"], "unmet")
         self.assertTrue(any("gates_observed must be a list" in p for p in report["problems"]))
 
+    def test_non_string_evidence_class_refuses_without_crashing(self) -> None:
+        self.append(self.transport_run(evidence_class=["transport_observed"]))
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertTrue(any("non-string evidence class" in p for p in report["problems"]))
+
+    def test_unclaimed_invalid_evidence_class_invalidates_ledger(self) -> None:
+        self.append(self.code_run(), self.entry(
+            "M5-OTHER-R002", evidence_class={"type": "code_observed"},
+            gates_observed=[],
+        ))
+        report = self.report()
+        self.assertFalse(report["m5_satisfied"])
+        self.assertTrue(any("invalid evidence_class in M5 ledger" in p for p in report["problems"]))
+
     def test_observation_byte_count_must_match(self) -> None:
         self.append(self.transport_run(raw_bytes=0))
         report = self.report()
