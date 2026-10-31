@@ -23,6 +23,11 @@ $ErrorActionPreference = 'Stop'
 # verification. They do prevent an operator-supplied junction/symlink parent
 # from silently redirecting an otherwise ordinary installer file.
 function Assert-NoRedirectedInstallerAncestors([string]$Path) {
+    # Do not touch network shares, device namespaces, drive-relative paths or
+    # a caller-dependent working directory. Check lexically before any IO.
+    if ($Path -cnotmatch '^[A-Za-z]:[\\/]') {
+        throw 'Installer path must be an absolute local drive path'
+    }
     if (($Path -split '[\\/]') -contains '..') {
         throw 'Installer path cannot contain parent traversal'
     }
