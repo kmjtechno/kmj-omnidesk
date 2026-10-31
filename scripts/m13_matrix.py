@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import stat
 from datetime import datetime, timezone
@@ -243,7 +244,16 @@ def command_record(args: argparse.Namespace) -> None:
 
 
 def missing_metrics(metrics: dict) -> list[str]:
-    return [name for name in REQUIRED_METRICS if name not in metrics]
+    """Reject absent, nonnumeric, boolean and nonfinite reported metrics."""
+    return [
+        name
+        for name in REQUIRED_METRICS
+        if name not in metrics
+        or not (
+            type(metrics[name]) is int
+            or (type(metrics[name]) is float and math.isfinite(metrics[name]))
+        )
+    ]
 
 
 def command_verify(args: argparse.Namespace) -> None:
@@ -293,8 +303,9 @@ def command_verify(args: argparse.Namespace) -> None:
         else:
             missing_env = [
                 field
-                for field in ("machine_id", "os_build", "commit")
-                if not environment.get(field)
+                for field in COMPARABILITY_FIELDS
+                if not isinstance(environment.get(field), str)
+                or not environment[field].strip()
             ]
             if missing_env:
                 problems.append(
@@ -310,7 +321,7 @@ def command_verify(args: argparse.Namespace) -> None:
             missing = missing_metrics(metrics)
             if missing:
                 problems.append(
-                    f"{run_id}: incomplete matrix -- missing " + ", ".join(missing)
+                    f"{run_id}: incomplete matrix -- missing or invalid " + ", ".join(missing)
                 )
 
     if problems:
@@ -332,6 +343,8 @@ def command_verify(args: argparse.Namespace) -> None:
 
 def command_compare(args: argparse.Namespace) -> None:
     """Check that a claimed comparison rests on comparable runs."""
+    if args.baseline == args.candidate:
+        fail("comparative_claims_require_reproducible_comparable_tests: distinct runs required")
     root = checked_root(args.root)
     ledger = read_ledger(root)
     if len({entry["run_id"] for entry in ledger}) != len(ledger):
