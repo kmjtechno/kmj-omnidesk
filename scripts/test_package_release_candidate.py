@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -16,7 +17,7 @@ class ReleaseCandidatePackagingTests(unittest.TestCase):
     ):
         return subprocess.run(
             [
-                "python3",
+                sys.executable,
                 str(SCRIPT),
                 "--binary",
                 str(binary),

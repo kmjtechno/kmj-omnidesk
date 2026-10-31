@@ -4,7 +4,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 
-if (-not $IsWindows) { throw 'M9 signing-path tests require Windows' }
+$isWin = if (Test-Path Variable:IsWindows) { $IsWindows } else { [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT }
+if (-not $isWin) { throw 'M9 signing-path tests require Windows' }
 $gate = Join-Path $PSScriptRoot 'windows_release_signing_gate.ps1'
 $root = Join-Path ([IO.Path]::GetTempPath()) ("omnidesk-m9-" + [guid]::NewGuid().ToString('N'))
 $real = Join-Path $root 'real'
