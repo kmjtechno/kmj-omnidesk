@@ -135,13 +135,57 @@ def load_manifest(path: Path) -> Manifest:
     if not isinstance(raw, dict):
         raise ValueError("manifest must be a JSON object")
 
-    required = ("version", "channel", "platform", "minimum_client_version")
-    missing = [key for key in required if key not in raw]
-    if missing:
-        raise ValueError(f"manifest is missing required keys: {', '.join(missing)}")
+    # If this is a candidate bundle wrapper with {"manifest": {...}}, unwrap it.
+    if "manifest" in raw and isinstance(raw["manifest"], dict) and (
+        "version" in raw["manifest"] or "version_code" in raw["manifest"]
+    ):
+        raw = raw["manifest"]
 
-    version = raw["version"]
-    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+    platform = raw.get("platform")
+    if "target_platform" in raw and isinstance(raw["target_platform"], str):
+        if raw["target_platform"] in PLATFORMS:
+            platform = raw["target_platform"]
+    elif isinstance(platform, str) and platform not in PLATFORMS and "arch" in raw:
+        combo = f"{platform}-{raw['arch']}"
+        if combo in PLATFORMS:
+            platform = combo
+
+    if "version" not in raw and "version_code" not in raw:
+        raise ValueError("manifest is missing required keys: version")
+    for key in ("channel", "minimum_client_version"):
+        if key not in raw:
+            raise ValueError(f"manifest is missing required keys: {key}")
+    if platform is None:
+        raise ValueError("manifest is missing required keys: platform")
+
+    version_raw = (
+        raw.get("version_code")
+        if isinstance(raw.get("version_code"), int) and not isinstance(raw.get("version_code"), bool)
+        else raw.get("version")
+    )
+    if isinstance(version_raw, str):
+        try:
+            version = int(version_raw)
+        except ValueError:
+            parts = version_raw.split("-")[0].split(".")
+            if len(parts) >= 1 and all(p.isdigit() for p in parts):
+                ints = [int(p) for p in parts]
+                if len(ints) == 3:
+                    version = ints[0] * 10000 + ints[1] * 100 + ints[2]
+                elif len(ints) == 1:
+                    version = ints[0]
+                else:
+                    version = ints[0] * 100 + ints[1]
+            else:
+                raise ValueError(
+                    f"version must be a positive integer or valid semver, got {version_raw!r}"
+                )
+    elif isinstance(version_raw, int) and not isinstance(version_raw, bool):
+        version = version_raw
+    else:
+        raise ValueError(f"version must be a positive integer, got {version_raw!r}")
+
+    if version < 1:
         raise ValueError(f"version must be a positive integer, got {version!r}")
 
     minimum = raw["minimum_client_version"]
@@ -150,16 +194,36 @@ def load_manifest(path: Path) -> Manifest:
             f"minimum_client_version must be a positive integer, got {minimum!r}"
         )
 
-    artifacts = raw.get("artifacts", {})
-    if not isinstance(artifacts, dict):
-        raise ValueError("artifacts must be an object mapping name to digest")
+    raw_artifacts = raw.get("artifacts", {})
+    if isinstance(raw_artifacts, list):
+        artifacts: dict[str, str] = {}
+        for entry in raw_artifacts:
+            if not isinstance(entry, dict) or "name" not in entry or "sha256" not in entry:
+                raise ValueError(
+                    "artifacts list entries must be objects with name and sha256"
+                )
+            name = entry["name"]
+            if not isinstance(name, str):
+                raise ValueError(f"artifact name must be a string, got {name!r}")
+            if name in artifacts:
+                raise ValueError(f"duplicate artifact name {name!r}")
+            digest = entry["sha256"]
+            if not isinstance(digest, str):
+                raise ValueError(f"artifact sha256 must be a string, got {digest!r}")
+            artifacts[name] = digest
+    elif isinstance(raw_artifacts, dict):
+        artifacts = raw_artifacts
+    else:
+        raise ValueError(
+            "artifacts must be an object mapping name to digest or list of artifact objects"
+        )
 
     cleanup = raw.get("cleanup", {})
     if not isinstance(cleanup, dict) or any(
-        not isinstance(platform, str)
+        not isinstance(plat, str)
         or not isinstance(targets, list)
         or any(not isinstance(target, str) for target in targets)
-        for platform, targets in cleanup.items()
+        for plat, targets in cleanup.items()
     ):
         raise ValueError("cleanup must map platforms to lists of entry names")
 
@@ -170,7 +234,7 @@ def load_manifest(path: Path) -> Manifest:
     return Manifest(
         version=version,
         channel=raw["channel"],
-        platform=raw["platform"],
+        platform=platform,
         minimum_client_version=minimum,
         artifacts=artifacts,
         signature_verified_by=verifier,
@@ -542,10 +606,12 @@ def verify(
     client_channel: str,
     client_platform: str,
     artifacts_dir: Path,
+    pre_signing: bool = False,
 ) -> list[Violation]:
     """Run every check this script can run offline."""
     violations: list[Violation] = []
-    violations += check_signature_declared(manifest)
+    if not pre_signing:
+        violations += check_signature_declared(manifest)
     violations += check_downgrade(manifest, client_version)
     violations += check_channel(manifest, client_channel)
     violations += check_platform(manifest, client_platform)
@@ -562,6 +628,11 @@ def main() -> int:
     parser.add_argument("--client-version", type=int, required=True)
     parser.add_argument("--client-channel", required=True)
     parser.add_argument("--client-platform", required=True)
+    parser.add_argument(
+        "--pre-signing",
+        action="store_true",
+        help="verify all pre-signing integrity properties on unsigned candidates (defers U1 signature check)",
+    )
     args = parser.parse_args()
 
     try:
@@ -576,6 +647,7 @@ def main() -> int:
         args.client_channel,
         args.client_platform,
         args.artifacts,
+        pre_signing=args.pre_signing,
     )
 
     if violations:
@@ -586,8 +658,9 @@ def main() -> int:
             print(f"  {violation}", file=sys.stderr)
         return 1
 
+    mode_label = "PRE-SIGNING OK (signature check deferred)" if args.pre_signing else "OK"
     print(
-        f"release-integrity: OK (manifest v{manifest.version}, "
+        f"release-integrity: {mode_label} (manifest v{manifest.version}, "
         f"{manifest.channel}/{manifest.platform}, "
         f"{len(manifest.artifacts)} artifact(s))"
     )

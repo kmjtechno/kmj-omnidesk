@@ -168,6 +168,40 @@ class ReleaseCandidatePackagingTests(unittest.TestCase):
         self.assertNotIn("--version '${{ inputs.version }}'", workflow)
         self.assertNotIn("--channel '${{ inputs.channel }}'", workflow)
 
+    def test_manifest_includes_cleanup_and_minimum_client_version(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            binary = root / "omnidesk-desktop.exe"
+            binary.write_bytes(b"binary-data")
+            result = self.run_packager(binary, root / "out", version="0.0.1", platform="windows", arch="x86_64")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest = json.loads(result.stdout)["manifest"]
+            self.assertEqual(manifest["target_platform"], "windows-x86_64")
+            self.assertEqual(manifest["minimum_client_version"], 1)
+            self.assertEqual(manifest["version_code"], 1)
+            self.assertIn("windows-x86_64", manifest["cleanup"])
+            self.assertIn("OmniDeskUpdateTask", manifest["cleanup"]["windows-x86_64"])
+
+    def test_packaged_candidate_is_loadable_by_verify_release_manifest(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import verify_release_manifest
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            binary = root / "omnidesk-desktop.exe"
+            binary.write_bytes(b"binary-data")
+            result = self.run_packager(binary, root / "out", version="0.0.2")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            bundle_json = root / "out" / "kmj-omnidesk-0.0.2-windows-x86_64.bundle.json"
+            staging_manifest = root / "out" / "kmj-omnidesk-0.0.2-windows-x86_64" / "release-candidate-manifest.json"
+
+            manifest1 = verify_release_manifest.load_manifest(bundle_json)
+            manifest2 = verify_release_manifest.load_manifest(staging_manifest)
+            self.assertEqual(manifest1.platform, "windows-x86_64")
+            self.assertEqual(manifest2.platform, "windows-x86_64")
+            self.assertEqual(manifest1.version, manifest2.version)
+            self.assertEqual(manifest1.artifacts, manifest2.artifacts)
+
 
 
 if __name__ == "__main__":

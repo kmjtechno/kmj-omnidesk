@@ -39,6 +39,32 @@ def safe_version(value: str) -> str:
     return safe_component(value, "version")
 
 
+def parse_version_code(version: str, override: int | None = None) -> int:
+    """Return a strictly positive integer version code for update monotonic checks."""
+    if override is not None:
+        if override < 1:
+            raise ValueError(f"version_code must be positive, got {override}")
+        return override
+    try:
+        val = int(version)
+        if val >= 1:
+            return val
+    except ValueError:
+        pass
+    parts = version.split("-")[0].split(".")
+    if len(parts) >= 1 and all(p.isdigit() for p in parts):
+        ints = [int(p) for p in parts]
+        if len(ints) == 3:
+            code = ints[0] * 10000 + ints[1] * 100 + ints[2]
+        elif len(ints) == 1:
+            code = ints[0]
+        else:
+            code = ints[0] * 100 + ints[1]
+        if code >= 1:
+            return code
+    return 1
+
+
 def build(args: argparse.Namespace) -> dict:
     binary = Path(args.binary).resolve(strict=True)
     version = safe_version(args.version)
@@ -65,14 +91,30 @@ def build(args: argparse.Namespace) -> dict:
     packaged_binary = staging / binary.name
     shutil.copy2(binary, packaged_binary)
 
+    target_platform = f"{platform}-{arch}"
+    version_code = parse_version_code(version, getattr(args, "version_code", None))
+    minimum_client_version = getattr(args, "minimum_client_version", 1)
+    if minimum_client_version < 1:
+        raise ValueError(f"minimum_client_version must be positive, got {minimum_client_version}")
+
+    cleanup_targets = (
+        ["OmniDeskUpdateTask", "OmniDeskUpdaterService"]
+        if platform == "windows"
+        else ["omnidesk-update.service"]
+    )
+    cleanup = {target_platform: cleanup_targets}
+
     manifest = {
         "schema_version": 1,
         "product_id": "KMJ_OMNIDESK",
         "product_slug": "kmj-omnidesk",
         "version": version,
+        "version_code": version_code,
         "channel": args.channel,
         "platform": platform,
         "arch": arch,
+        "target_platform": target_platform,
+        "minimum_client_version": minimum_client_version,
         "release_state": "UNSIGNED_CANDIDATE",
         "publishable": False,
         "signature_declared": False,
@@ -84,6 +126,7 @@ def build(args: argparse.Namespace) -> dict:
                 "signature_declared": False,
             }
         ],
+        "cleanup": cleanup,
     }
     manifest_path = staging / "release-candidate-manifest.json"
     manifest_path.write_text(
@@ -126,6 +169,8 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--platform", default="windows")
     value.add_argument("--arch", default="x86_64")
     value.add_argument("--channel", choices=["stable", "beta"], default="beta")
+    value.add_argument("--version-code", type=int, default=None)
+    value.add_argument("--minimum-client-version", type=int, default=1)
     return value
 
 
