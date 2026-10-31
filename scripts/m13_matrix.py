@@ -200,6 +200,26 @@ def read_ledger(root: Path) -> list[dict]:
             fail(f"{path}:{number}: invalid ledger entry or run_id")
     return entries
 
+def sequence_problems(entries: list[dict]) -> list[str]:
+    """Detect omitted, repeated or reordered run numbers within each label.
+
+    A run cannot prove that the final entry was never deleted, but a gap
+    between surviving entries is independently observable and must fail.
+    """
+    groups: dict[str, list[int]] = {}
+    for entry in entries:
+        label, ordinal = entry["run_id"].rsplit("-R", 1)
+        groups.setdefault(label, []).append(int(ordinal))
+
+    problems: list[str] = []
+    for label, observed in groups.items():
+        if observed != list(range(1, len(observed) + 1)):
+            problems.append(
+                f"cherry_picking_forbidden: {label} run IDs must be contiguous "
+                f"and in ledger order from R001 (observed {observed!r})"
+            )
+    return problems
+
 
 def command_record(args: argparse.Namespace) -> None:
     """Append one measured run to the ledger.
@@ -224,6 +244,18 @@ def command_record(args: argparse.Namespace) -> None:
         fail(
             f"run_id {run_id} is already in the ledger; "
             "a run cannot be replaced under the same name (cherry_picking_forbidden)"
+        )
+
+    if sequence_problems(existing):
+        fail("cherry_picking_forbidden: existing ledger sequence is invalid")
+    label, ordinal = run_id.rsplit("-R", 1)
+    next_ordinal = 1 + sum(
+        row["run_id"].rsplit("-R", 1)[0] == label for row in existing
+    )
+    if int(ordinal) != next_ordinal:
+        fail(
+            "cherry_picking_forbidden: run_id must be the next contiguous "
+            f"number for {label} (expected R{next_ordinal:03d})"
         )
 
     entry = {
@@ -282,7 +314,7 @@ def command_verify(args: argparse.Namespace) -> None:
     if not entries:
         fail(f"no runs recorded under {root}; nothing to verify")
 
-    problems: list[str] = []
+    problems: list[str] = sequence_problems(entries)
 
     # rule: cherry_picking_forbidden. Detected as a hole in the sequence, not
     # as anything inside a surviving run -- that is what makes deleting a file
@@ -366,6 +398,9 @@ def command_compare(args: argparse.Namespace) -> None:
         fail("comparative_claims_require_reproducible_comparable_tests: distinct runs required")
     root = checked_root(args.root)
     ledger = read_ledger(root)
+    sequence_errors = sequence_problems(ledger)
+    if sequence_errors:
+        fail("; ".join(sequence_errors))
     if len({entry["run_id"] for entry in ledger}) != len(ledger):
         fail("cherry_picking_forbidden: duplicate run_id in comparison ledger")
     entries = {entry["run_id"]: entry for entry in ledger}
