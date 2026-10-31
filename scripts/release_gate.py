@@ -201,12 +201,10 @@ def check_licensing_integration(release: dict) -> list[str]:
 
 
 def check_security_gate(release: dict) -> list[str]:
-    """Every named CI check must be reported green.
+    """Reject missing, malformed, duplicated or non-green security evidence.
 
-    This delegates to whatever ran the checks. It cannot tell a passing
-    security review from a forged report — nothing can — so its job is to make
-    the report *exist and be complete*, so that "the gate passed" is a
-    statement about a specific set of checks rather than about a feeling.
+    This checks report consistency, not GitHub provenance. A caller still
+    needs to authenticate every named CI run at its exact commit SHA.
     """
     checks = release.get("security_checks")
     if not isinstance(checks, list) or not checks:
@@ -216,8 +214,28 @@ def check_security_gate(release: dict) -> list[str]:
         ]
 
     problems: list[str] = []
-    for check in checks:
-        name = check.get("name", "<unnamed>")
+    seen: set[str] = set()
+    for index, check in enumerate(checks):
+        if not isinstance(check, dict):
+            problems.append(
+                f"security_gate_pass: check #{index + 1} is not a check object"
+            )
+            continue
+
+        name = check.get("name")
+        if not isinstance(name, str) or not name.strip():
+            problems.append(
+                f"security_gate_pass: check #{index + 1} has no non-empty name"
+            )
+            continue
+
+        # A duplicated report must not increase apparent CI coverage.
+        # Normalize display-only differences that could hide duplicates.
+        identity = name.strip().casefold()
+        if identity in seen:
+            problems.append(f"security_gate_pass: duplicate check name {name!r}")
+        seen.add(identity)
+
         if check.get("status") != "green":
             problems.append(f"security_gate_pass: {name} is {check.get('status')!r}")
     return problems
