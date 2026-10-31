@@ -306,5 +306,36 @@ class EvidenceToolTests(unittest.TestCase):
             self.assertEqual((actual / "events.jsonl").read_text(encoding="utf-8"), "observed\n")
 
 
+    def test_rejects_ambiguous_checksum_filenames_without_changing_bytes(self):
+        # Windows does not permit several of these characters; Linux does.
+        # A raw checksum row must never embed a newline or a backslash.
+        exercised = 0
+        for bad_name in ("events\ninjected.jsonl", "events\\backslash.jsonl", "events\tcontrol.jsonl"):
+            with self.subTest(name=repr(bad_name)), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                run = root / "runs" / "M4-T1-R01"
+                run.mkdir(parents=True)
+                artifact = run / bad_name
+                try:
+                    artifact.write_bytes(b"real-observation\n")
+                except (OSError, ValueError):
+                    continue  # Invalid filename on this host filesystem.
+                exercised += 1
+                entry = self.run_tool(
+                    "artifact", "--root", str(root), "--file", str(artifact),
+                    "--artifact-id", "ambiguous", "--run-id", "M4-T1-R01",
+                    "--kind", "EVENT_LOG", "--content-type", "application/jsonl",
+                    "--component", "agent", "--version", "1", ok=False,
+                )
+                self.assertNotEqual(entry.returncode, 0)
+                self.assertIn("non-portable checksum path", entry.stderr)
+                checksums = self.run_tool("checksums", "--root", str(root), ok=False)
+                self.assertNotEqual(checksums.returncode, 0)
+                self.assertIn("non-portable checksum path", checksums.stderr)
+                self.assertEqual(artifact.read_bytes(), b"real-observation\n")
+        if not exercised:
+            self.skipTest("host filesystem disallows ambiguous checksum filenames")
+
+
 if __name__ == "__main__":
     unittest.main()
