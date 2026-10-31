@@ -294,5 +294,239 @@ class MatrixToolTests(unittest.TestCase):
             self.assertIn("nothing to verify", self.output(result))
 
 
+    def test_raw_path_traversal_refused_even_with_matching_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            ledger = root / "ledger.jsonl"
+            entry = json.loads(ledger.read_text(encoding="utf-8"))
+            entry["raw_path"] = "../M13-office-R001.samples.jsonl"
+            ledger.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+            result = self.run_tool("verify", "--root", str(root), ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsafe raw filename", self.output(result))
+
+    def test_raw_size_forgery_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            ledger = root / "ledger.jsonl"
+            entry = json.loads(ledger.read_text(encoding="utf-8"))
+            entry["raw_bytes"] += 1
+            ledger.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+            result = self.run_tool("verify", "--root", str(root), ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("raw_bytes mismatch", self.output(result))
+
+    def test_raw_symlink_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            raw = root / "raw" / "M13-office-R001.samples.jsonl"
+            raw.unlink()
+            try:
+                raw.symlink_to(root / "M13-office-R001.samples.jsonl")
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"symlink unavailable: {error}")
+            result = self.run_tool("verify", "--root", str(root), ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unshared and regular", self.output(result))
+
+    def test_raw_hardlink_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            raw = root / "raw" / "M13-office-R001.samples.jsonl"
+            try:
+                import os
+                os.link(raw, root / "shared.jsonl")
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"hardlink unavailable: {error}")
+            result = self.run_tool("verify", "--root", str(root), ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unshared and regular", self.output(result))
+
+    def test_compare_refuses_tampered_raw_and_duplicate_runs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            self.make_run(root, "M13-office-R002")
+            args = ("compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002")
+            raw = root / "raw" / "M13-office-R001.samples.jsonl"
+            raw.write_text('{"latency_ms": 1}\n', encoding="utf-8")
+            result = self.run_tool(*args, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("comparison evidence mismatch", self.output(result))
+            ledger = root / "ledger.jsonl"
+            lines = ledger.read_text(encoding="utf-8").splitlines()
+            ledger.write_text("\n".join(lines + [lines[0]]) + "\n", encoding="utf-8")
+            result = self.run_tool(*args, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("duplicate run_id", self.output(result))
+
+    def test_record_refuses_external_raw(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            sample = root / "external.jsonl"
+            sample.write_text('{"latency_ms": 42}\n', encoding="utf-8")
+            environment = root / "env.json"
+            environment.write_text(json.dumps(ENVIRONMENT), encoding="utf-8")
+            metrics = root / "metrics.json"
+            metrics.write_text(json.dumps(FULL_METRICS), encoding="utf-8")
+            result = self.run_tool(
+                "record", "--root", str(root), "--run-id", "M13-office-R001",
+                "--raw", str(sample), "--environment", str(environment),
+                "--metrics", str(metrics), ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("raw_results_required", self.output(result))
+            self.assertEqual((root / "ledger.jsonl").read_text(), "")
+
+
+
+    def test_redirected_ledger_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            ledger = root / "ledger.jsonl"
+            outside = root / "other-ledger.jsonl"
+            outside.write_text("", encoding="utf-8")
+            ledger.unlink()
+            try:
+                ledger.symlink_to(outside)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"symlink unavailable: {error}")
+            result = self.run_tool("verify", "--root", str(root), ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("redirected M13 evidence ledger", self.output(result))
+
+
+
+
+    def test_nonnumeric_or_nonfinite_metrics_refused_by_verify_and_compare(self):
+        for value in (None, True, "42", float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=repr(value)), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                self.make_run(root, "M13-office-R001", metrics={"interactive_latency_ms": value})
+                self.make_run(root, "M13-office-R002")
+                verified = self.run_tool("verify", "--root", str(root), ok=False)
+                self.assertNotEqual(verified.returncode, 0)
+                self.assertIn("interactive_latency_ms", self.output(verified))
+                compared = self.run_tool(
+                    "compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002", ok=False,
+                )
+                self.assertNotEqual(compared.returncode, 0)
+                self.assertIn("incomplete metrics", self.output(compared))
+
+    def test_invalid_environment_types_refused_by_verify_and_compare(self):
+        for field, value in (("machine_id", 42), ("profile", []), ("os_build", "  ")):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                self.make_run(root, "M13-office-R001", environment={field: value})
+                self.make_run(root, "M13-office-R002")
+                verified = self.run_tool("verify", "--root", str(root), ok=False)
+                self.assertNotEqual(verified.returncode, 0)
+                self.assertIn(field, self.output(verified))
+                compared = self.run_tool(
+                    "compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002", ok=False,
+                )
+                self.assertNotEqual(compared.returncode, 0)
+                self.assertIn("incomplete environment", self.output(compared))
+
+    def test_self_comparison_is_not_independent_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            result = self.run_tool(
+                "compare", "--root", str(root),
+                "--baseline", "M13-office-R001",
+                "--candidate", "M13-office-R001", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("distinct runs required", self.output(result))
+
+
+    def test_negative_metric_values_refused_by_verify_and_compare(self):
+        # Negative durations, usage, rates and scores cannot be measurements.
+        for field in (
+            "interactive_latency_ms", "bandwidth_kbps", "cpu_percent",
+            "ram_mb", "direct_connect_success_rate", "relay_ratio",
+            "visual_quality_metric",
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                self.make_run(root, "M13-office-R001", metrics={field: -0.5})
+                self.make_run(root, "M13-office-R002")
+                verified = self.run_tool("verify", "--root", str(root), ok=False)
+                self.assertNotEqual(verified.returncode, 0)
+                self.assertIn(field, self.output(verified))
+                compared = self.run_tool(
+                    "compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002", ok=False,
+                )
+                self.assertNotEqual(compared.returncode, 0)
+                self.assertIn("incomplete metrics", self.output(compared))
+
+
+    def test_impossible_percentage_and_ratio_values_refused(self):
+        # Valid finite numbers are still impossible measurements if out of range.
+        for field, value in (
+            ("cpu_percent", 100.1),
+            ("gpu_percent", 101),
+            ("direct_connect_success_rate", 101),
+            ("relay_ratio", 1.01),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                self.make_run(root, "M13-office-R001", metrics={field: value})
+                self.make_run(root, "M13-office-R002")
+                verified = self.run_tool("verify", "--root", str(root), ok=False)
+                self.assertNotEqual(verified.returncode, 0)
+                self.assertIn(field, self.output(verified))
+                compared = self.run_tool(
+                    "compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002", ok=False,
+                )
+                self.assertNotEqual(compared.returncode, 0)
+                self.assertIn("incomplete metrics", self.output(compared))
+
+    def test_percentage_and_ratio_upper_boundaries_are_valid(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001", metrics={
+                "cpu_percent": 100, "gpu_percent": 100,
+                "direct_connect_success_rate": 100, "relay_ratio": 1,
+            })
+            self.make_run(root, "M13-office-R002")
+            verified = self.run_tool("verify", "--root", str(root))
+            self.assertIn('"m13_matrix": "PASS"', verified.stdout)
+            compared = self.run_tool(
+                "compare", "--root", str(root),
+                "--baseline", "M13-office-R001",
+                "--candidate", "M13-office-R002",
+            )
+            self.assertTrue(json.loads(compared.stdout)["comparable"])
+
+
 if __name__ == "__main__":
     unittest.main()
