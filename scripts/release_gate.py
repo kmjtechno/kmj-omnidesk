@@ -110,12 +110,16 @@ def load_json(path: Path, label: str) -> dict | None:
     security, and licensing gates were green — turning a visible failure into a
     missing answer, which is the worse of the two.
     """
-    if not path.is_file():
-        return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+        if not path.is_file():
+            return None
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return None
+    # Valid JSON can still be a list, scalar or null. Every caller expects
+    # a mapping; refusing non-objects avoids an AttributeError and preserves
+    # the per-gate refusal report.
+    return document if isinstance(document, dict) else None
 
 
 def check_signed_release_artifacts(release: dict) -> list[str]:
