@@ -244,14 +244,14 @@ def command_record(args: argparse.Namespace) -> None:
 
 
 def missing_metrics(metrics: dict) -> list[str]:
-    """Reject absent, nonnumeric, boolean and nonfinite reported metrics."""
+    """Reject absent, negative, nonnumeric, boolean and nonfinite metrics."""
     return [
         name
         for name in REQUIRED_METRICS
         if name not in metrics
         or not (
-            type(metrics[name]) is int
-            or (type(metrics[name]) is float and math.isfinite(metrics[name]))
+            (type(metrics[name]) is int and metrics[name] >= 0)
+            or (type(metrics[name]) is float and math.isfinite(metrics[name]) and metrics[name] >= 0)
         )
     ]
 
