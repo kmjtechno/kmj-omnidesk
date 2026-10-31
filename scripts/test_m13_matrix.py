@@ -461,5 +461,29 @@ class MatrixToolTests(unittest.TestCase):
             self.assertIn("distinct runs required", self.output(result))
 
 
+    def test_negative_metric_values_refused_by_verify_and_compare(self):
+        # Negative durations, usage, rates and scores cannot be measurements.
+        for field in (
+            "interactive_latency_ms", "bandwidth_kbps", "cpu_percent",
+            "ram_mb", "direct_connect_success_rate", "relay_ratio",
+            "visual_quality_metric",
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                self.make_run(root, "M13-office-R001", metrics={field: -0.5})
+                self.make_run(root, "M13-office-R002")
+                verified = self.run_tool("verify", "--root", str(root), ok=False)
+                self.assertNotEqual(verified.returncode, 0)
+                self.assertIn(field, self.output(verified))
+                compared = self.run_tool(
+                    "compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002", ok=False,
+                )
+                self.assertNotEqual(compared.returncode, 0)
+                self.assertIn("incomplete metrics", self.output(compared))
+
+
 if __name__ == "__main__":
     unittest.main()
