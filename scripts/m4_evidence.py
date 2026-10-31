@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import re
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,8 +42,14 @@ def validate_run_id(value: str) -> str:
 
 def safe_relative(root: Path, file_path: Path) -> tuple[Path, Path]:
     root = root.resolve()
-    if file_path.is_symlink():
-        fail("symlink artifacts are forbidden")
+    if ".." in file_path.parts:
+        fail("artifact path traversal is forbidden")
+    # A symlinked parent inside the package can launder evidence from another
+    # location even if the final resolved path remains under the same run.
+    absolute = file_path.absolute()
+    for component in (absolute, *absolute.parents):
+        if component.is_symlink() or getattr(component, "is_junction", lambda: False)():
+            fail(f"redirected artifact path forbidden: {component}")
     resolved = file_path.resolve(strict=True)
     try:
         relative = resolved.relative_to(root)
@@ -50,6 +57,9 @@ def safe_relative(root: Path, file_path: Path) -> tuple[Path, Path]:
         fail("artifact escapes package root")
     if ".." in relative.parts:
         fail("artifact path traversal is forbidden")
+    metadata = resolved.stat()
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        fail("artifact must be an unshared regular file")
     return resolved, relative
 
 
@@ -138,10 +148,19 @@ def command_checksums(args: argparse.Namespace) -> None:
         # symlinks and otherwise silently omits them from the package digest.
         if path.is_symlink():
             fail(f"symlink forbidden: {path}")
-        if path.is_dir():
+        if getattr(path, "is_junction", lambda: False)():
+            fail(f"junction forbidden: {path}")
+        metadata = path.lstat()
+        if getattr(metadata, "st_file_attributes", 0) & getattr(
+            stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0
+        ):
+            fail(f"reparse evidence path forbidden: {path}")
+        if stat.S_ISDIR(metadata.st_mode):
             continue
-        if not path.is_file():
+        if not stat.S_ISREG(metadata.st_mode):
             fail(f"non-regular evidence path forbidden: {path}")
+        if metadata.st_nlink != 1:
+            fail(f"hardlinked evidence path forbidden: {path}")
         relative = path.resolve(strict=True).relative_to(root)
         if relative.as_posix() == "checksums.sha256":
             continue
