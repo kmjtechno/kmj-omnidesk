@@ -256,6 +256,25 @@ def missing_metrics(metrics: dict) -> list[str]:
     ]
 
 
+# Percentage and unit-ratio metrics must stay within their physical domains.
+# A syntactically numeric 101% success rate is not admissible evidence.
+MAX_METRICS = {
+    "cpu_percent": 100,
+    "gpu_percent": 100,
+    "direct_connect_success_rate": 100,
+    "relay_ratio": 1,
+}
+
+
+def invalid_metrics(metrics: dict) -> list[str]:
+    invalid = missing_metrics(metrics)
+    return invalid + [
+        name
+        for name, maximum in MAX_METRICS.items()
+        if name not in invalid and metrics[name] > maximum
+    ]
+
+
 def command_verify(args: argparse.Namespace) -> None:
     """Check every ledger entry against the four declared rules."""
     root = checked_root(args.root)
@@ -318,7 +337,7 @@ def command_verify(args: argparse.Namespace) -> None:
         if not isinstance(metrics, dict):
             problems.append(f"{run_id}: no metrics recorded")
         else:
-            missing = missing_metrics(metrics)
+            missing = invalid_metrics(metrics)
             if missing:
                 problems.append(
                     f"{run_id}: incomplete matrix -- missing or invalid " + ", ".join(missing)
@@ -368,7 +387,7 @@ def command_compare(args: argparse.Namespace) -> None:
             or actual_size != entry["raw_bytes"]
         ):
             fail(f"{run_id}: raw_results_required -- comparison evidence mismatch")
-        if not isinstance(entry.get("metrics"), dict) or missing_metrics(entry["metrics"]):
+        if not isinstance(entry.get("metrics"), dict) or invalid_metrics(entry["metrics"]):
             fail(f"{run_id}: incomplete metrics for comparison")
         if not isinstance(entry.get("environment"), dict):
             fail(f"{run_id}: missing environment for comparison")
