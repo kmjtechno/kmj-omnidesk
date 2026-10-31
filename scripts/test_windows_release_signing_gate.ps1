@@ -32,6 +32,13 @@ try {
     New-Item -ItemType Junction -Path $link -Target $real | Out-Null
     Invoke-Refusal (Join-Path $link 'unsigned-candidate.exe') 'Redirected installer ancestor forbidden'
 
+    # Refuse remote/namespace paths before Get-Item, Authenticode or hashing:
+    # no UNC share access or drive-relative/current-directory interpretation.
+    Invoke-Refusal 'unsigned-candidate.exe' 'Installer path must be an absolute local drive path'
+    Invoke-Refusal 'C:unsigned-candidate.exe' 'Installer path must be an absolute local drive path'
+    Invoke-Refusal '\\invalid-host\share\unsigned-candidate.exe' 'Installer path must be an absolute local drive path'
+    Invoke-Refusal '\\?\C:\Windows\unsigned-candidate.exe' 'Installer path must be an absolute local drive path'
+
     # A path with parent traversal must not be normalized into approval.
     Invoke-Refusal (Join-Path $real '..\real\unsigned-candidate.exe') 'Installer path cannot contain parent traversal'
 
