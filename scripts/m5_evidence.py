@@ -379,6 +379,10 @@ def gate_satisfied(
         run_id = entry.get("run_id", "<missing>")
         evidence_class = entry.get("evidence_class")
 
+        # JSON ledger values may be arrays/objects. Never hash them as dict keys.
+        if not isinstance(evidence_class, str):
+            problems.append(f"{gate}: run {run_id} declares non-string evidence class {evidence_class!r}")
+            continue
         if evidence_class not in EVIDENCE_CLASSES:
             problems.append(f"{gate}: run {run_id} declares unknown evidence class {evidence_class!r}")
             continue
@@ -583,6 +587,9 @@ def evaluate(root: Path, roadmap: Path) -> dict:
         else:
             seen_run_ids.add(run_id)
         problems.extend(entry_claim_errors(entry, str(run_id)))
+        evidence_class = entry.get("evidence_class")
+        if not isinstance(evidence_class, str) or evidence_class not in EVIDENCE_CLASSES:
+            problems.append(f"{run_id!r}: invalid evidence_class in M5 ledger: {evidence_class!r}")
 
     if not entries:
         problems.append(f"no runs recorded under {root}; nothing was observed")
