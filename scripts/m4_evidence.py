@@ -72,7 +72,7 @@ def checksum_relative_name(relative: Path) -> str:
     Reject control characters too, rather than producing non-portable evidence.
     """
     name = relative.as_posix()
-    if any(ord(char) < 32 or ord(char) == 127 or char == "\\\\" for char in name):
+    if any(ord(char) < 32 or ord(char) == 127 or char == "\\" for char in name):
         fail("non-portable checksum path forbidden")
     return name
 
