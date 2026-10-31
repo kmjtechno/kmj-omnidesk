@@ -36,7 +36,7 @@ function Assert-NoRedirectedInstallerAncestors([string]$Path) {
         if (($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw "Redirected installer ancestor forbidden: $parent"
         }
-        $next = [IO.Path]::GetDirectoryName($parent.TrimEnd([char]'\\', [char]'/'))
+        $next = [IO.Path]::GetDirectoryName($parent.TrimEnd([char]'\', [char]'/'))
         if ([string]::IsNullOrEmpty($next) -or $next -eq $parent) { break }
         $parent = $next
     }
