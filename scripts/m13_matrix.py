@@ -319,7 +319,10 @@ def command_verify(args: argparse.Namespace) -> None:
 def command_compare(args: argparse.Namespace) -> None:
     """Check that a claimed comparison rests on comparable runs."""
     root = checked_root(args.root)
-    entries = {entry["run_id"]: entry for entry in read_ledger(root)}
+    ledger = read_ledger(root)
+    if len({entry["run_id"] for entry in ledger}) != len(ledger):
+        fail("cherry_picking_forbidden: duplicate run_id in comparison ledger")
+    entries = {entry["run_id"]: entry for entry in ledger}
 
     for run_id in (args.baseline, args.candidate):
         if run_id not in entries:
