@@ -330,7 +330,12 @@ class TestArtifacts(unittest.TestCase):
                     saved.rename(self.artifacts)
             self.assertTrue(swapped)
             self.assertEqual(rules(violations), {"U4"})
-            self.assertIn("directory changed", str(violations[0]))
+            # The per-file identity guard may reject the swap before the
+            # directory identity guard runs. Either is a fail-closed result.
+            self.assertRegex(
+                str(violations[0]),
+                r"changed between inspection and open|artifact directory changed",
+            )
             self.assertEqual((self.artifacts / "app.exe").read_bytes(), PAYLOAD)
             self.assertEqual((replacement / "app.exe").read_bytes(), PAYLOAD)
 
