@@ -485,5 +485,48 @@ class MatrixToolTests(unittest.TestCase):
                 self.assertIn("incomplete metrics", self.output(compared))
 
 
+    def test_impossible_percentage_and_ratio_values_refused(self):
+        # Valid finite numbers are still impossible measurements if out of range.
+        for field, value in (
+            ("cpu_percent", 100.1),
+            ("gpu_percent", 101),
+            ("direct_connect_success_rate", 101),
+            ("relay_ratio", 1.01),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                self.make_run(root, "M13-office-R001", metrics={field: value})
+                self.make_run(root, "M13-office-R002")
+                verified = self.run_tool("verify", "--root", str(root), ok=False)
+                self.assertNotEqual(verified.returncode, 0)
+                self.assertIn(field, self.output(verified))
+                compared = self.run_tool(
+                    "compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002", ok=False,
+                )
+                self.assertNotEqual(compared.returncode, 0)
+                self.assertIn("incomplete metrics", self.output(compared))
+
+    def test_percentage_and_ratio_upper_boundaries_are_valid(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001", metrics={
+                "cpu_percent": 100, "gpu_percent": 100,
+                "direct_connect_success_rate": 100, "relay_ratio": 1,
+            })
+            self.make_run(root, "M13-office-R002")
+            verified = self.run_tool("verify", "--root", str(root))
+            self.assertIn('"m13_matrix": "PASS"', verified.stdout)
+            compared = self.run_tool(
+                "compare", "--root", str(root),
+                "--baseline", "M13-office-R001",
+                "--candidate", "M13-office-R002",
+            )
+            self.assertTrue(json.loads(compared.stdout)["comparable"])
+
+
 if __name__ == "__main__":
     unittest.main()
