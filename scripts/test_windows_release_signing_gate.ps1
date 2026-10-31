@@ -51,6 +51,11 @@ try {
     Invoke-Refusal ($installer + '.') 'Installer path contains unsupported Windows path syntax'
     Invoke-Refusal ($installer + ' ') 'Installer path contains unsupported Windows path syntax'
     Invoke-Refusal (Join-Path $real 'NUL.exe') 'Installer path contains unsupported Windows path syntax'
+    # Windows reserves superscript 1/2/3 in COM/LPT names, even with extensions.
+    # Reject these aliases lexically before any filesystem access.
+    Invoke-Refusal (Join-Path $real 'COM¹.exe') 'Installer path contains unsupported Windows path syntax'
+    Invoke-Refusal (Join-Path $real 'com².exe') 'Installer path contains unsupported Windows path syntax'
+    Invoke-Refusal (Join-Path $real 'LPT³.exe') 'Installer path contains unsupported Windows path syntax'
 
     # A path with parent traversal must not be normalized into approval.
     Invoke-Refusal (Join-Path $real '..\real\unsigned-candidate.exe') 'Installer path cannot contain parent traversal'
