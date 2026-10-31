@@ -58,35 +58,9 @@ try {
     Invoke-Refusal (Join-Path $real 'LPT³.exe') 'Installer path contains unsupported Windows path syntax'
     # Windows also exposes CONIN$ and CONOUT$ DOS device aliases.
     # Reject both bare and extension-suffixed forms, including ancestors.
-    Invoke-Refusal (Join-Path $real 'CONIN
-    # A path with parent traversal must not be normalized into approval.
-    Invoke-Refusal (Join-Path $real '..\real\unsigned-candidate.exe') 'Installer path cannot contain parent traversal'
-
-    if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $digest) {
-        throw 'M9 negative tests modified owner/candidate bytes'
-    }
-    Write-Output 'M9_SIGNING_ANCESTOR_REFUSALS=PASS'
-}
-finally {
-    Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
-    $global:LASTEXITCODE = 0
-}
-) 'Installer path contains unsupported Windows path syntax'
+    Invoke-Refusal (Join-Path $real 'CONIN$') 'Installer path contains unsupported Windows path syntax'
     Invoke-Refusal (Join-Path $real 'conout$.exe') 'Installer path contains unsupported Windows path syntax'
-    Invoke-Refusal (Join-Path (Join-Path $real 'CONIN
-    # A path with parent traversal must not be normalized into approval.
-    Invoke-Refusal (Join-Path $real '..\real\unsigned-candidate.exe') 'Installer path cannot contain parent traversal'
-
-    if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $digest) {
-        throw 'M9 negative tests modified owner/candidate bytes'
-    }
-    Write-Output 'M9_SIGNING_ANCESTOR_REFUSALS=PASS'
-}
-finally {
-    Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
-    $global:LASTEXITCODE = 0
-}
-) 'unsigned-candidate.exe') 'Installer path contains unsupported Windows path syntax'
+    Invoke-Refusal (Join-Path (Join-Path $real 'CONIN$') 'unsigned-candidate.exe') 'Installer path contains unsupported Windows path syntax'
 
     # A path with parent traversal must not be normalized into approval.
     Invoke-Refusal (Join-Path $real '..\real\unsigned-candidate.exe') 'Installer path cannot contain parent traversal'
