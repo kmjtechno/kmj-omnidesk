@@ -62,6 +62,16 @@ PLATFORMS = (
 # against every path in the cleanup manifest. The list is intentionally broad:
 # a false positive is one line to fix, a false negative is a machine that
 # keeps running something the user asked to remove.
+# Windows DOS device names remain reserved even with ordinary extensions.
+# The release verifier runs on multiple hosts, so reject these for Windows
+# manifests *before* consulting the host filesystem (Linux can create them).
+WINDOWS_RESERVED_ARTIFACT_STEMS = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{index}" for index in range(1, 10)}
+    | {f"LPT{index}" for index in range(1, 10)}
+)
+
+
 RESIDUE_MARKERS = (
     "update",
     "updater",
@@ -265,6 +275,15 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
         ):
             violations.append(
                 Violation("U4", f"unsafe artifact filename {name!r}")
+            )
+            continue
+        if (
+            isinstance(manifest.platform, str)
+            and manifest.platform.startswith("windows-")
+            and name.split(".", 1)[0].upper() in WINDOWS_RESERVED_ARTIFACT_STEMS
+        ):
+            violations.append(
+                Violation("U4", f"{name} is a reserved Windows device name")
             )
             continue
         if not isinstance(expected, str) or not re.fullmatch(
