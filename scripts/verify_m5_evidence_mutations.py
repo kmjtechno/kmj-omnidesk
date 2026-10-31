@@ -91,8 +91,8 @@ MUTATIONS: list[tuple[str, str, str]] = [
     ),
     (
         "integrity problems do not withhold satisfaction",
-        "if not integrity and not class_errors:\n            honoured += 1",
-        "honoured += 1",
+        "if not integrity and not class_errors and not claim_errors:\n            honoured += 1",
+        "if not class_errors and not claim_errors:\n            honoured += 1",
     ),
     # --- class-specific requirements --------------------------------------
     (
@@ -107,13 +107,13 @@ MUTATIONS: list[tuple[str, str, str]] = [
     ),
     (
         "a forced link run need not record how the link was broken",
-        'if not impairment.get("method") or not impairment.get("applied_before_session"):',
-        "if False:",
+        'elif (\n            not isinstance(impairment.get("method"), str)\n            or not impairment["method"].strip()\n            or impairment.get("applied_before_session") is not True\n        ):',
+        "elif False:",
     ),
     (
         "an impairment applied after the session is accepted",
-        'not impairment.get("applied_before_session"):',
-        "False:",
+        'or impairment.get("applied_before_session") is not True',
+        "or False",
     ),
     (
         "an impairment document is not required at all",
@@ -143,7 +143,7 @@ MUTATIONS: list[tuple[str, str, str]] = [
     ),
     (
         "an attempt on an unsound run still counts as refused",
-        "if integrity or class_errors:\n                problems.extend(integrity)",
+        "if integrity or class_errors or claim_errors:\n                problems.extend(integrity)",
         "if False:\n                problems.extend(integrity)",
     ),
     # --- recording ---------------------------------------------------------
