@@ -44,6 +44,14 @@ try {
     Invoke-Refusal '\\invalid-host\share\unsigned-candidate.exe' 'Installer path must be an absolute local drive path'
     Invoke-Refusal '\\?\C:\Windows\unsigned-candidate.exe' 'Installer path must be an absolute local drive path'
 
+    # Windows path aliases must fail before any disk or network access.
+    # In particular, ADS can name a stream rather than the pinned installer,
+    # and trailing dots/spaces or DOS devices can resolve unexpectedly.
+    Invoke-Refusal ($installer + ':payload') 'Installer path contains unsupported Windows path syntax'
+    Invoke-Refusal ($installer + '.') 'Installer path contains unsupported Windows path syntax'
+    Invoke-Refusal ($installer + ' ') 'Installer path contains unsupported Windows path syntax'
+    Invoke-Refusal (Join-Path $real 'NUL.exe') 'Installer path contains unsupported Windows path syntax'
+
     # A path with parent traversal must not be normalized into approval.
     Invoke-Refusal (Join-Path $real '..\real\unsigned-candidate.exe') 'Installer path cannot contain parent traversal'
 
