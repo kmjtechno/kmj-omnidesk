@@ -18,6 +18,7 @@ pub mod frame_queue;
 pub mod input;
 pub mod licensing;
 pub mod licensing_key_discovery;
+pub mod licensing_lifecycle;
 pub mod log_scrubber;
 pub mod media;
 pub mod metrics;

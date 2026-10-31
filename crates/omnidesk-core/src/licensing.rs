@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use ed25519_dalek::{Signature, VerifyingKey};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{PRODUCT_ID, PRODUCT_SLUG};
 
@@ -52,7 +52,7 @@ pub enum LicenseError {
 
 pub const MAX_SIGNED_ENTITLEMENT_BYTES: usize = 64 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LicensePlan {
     #[serde(rename = "Personal_Free")]
     PersonalFree,
@@ -64,7 +64,7 @@ pub enum LicensePlan {
     OemCustom,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct NullableLimit(pub Option<u64>);
 
@@ -78,7 +78,7 @@ impl NullableLimit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceLimits {
     pub licensed_users: NullableLimit,
@@ -111,7 +111,7 @@ impl ResourceLimits {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SignedEntitlementPayload {
     pub protocol_version: String,
