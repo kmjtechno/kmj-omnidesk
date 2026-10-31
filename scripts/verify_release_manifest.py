@@ -217,6 +217,11 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
     selected = artifacts_dir.absolute()
     if not selected.is_dir():
         return [Violation("U4", "artifact directory is not an existing directory")]
+    # Snapshot every ancestor's identity. Checking reparse flags only once
+    # permits a directory to be replaced after preflight but before file open.
+    # Recheck after hashing; this detects persistent substitutions without
+    # claiming race-free directory handles on Windows.
+    directory_components = []
     for component in (selected, *selected.parents):
         try:
             metadata = component.lstat()
@@ -229,6 +234,9 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
                 return [
                     Violation("U4", f"redirected artifact directory component: {component}")
                 ]
+            if not stat.S_ISDIR(metadata.st_mode):
+                return [Violation("U4", f"artifact directory component is not a directory: {component}")]
+            directory_components.append((component, metadata.st_dev, metadata.st_ino))
         except OSError as error:
             return [
                 Violation("U4", f"cannot inspect artifact directory component {component}: {error}")
@@ -254,7 +262,7 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
             )
             continue
 
-        artifact = artifacts_dir / name
+        artifact = selected / name
         # lstat, unlike is_file(), does not follow the final path component.
         # Refuse Windows reparse files and multiply-linked files as well as
         # POSIX symlinks. A release artifact must be an unshared regular file.
@@ -342,6 +350,30 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
             ):
                 violations.append(
                     Violation("U4", f"{name} changed after opening for hashing")
+                )
+                continue
+            # A swapped directory containing identical artifact bytes is not
+            # the tree that was admitted by the original provenance preflight.
+            directory_changed = False
+            for component, original_dev, original_ino in directory_components:
+                current = component.lstat()
+                current_reparse = bool(
+                    getattr(current, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                )
+                if (
+                    not stat.S_ISDIR(current.st_mode)
+                    or current_reparse
+                    or component.is_symlink()
+                    or getattr(component, "is_junction", lambda: False)()
+                    or current.st_dev != original_dev
+                    or current.st_ino != original_ino
+                ):
+                    directory_changed = True
+                    break
+            if directory_changed:
+                violations.append(
+                    Violation("U4", f"{name} artifact directory changed during verification")
                 )
                 continue
         except OSError as error:
