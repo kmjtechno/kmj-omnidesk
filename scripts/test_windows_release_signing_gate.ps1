@@ -15,8 +15,9 @@ try {
     [IO.File]::WriteAllBytes($installer, [byte[]](1, 2, 3, 4))
     $digest = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
 
-    function Invoke-Refusal([string]$Path, [string]$Expected) {
-        $messages = & pwsh -NoProfile -File $gate -InstallerPath $Path -ExpectedSha256 $digest -ExpectedSignerThumbprint ('0' * 40) 2>&1 | Out-String
+    function Invoke-Refusal([string]$Path, [string]$Expected, [string]$ExpectedDigest = '') {
+        if ([string]::IsNullOrEmpty($ExpectedDigest)) { $ExpectedDigest = $digest }
+        $messages = & pwsh -NoProfile -File $gate -InstallerPath $Path -ExpectedSha256 $ExpectedDigest -ExpectedSignerThumbprint ('0' * 40) 2>&1 | Out-String
         $exitCode = $LASTEXITCODE
         if ($exitCode -eq 0) { throw "Unsafe/unsigned candidate unexpectedly passed: $Path" }
         if (-not $messages.Contains($Expected)) {
@@ -26,6 +27,10 @@ try {
 
     # Baseline: the same regular file is unsigned, not an ancestor redirect.
     Invoke-Refusal $installer 'Authenticode not valid'
+
+    # A mismatched manifest digest must be refused before Authenticode checks,
+    # even when the candidate is a normal, readable file.
+    Invoke-Refusal $installer 'Installer SHA-256 differs from the pinned release manifest digest' ('0' * 64)
 
     # Junction to a real directory: the final file itself is ordinary, so
     # a leaf-only ReparsePoint check would miss this redirection.
