@@ -63,6 +63,36 @@ class EvidenceToolTests(unittest.TestCase):
             lines = result.stdout.strip().splitlines()
             self.assertEqual([line.split("  ", 1)[1] for line in lines], ["a.txt", "b.txt"])
 
+    def test_checksums_rejects_casefold_colliding_evidence_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            upper = root / "Events.JSONL"
+            lower = root / "events.jsonl"
+            upper.write_bytes(b"first observation\n")
+            lower.write_bytes(b"second observation\n")
+            if upper.samefile(lower):
+                self.skipTest("filesystem is case-insensitive")
+            result = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("portable evidence path collision", result.stderr)
+            self.assertEqual(upper.read_bytes(), b"first observation\n")
+            self.assertEqual(lower.read_bytes(), b"second observation\n")
+
+    def test_checksums_rejects_unicode_normalization_collision(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            composed = root / "\u00e9vents.jsonl"
+            decomposed = root / "e\u0301vents.jsonl"
+            composed.write_bytes(b"composed\n")
+            decomposed.write_bytes(b"decomposed\n")
+            if composed.samefile(decomposed):
+                self.skipTest("filesystem normalizes Unicode names")
+            result = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("portable evidence path collision", result.stderr)
+            self.assertEqual(composed.read_bytes(), b"composed\n")
+            self.assertEqual(decomposed.read_bytes(), b"decomposed\n")
+
     def test_checksums_rejects_symlinked_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -255,6 +285,86 @@ class EvidenceToolTests(unittest.TestCase):
                 ok=False,
             )
             self.assertNotEqual(result.returncode, 0)
+
+    def test_hardlinked_external_artifact_cannot_attest_m4_run(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "package"
+            run = root / "runs" / "M4-T1-R01"
+            run.mkdir(parents=True)
+            outside = base / "owner-observation.jsonl"
+            outside.write_text('{"source":"outside"}\n', encoding="utf-8")
+            linked = run / "events.jsonl"
+            try:
+                linked.hardlink_to(outside)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"hard links unavailable: {error}")
+            result = self.run_tool(
+                "artifact", "--root", str(root), "--file", str(linked),
+                "--artifact-id", "linked", "--run-id", "M4-T1-R01",
+                "--kind", "EVENT_LOG", "--content-type", "application/jsonl",
+                "--component", "agent", "--version", "1", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unshared regular file", result.stderr)
+            checksum = self.run_tool("checksums", "--root", str(root), ok=False)
+            self.assertNotEqual(checksum.returncode, 0)
+            self.assertIn("hardlinked evidence path", checksum.stderr)
+            self.assertEqual(outside.read_text(encoding="utf-8"), '{"source":"outside"}\n')
+
+    def test_internal_symlinked_artifact_parent_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run = root / "runs" / "M4-T1-R01"
+            actual = run / "actual"
+            actual.mkdir(parents=True)
+            (actual / "events.jsonl").write_text("observed\n", encoding="utf-8")
+            linked = run / "redirected"
+            try:
+                linked.symlink_to(actual, target_is_directory=True)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"directory symlinks unavailable: {error}")
+            result = self.run_tool(
+                "artifact", "--root", str(root),
+                "--file", str(linked / "events.jsonl"),
+                "--artifact-id", "redirected", "--run-id", "M4-T1-R01",
+                "--kind", "EVENT_LOG", "--content-type", "application/jsonl",
+                "--component", "agent", "--version", "1", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("redirected artifact path", result.stderr)
+            self.assertEqual((actual / "events.jsonl").read_text(encoding="utf-8"), "observed\n")
+
+
+    def test_rejects_ambiguous_checksum_filenames_without_changing_bytes(self):
+        # Windows does not permit several of these characters; Linux does.
+        # A raw checksum row must never embed a newline or a backslash.
+        exercised = 0
+        for bad_name in ("events\ninjected.jsonl", "events\\backslash.jsonl", "events\tcontrol.jsonl"):
+            with self.subTest(name=repr(bad_name)), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                run = root / "runs" / "M4-T1-R01"
+                run.mkdir(parents=True)
+                artifact = run / bad_name
+                try:
+                    artifact.write_bytes(b"real-observation\n")
+                except (OSError, ValueError):
+                    continue  # Invalid filename on this host filesystem.
+                exercised += 1
+                entry = self.run_tool(
+                    "artifact", "--root", str(root), "--file", str(artifact),
+                    "--artifact-id", "ambiguous", "--run-id", "M4-T1-R01",
+                    "--kind", "EVENT_LOG", "--content-type", "application/jsonl",
+                    "--component", "agent", "--version", "1", ok=False,
+                )
+                self.assertNotEqual(entry.returncode, 0)
+                self.assertIn("non-portable checksum path", entry.stderr)
+                checksums = self.run_tool("checksums", "--root", str(root), ok=False)
+                self.assertNotEqual(checksums.returncode, 0)
+                self.assertIn("non-portable checksum path", checksums.stderr)
+                self.assertEqual(artifact.read_bytes(), b"real-observation\n")
+        if not exercised:
+            self.skipTest("host filesystem disallows ambiguous checksum filenames")
 
 
 if __name__ == "__main__":

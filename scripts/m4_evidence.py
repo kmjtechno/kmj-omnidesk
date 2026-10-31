@@ -11,6 +11,8 @@ import argparse
 import hashlib
 import json
 import re
+import stat
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,8 +43,14 @@ def validate_run_id(value: str) -> str:
 
 def safe_relative(root: Path, file_path: Path) -> tuple[Path, Path]:
     root = root.resolve()
-    if file_path.is_symlink():
-        fail("symlink artifacts are forbidden")
+    if ".." in file_path.parts:
+        fail("artifact path traversal is forbidden")
+    # A symlinked parent inside the package can launder evidence from another
+    # location even if the final resolved path remains under the same run.
+    absolute = file_path.absolute()
+    for component in (absolute, *absolute.parents):
+        if component.is_symlink() or getattr(component, "is_junction", lambda: False)():
+            fail(f"redirected artifact path forbidden: {component}")
     resolved = file_path.resolve(strict=True)
     try:
         relative = resolved.relative_to(root)
@@ -50,7 +58,24 @@ def safe_relative(root: Path, file_path: Path) -> tuple[Path, Path]:
         fail("artifact escapes package root")
     if ".." in relative.parts:
         fail("artifact path traversal is forbidden")
+    checksum_relative_name(relative)
+    metadata = resolved.stat()
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        fail("artifact must be an unshared regular file")
     return resolved, relative
+
+
+def checksum_relative_name(relative: Path) -> str:
+    """Refuse paths that cannot be represented as one unambiguous SHA-256 row.
+
+    This tool emits plain "digest  path" lines without GNU escaping. Newlines
+    can inject rows and backslashes can be misread by standard checksum tools.
+    Reject control characters too, rather than producing non-portable evidence.
+    """
+    name = relative.as_posix()
+    if any(ord(char) < 32 or ord(char) == 127 or char == "\\" for char in name):
+        fail("non-portable checksum path forbidden")
+    return name
 
 
 def sha256_file(path: Path) -> tuple[str, int]:
@@ -133,20 +158,39 @@ def command_artifact(args: argparse.Namespace) -> None:
 def command_checksums(args: argparse.Namespace) -> None:
     root = checked_evidence_root(args.root)
     rows: list[str] = []
+    seen_portable_names: dict[str, str] = {}
     for path in sorted(root.rglob("*")):
         # Check links *before* directories: is_dir() follows directory
         # symlinks and otherwise silently omits them from the package digest.
         if path.is_symlink():
             fail(f"symlink forbidden: {path}")
-        if path.is_dir():
+        if getattr(path, "is_junction", lambda: False)():
+            fail(f"junction forbidden: {path}")
+        metadata = path.lstat()
+        if getattr(metadata, "st_file_attributes", 0) & getattr(
+            stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0
+        ):
+            fail(f"reparse evidence path forbidden: {path}")
+        if stat.S_ISDIR(metadata.st_mode):
             continue
-        if not path.is_file():
+        if not stat.S_ISREG(metadata.st_mode):
             fail(f"non-regular evidence path forbidden: {path}")
+        if metadata.st_nlink != 1:
+            fail(f"hardlinked evidence path forbidden: {path}")
         relative = path.resolve(strict=True).relative_to(root)
-        if relative.as_posix() == "checksums.sha256":
+        name = checksum_relative_name(relative)
+        # Case-sensitive hosts can hold distinct files that collapse to one
+        # path on Windows or a normalization-insensitive extraction target.
+        # Never emit an ambiguous cross-platform evidence package.
+        portable_name = unicodedata.normalize("NFC", name).casefold()
+        previous = seen_portable_names.get(portable_name)
+        if previous is not None:
+            fail(f"portable evidence path collision: {previous} / {name}")
+        seen_portable_names[portable_name] = name
+        if name == "checksums.sha256":
             continue
         digest, _ = sha256_file(path)
-        rows.append(f"{digest}  {relative.as_posix()}")
+        rows.append(f"{digest}  {name}")
     print("\n".join(rows))
 
 
