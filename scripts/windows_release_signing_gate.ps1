@@ -57,6 +57,14 @@ try {
         throw 'Installer cannot be a reparse point or symbolic link'
     }
 
+    # Check the pinned artifact digest before processing its signature, then
+    # hash again after Authenticode verification. This catches persistent
+    # replacement during verification but is NOT a race-free handle binding.
+    $beforeSignatureDigest = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($beforeSignatureDigest -cne $ExpectedSha256.ToLowerInvariant()) {
+        throw 'Installer SHA-256 differs from the pinned release manifest digest'
+    }
+
     $signature = Get-AuthenticodeSignature -LiteralPath $artifact.FullName
     if ($signature.Status.ToString() -cne 'Valid') {
         throw "Authenticode not valid: $($signature.Status)"
@@ -73,8 +81,9 @@ try {
     }
 
     $actualDigest = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actualDigest -cne $ExpectedSha256.ToLowerInvariant()) {
-        throw 'Installer SHA-256 differs from the pinned release manifest digest'
+    if ($actualDigest -cne $beforeSignatureDigest -or
+        $actualDigest -cne $ExpectedSha256.ToLowerInvariant()) {
+        throw 'Installer SHA-256 changed during signature verification or differs from pinned digest'
     }
 
     [ordered]@{
