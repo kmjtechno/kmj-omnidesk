@@ -293,6 +293,47 @@ class TestArtifacts(unittest.TestCase):
         self.assertIn("changed between inspection and open", str(violations[0]))
         self.assertEqual(artifact.read_bytes(), PAYLOAD)
 
+    def test_matching_bytes_in_swapped_artifact_directory_are_refused(self):
+        # Replacing an admitted directory with another ordinary directory
+        # containing the SAME bytes must not attest the substituted package.
+        digest = self.write("app.exe")
+        artifact = self.artifacts / "app.exe"
+        original_open = os.open
+        swapped = False
+        with tempfile.TemporaryDirectory() as other_parent:
+            replacement = Path(other_parent) / "replacement"
+            replacement.mkdir()
+            (replacement / "app.exe").write_bytes(PAYLOAD)
+            saved = self.artifacts.with_name(self.artifacts.name + "-saved")
+            self.assertFalse(saved.exists())
+
+            def swap_before_open(path, flags, *args, **kwargs):
+                nonlocal swapped
+                if Path(path) == artifact and not swapped:
+                    self.artifacts.rename(saved)
+                    try:
+                        replacement.rename(self.artifacts)
+                    except OSError:
+                        saved.rename(self.artifacts)
+                        raise
+                    swapped = True
+                return original_open(path, flags, *args, **kwargs)
+
+            try:
+                with patch("verify_release_manifest.os.open", side_effect=swap_before_open):
+                    violations = check_artifacts(
+                        good_manifest(artifacts={"app.exe": digest}), self.artifacts
+                    )
+            finally:
+                if swapped:
+                    self.artifacts.rename(replacement)
+                    saved.rename(self.artifacts)
+            self.assertTrue(swapped)
+            self.assertEqual(rules(violations), {"U4"})
+            self.assertIn("directory changed", str(violations[0]))
+            self.assertEqual((self.artifacts / "app.exe").read_bytes(), PAYLOAD)
+            self.assertEqual((replacement / "app.exe").read_bytes(), PAYLOAD)
+
     def test_malformed_digest_is_refused(self):
         self.write("app.exe")
         for digest in ("", "abc", "F" * 64, 123, None):
