@@ -63,6 +63,36 @@ class EvidenceToolTests(unittest.TestCase):
             lines = result.stdout.strip().splitlines()
             self.assertEqual([line.split("  ", 1)[1] for line in lines], ["a.txt", "b.txt"])
 
+    def test_checksums_rejects_casefold_colliding_evidence_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            upper = root / "Events.JSONL"
+            lower = root / "events.jsonl"
+            upper.write_bytes(b"first observation\n")
+            lower.write_bytes(b"second observation\n")
+            if upper.samefile(lower):
+                self.skipTest("filesystem is case-insensitive")
+            result = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("portable evidence path collision", result.stderr)
+            self.assertEqual(upper.read_bytes(), b"first observation\n")
+            self.assertEqual(lower.read_bytes(), b"second observation\n")
+
+    def test_checksums_rejects_unicode_normalization_collision(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            composed = root / "\u00e9vents.jsonl"
+            decomposed = root / "e\u0301vents.jsonl"
+            composed.write_bytes(b"composed\n")
+            decomposed.write_bytes(b"decomposed\n")
+            if composed.samefile(decomposed):
+                self.skipTest("filesystem normalizes Unicode names")
+            result = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("portable evidence path collision", result.stderr)
+            self.assertEqual(composed.read_bytes(), b"composed\n")
+            self.assertEqual(decomposed.read_bytes(), b"decomposed\n")
+
     def test_checksums_rejects_symlinked_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
