@@ -19,7 +19,31 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Path-based checks cannot replace a protected signer or handle-bound
+# verification. They do prevent an operator-supplied junction/symlink parent
+# from silently redirecting an otherwise ordinary installer file.
+function Assert-NoRedirectedInstallerAncestors([string]$Path) {
+    if (($Path -split '[\\/]') -contains '..') {
+        throw 'Installer path cannot contain parent traversal'
+    }
+    $absolute = [IO.Path]::GetFullPath($Path)
+    $parent = [IO.Path]::GetDirectoryName($absolute)
+    while (-not [string]::IsNullOrEmpty($parent)) {
+        $directory = Get-Item -LiteralPath $parent -ErrorAction Stop
+        if (-not $directory.PSIsContainer) {
+            throw "Installer ancestor is not a directory: $parent"
+        }
+        if (($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Redirected installer ancestor forbidden: $parent"
+        }
+        $next = [IO.Path]::GetDirectoryName($parent.TrimEnd([char]'\\', [char]'/'))
+        if ([string]::IsNullOrEmpty($next) -or $next -eq $parent) { break }
+        $parent = $next
+    }
+}
+
 try {
+    Assert-NoRedirectedInstallerAncestors $InstallerPath
     $artifact = Get-Item -LiteralPath $InstallerPath -ErrorAction Stop
     if ($artifact.PSIsContainer -or $artifact.Length -le 0) {
         throw 'Installer must be a non-empty regular file'
