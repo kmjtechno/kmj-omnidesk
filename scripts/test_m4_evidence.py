@@ -63,6 +63,50 @@ class EvidenceToolTests(unittest.TestCase):
             lines = result.stdout.strip().splitlines()
             self.assertEqual([line.split("  ", 1)[1] for line in lines], ["a.txt", "b.txt"])
 
+    def test_checksums_rejects_symlinked_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            actual = root / "real"
+            actual.mkdir()
+            (actual / "events.jsonl").write_text("real bytes\\n", encoding="utf-8")
+            linked = root / "linked"
+            try:
+                linked.symlink_to(actual, target_is_directory=True)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"directory symlinks unavailable: {error}")
+            result = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("symlink forbidden", result.stderr)
+
+    def test_checksums_rejects_symlinked_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            actual = root / "real.txt"
+            actual.write_text("real bytes\\n", encoding="utf-8")
+            linked = root / "linked.txt"
+            try:
+                linked.symlink_to(actual)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"file symlinks unavailable: {error}")
+            result = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("symlink forbidden", result.stderr)
+
+    def test_checksums_rejects_non_regular_fifo(self):
+        import os
+
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("FIFO unsupported on this platform")
+        with tempfile.TemporaryDirectory() as temp:
+            fifo = Path(temp) / "evidence.pipe"
+            try:
+                os.mkfifo(fifo)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"FIFO creation unavailable: {error}")
+            result = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("non-regular evidence path", result.stderr)
+
     def test_rejects_cross_run_artifact_claim(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
