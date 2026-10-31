@@ -620,7 +620,7 @@ class MatrixToolTests(unittest.TestCase):
             entries[0]["raw_sha256"] = hashlib.sha256(b"").hexdigest()
             entries[0]["raw_bytes"] = 0
             ledger.write_text(
-                "".join(json.dumps(entry) + "\\n" for entry in entries),
+                "".join(json.dumps(entry) + "\n" for entry in entries),
                 encoding="utf-8",
             )
             for args in (
