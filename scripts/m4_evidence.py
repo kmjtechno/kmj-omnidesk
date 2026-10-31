@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import stat
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -157,6 +158,7 @@ def command_artifact(args: argparse.Namespace) -> None:
 def command_checksums(args: argparse.Namespace) -> None:
     root = checked_evidence_root(args.root)
     rows: list[str] = []
+    seen_portable_names: dict[str, str] = {}
     for path in sorted(root.rglob("*")):
         # Check links *before* directories: is_dir() follows directory
         # symlinks and otherwise silently omits them from the package digest.
@@ -177,6 +179,14 @@ def command_checksums(args: argparse.Namespace) -> None:
             fail(f"hardlinked evidence path forbidden: {path}")
         relative = path.resolve(strict=True).relative_to(root)
         name = checksum_relative_name(relative)
+        # Case-sensitive hosts can hold distinct files that collapse to one
+        # path on Windows or a normalization-insensitive extraction target.
+        # Never emit an ambiguous cross-platform evidence package.
+        portable_name = unicodedata.normalize("NFC", name).casefold()
+        previous = seen_portable_names.get(portable_name)
+        if previous is not None:
+            fail(f"portable evidence path collision: {previous} / {name}")
+        seen_portable_names[portable_name] = name
         if name == "checksums.sha256":
             continue
         digest, _ = sha256_file(path)
