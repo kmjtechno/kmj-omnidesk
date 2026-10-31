@@ -232,6 +232,25 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
     if not manifest.artifacts:
         return [Violation("U4", "release manifest lists no artifacts")]
 
+    # Windows filesystems are ordinarily case-insensitive. Two distinct JSON
+    # keys can therefore refer to one installed filename even if a Linux
+    # verifier sees two separate files. Reject ambiguity before file access.
+    if isinstance(manifest.platform, str) and manifest.platform.startswith("windows-"):
+        seen_windows_names: dict[str, str] = {}
+        for name in manifest.artifacts:
+            if not isinstance(name, str):
+                continue
+            folded = name.casefold()
+            previous = seen_windows_names.get(folded)
+            if previous is not None:
+                return [
+                    Violation(
+                        "U4",
+                        f"ambiguous Windows artifact filenames {previous!r} and {name!r}",
+                    )
+                ]
+            seen_windows_names[folded] = name
+
     # Reject a redirected *directory*, not only redirected artifact files.
     # Otherwise a valid digest in a symlinked artifact directory can attest
     # an unrelated tree. Check before resolving any supplied path.
