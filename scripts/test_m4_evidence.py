@@ -256,6 +256,55 @@ class EvidenceToolTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
 
+    def test_hardlinked_external_artifact_cannot_attest_m4_run(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "package"
+            run = root / "runs" / "M4-T1-R01"
+            run.mkdir(parents=True)
+            outside = base / "owner-observation.jsonl"
+            outside.write_text('{"source":"outside"}\n', encoding="utf-8")
+            linked = run / "events.jsonl"
+            try:
+                linked.hardlink_to(outside)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"hard links unavailable: {error}")
+            result = self.run_tool(
+                "artifact", "--root", str(root), "--file", str(linked),
+                "--artifact-id", "linked", "--run-id", "M4-T1-R01",
+                "--kind", "EVENT_LOG", "--content-type", "application/jsonl",
+                "--component", "agent", "--version", "1", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unshared regular file", result.stderr)
+            checksum = self.run_tool("checksums", "--root", str(root), ok=False)
+            self.assertNotEqual(checksum.returncode, 0)
+            self.assertIn("hardlinked evidence path", checksum.stderr)
+            self.assertEqual(outside.read_text(encoding="utf-8"), '{"source":"outside"}\n')
+
+    def test_internal_symlinked_artifact_parent_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run = root / "runs" / "M4-T1-R01"
+            actual = run / "actual"
+            actual.mkdir(parents=True)
+            (actual / "events.jsonl").write_text("observed\n", encoding="utf-8")
+            linked = run / "redirected"
+            try:
+                linked.symlink_to(actual, target_is_directory=True)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"directory symlinks unavailable: {error}")
+            result = self.run_tool(
+                "artifact", "--root", str(root),
+                "--file", str(linked / "events.jsonl"),
+                "--artifact-id", "redirected", "--run-id", "M4-T1-R01",
+                "--kind", "EVENT_LOG", "--content-type", "application/jsonl",
+                "--component", "agent", "--version", "1", ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("redirected artifact path", result.stderr)
+            self.assertEqual((actual / "events.jsonl").read_text(encoding="utf-8"), "observed\n")
+
 
 if __name__ == "__main__":
     unittest.main()
