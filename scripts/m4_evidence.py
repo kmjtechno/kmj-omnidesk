@@ -57,10 +57,24 @@ def safe_relative(root: Path, file_path: Path) -> tuple[Path, Path]:
         fail("artifact escapes package root")
     if ".." in relative.parts:
         fail("artifact path traversal is forbidden")
+    checksum_relative_name(relative)
     metadata = resolved.stat()
     if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
         fail("artifact must be an unshared regular file")
     return resolved, relative
+
+
+def checksum_relative_name(relative: Path) -> str:
+    """Refuse paths that cannot be represented as one unambiguous SHA-256 row.
+
+    This tool emits plain "digest  path" lines without GNU escaping. Newlines
+    can inject rows and backslashes can be misread by standard checksum tools.
+    Reject control characters too, rather than producing non-portable evidence.
+    """
+    name = relative.as_posix()
+    if any(ord(char) < 32 or ord(char) == 127 or char == "\\\\" for char in name):
+        fail("non-portable checksum path forbidden")
+    return name
 
 
 def sha256_file(path: Path) -> tuple[str, int]:
@@ -162,10 +176,11 @@ def command_checksums(args: argparse.Namespace) -> None:
         if metadata.st_nlink != 1:
             fail(f"hardlinked evidence path forbidden: {path}")
         relative = path.resolve(strict=True).relative_to(root)
-        if relative.as_posix() == "checksums.sha256":
+        name = checksum_relative_name(relative)
+        if name == "checksums.sha256":
             continue
         digest, _ = sha256_file(path)
-        rows.append(f"{digest}  {relative.as_posix()}")
+        rows.append(f"{digest}  {name}")
     print("\n".join(rows))
 
 
