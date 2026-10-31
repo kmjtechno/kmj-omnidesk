@@ -189,6 +189,69 @@ class TestArtifacts(unittest.TestCase):
                 self.assertEqual(rules(violations), {"U4"})
                 self.assertIn("unsafe artifact filename", str(violations[0]))
 
+    def test_windows_reserved_device_names_are_refused_before_file_access(self):
+        # These names can be created on Linux CI but cannot be safely used as
+        # Windows release artifacts, even when an extension is appended.
+        digest = hashlib.sha256(PAYLOAD).hexdigest()
+        for name in (
+            "CON", "con.exe", "PRN.txt", "AUX", "NUL.exe",
+            "COM1.exe", "com9.bin", "LPT1.exe", "lpt9.log",
+        ):
+            with self.subTest(name=name):
+                violations = check_artifacts(
+                    good_manifest(artifacts={name: digest}), self.artifacts
+                )
+                self.assertEqual(rules(violations), {"U4"})
+                self.assertIn("reserved Windows device name", str(violations[0]))
+
+    def test_windows_case_insensitive_artifact_collisions_fail_closed(self):
+        # Check before filesystem access, including on a Linux CI host where
+        # the colliding files could exist as distinct regular files.
+        digest = hashlib.sha256(PAYLOAD).hexdigest()
+        for first, second in (
+            ("OmniDesk.exe", "omnidesk.EXE"),
+            ("APP.exe", "app.exe"),
+            ("a.BIN", "A.bin"),
+        ):
+            with self.subTest(first=first, second=second):
+                violations = check_artifacts(
+                    good_manifest(artifacts={first: digest, second: digest}),
+                    self.artifacts,
+                )
+                self.assertEqual(rules(violations), {"U4"})
+                self.assertEqual(len(violations), 1)
+                self.assertIn("ambiguous Windows artifact filenames", str(violations[0]))
+
+    def test_linux_distinct_case_artifact_names_remain_valid(self):
+        if os.name == "nt":
+            self.skipTest("case-distinct filenames cannot be reliably created on Windows")
+        first = "OmniDesk.bin"
+        second = "omnidesk.BIN"
+        digest = self.write(first)
+        self.write(second)
+        self.assertEqual(
+            check_artifacts(
+                good_manifest(
+                    platform="linux-x86_64",
+                    artifacts={first: digest, second: digest},
+                ),
+                self.artifacts,
+            ),
+            [],
+        )
+
+    def test_linux_artifact_name_con_remains_valid(self):
+        if os.name == "nt":
+            self.skipTest("Windows cannot create a regular file named CON")
+        digest = self.write("CON")
+        self.assertEqual(
+            check_artifacts(
+                good_manifest(platform="linux-x86_64", artifacts={"CON": digest}),
+                self.artifacts,
+            ),
+            [],
+        )
+
     def test_symlink_to_external_payload_is_refused(self):
         external = self.artifacts.parent / (self.artifacts.name + "-linked.exe")
         external.write_bytes(PAYLOAD)
