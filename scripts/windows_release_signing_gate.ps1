@@ -29,7 +29,7 @@ function Assert-NoRedirectedInstallerAncestors([string]$Path) {
     $absolute = [IO.Path]::GetFullPath($Path)
     $parent = [IO.Path]::GetDirectoryName($absolute)
     while (-not [string]::IsNullOrEmpty($parent)) {
-        $directory = Get-Item -LiteralPath $parent -ErrorAction Stop
+        $directory = Get-Item -LiteralPath $parent -Force -ErrorAction Stop
         if (-not $directory.PSIsContainer) {
             throw "Installer ancestor is not a directory: $parent"
         }
