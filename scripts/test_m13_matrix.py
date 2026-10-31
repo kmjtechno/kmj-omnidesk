@@ -294,5 +294,103 @@ class MatrixToolTests(unittest.TestCase):
             self.assertIn("nothing to verify", self.output(result))
 
 
+    def test_raw_path_traversal_refused_even_with_matching_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            ledger = root / "ledger.jsonl"
+            entry = json.loads(ledger.read_text(encoding="utf-8"))
+            entry["raw_path"] = "../M13-office-R001.samples.jsonl"
+            ledger.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+            result = self.run_tool("verify", "--root", str(root), ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsafe raw filename", self.output(result))
+
+    def test_raw_size_forgery_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            ledger = root / "ledger.jsonl"
+            entry = json.loads(ledger.read_text(encoding="utf-8"))
+            entry["raw_bytes"] += 1
+            ledger.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+            result = self.run_tool("verify", "--root", str(root), ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("raw_bytes mismatch", self.output(result))
+
+    def test_raw_symlink_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            raw = root / "raw" / "M13-office-R001.samples.jsonl"
+            raw.unlink()
+            try:
+                raw.symlink_to(root / "M13-office-R001.samples.jsonl")
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"symlink unavailable: {error}")
+            result = self.run_tool("verify", "--root", str(root), ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unshared and regular", self.output(result))
+
+    def test_raw_hardlink_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            raw = root / "raw" / "M13-office-R001.samples.jsonl"
+            try:
+                import os
+                os.link(raw, root / "shared.jsonl")
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"hardlink unavailable: {error}")
+            result = self.run_tool("verify", "--root", str(root), ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unshared and regular", self.output(result))
+
+    def test_compare_refuses_tampered_raw_and_duplicate_runs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            self.make_run(root, "M13-office-R002")
+            args = ("compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002")
+            raw = root / "raw" / "M13-office-R001.samples.jsonl"
+            raw.write_text('{"latency_ms": 1}\n', encoding="utf-8")
+            result = self.run_tool(*args, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("comparison evidence mismatch", self.output(result))
+            ledger = root / "ledger.jsonl"
+            lines = ledger.read_text(encoding="utf-8").splitlines()
+            ledger.write_text("\n".join(lines + [lines[0]]) + "\n", encoding="utf-8")
+            result = self.run_tool(*args, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("duplicate run_id", self.output(result))
+
+    def test_record_refuses_external_raw(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            sample = root / "external.jsonl"
+            sample.write_text('{"latency_ms": 42}\n', encoding="utf-8")
+            environment = root / "env.json"
+            environment.write_text(json.dumps(ENVIRONMENT), encoding="utf-8")
+            metrics = root / "metrics.json"
+            metrics.write_text(json.dumps(FULL_METRICS), encoding="utf-8")
+            result = self.run_tool(
+                "record", "--root", str(root), "--run-id", "M13-office-R001",
+                "--raw", str(sample), "--environment", str(environment),
+                "--metrics", str(metrics), ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("raw_results_required", self.output(result))
+            self.assertEqual((root / "ledger.jsonl").read_text(), "")
+
+
+
 if __name__ == "__main__":
     unittest.main()
