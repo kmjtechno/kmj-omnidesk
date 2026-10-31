@@ -38,7 +38,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import stat
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -99,6 +101,16 @@ class Manifest:
     cleanup: dict[str, list[str]] = field(default_factory=dict)
 
 
+def _reject_duplicate_manifest_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Refuse ambiguous JSON keys, including inside artifacts and cleanup."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"manifest contains duplicate JSON key {key!r}")
+        result[key] = value
+    return result
+
+
 def load_manifest(path: Path) -> Manifest:
     """Parse a release manifest.
 
@@ -106,7 +118,10 @@ def load_manifest(path: Path) -> Manifest:
     is a hard failure, never a partial load: a manifest that parses with
     missing fields would let absent data satisfy a check.
     """
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw = json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_manifest_keys,
+    )
     if not isinstance(raw, dict):
         raise ValueError("manifest must be a JSON object")
 
@@ -207,6 +222,39 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
     if not manifest.artifacts:
         return [Violation("U4", "release manifest lists no artifacts")]
 
+    # Reject a redirected *directory*, not only redirected artifact files.
+    # Otherwise a valid digest in a symlinked artifact directory can attest
+    # an unrelated tree. Check before resolving any supplied path.
+    if ".." in artifacts_dir.parts:
+        return [Violation("U4", "artifact directory parent traversal is forbidden")]
+    selected = artifacts_dir.absolute()
+    if not selected.is_dir():
+        return [Violation("U4", "artifact directory is not an existing directory")]
+    # Snapshot every ancestor's identity. Checking reparse flags only once
+    # permits a directory to be replaced after preflight but before file open.
+    # Recheck after hashing; this detects persistent substitutions without
+    # claiming race-free directory handles on Windows.
+    directory_components = []
+    for component in (selected, *selected.parents):
+        try:
+            metadata = component.lstat()
+            reparse = bool(
+                getattr(metadata, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            )
+            is_junction = getattr(component, "is_junction", lambda: False)
+            if component.is_symlink() or is_junction() or reparse:
+                return [
+                    Violation("U4", f"redirected artifact directory component: {component}")
+                ]
+            if not stat.S_ISDIR(metadata.st_mode):
+                return [Violation("U4", f"artifact directory component is not a directory: {component}")]
+            directory_components.append((component, metadata.st_dev, metadata.st_ino))
+        except OSError as error:
+            return [
+                Violation("U4", f"cannot inspect artifact directory component {component}: {error}")
+            ]
+
     for name, expected in sorted(
         manifest.artifacts.items(), key=lambda item: str(item[0])
     ):
@@ -227,23 +275,120 @@ def check_artifacts(manifest: Manifest, artifacts_dir: Path) -> list[Violation]:
             )
             continue
 
-        artifact = artifacts_dir / name
-        if artifact.is_symlink():
-            violations.append(
-                Violation("U4", f"{name} is a symbolic link, not a release artifact")
-            )
-            continue
-        if not artifact.is_file():
+        artifact = selected / name
+        # lstat, unlike is_file(), does not follow the final path component.
+        # Refuse Windows reparse files and multiply-linked files as well as
+        # POSIX symlinks. A release artifact must be an unshared regular file.
+        try:
+            metadata = artifact.lstat()
+        except FileNotFoundError:
             violations.append(
                 Violation("U4", f"{name} is listed in the manifest but is not present")
+            )
+            continue
+        except OSError as error:
+            violations.append(Violation("U4", f"{name} cannot be inspected: {error}"))
+            continue
+        reparse = bool(
+            getattr(metadata, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        )
+        if stat.S_ISLNK(metadata.st_mode) or reparse:
+            violations.append(
+                Violation("U4", f"{name} is a symbolic link or reparse point, not a release artifact")
+            )
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            violations.append(Violation("U4", f"{name} is not a regular release artifact"))
+            continue
+        if metadata.st_nlink != 1:
+            violations.append(
+                Violation("U4", f"{name} has {metadata.st_nlink} hard links; release artifacts must be unshared")
             )
             continue
 
         digest = hashlib.sha256()
         try:
-            with artifact.open("rb") as handle:
+            # Open without following the final symlink where supported. O_NONBLOCK
+            # prevents a swapped-in FIFO from hanging the release verifier.
+            flags = (
+                os.O_RDONLY
+                | getattr(os, "O_BINARY", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_NONBLOCK", 0)
+            )
+            descriptor = os.open(artifact, flags)
+            with os.fdopen(descriptor, "rb") as handle:
+                opened = os.fstat(handle.fileno())
+                # Bind the bytes being hashed to the exact file inspected by
+                # lstat, not merely a pathname an attacker may have replaced.
+                if (
+                    not stat.S_ISREG(opened.st_mode)
+                    or opened.st_nlink != 1
+                    or bool(
+                        getattr(opened, "st_file_attributes", 0)
+                        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                    )
+                    or opened.st_dev != metadata.st_dev
+                    or opened.st_ino != metadata.st_ino
+                ):
+                    violations.append(
+                        Violation("U4", f"{name} changed between inspection and open")
+                    )
+                    continue
                 for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                     digest.update(chunk)
+                after_read = os.fstat(handle.fileno())
+                if (
+                    after_read.st_size != opened.st_size
+                    or after_read.st_mtime_ns != opened.st_mtime_ns
+                    or after_read.st_ctime_ns != opened.st_ctime_ns
+                ):
+                    violations.append(
+                        Violation("U4", f"{name} changed while being hashed")
+                    )
+                    continue
+            # Detect a rename or path substitution during the read. This is
+            # defense in depth, not a claim of race-free Windows directory IO.
+            after_path = artifact.lstat()
+            if (
+                after_path.st_dev != opened.st_dev
+                or after_path.st_ino != opened.st_ino
+                or not stat.S_ISREG(after_path.st_mode)
+                or after_path.st_nlink != 1
+                or bool(
+                    getattr(after_path, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                )
+            ):
+                violations.append(
+                    Violation("U4", f"{name} changed after opening for hashing")
+                )
+                continue
+            # A swapped directory containing identical artifact bytes is not
+            # the tree that was admitted by the original provenance preflight.
+            directory_changed = False
+            for component, original_dev, original_ino in directory_components:
+                current = component.lstat()
+                current_reparse = bool(
+                    getattr(current, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                )
+                if (
+                    not stat.S_ISDIR(current.st_mode)
+                    or current_reparse
+                    or component.is_symlink()
+                    or getattr(component, "is_junction", lambda: False)()
+                    or current.st_dev != original_dev
+                    or current.st_ino != original_ino
+                ):
+                    directory_changed = True
+                    break
+            if directory_changed:
+                violations.append(
+                    Violation("U4", f"{name} artifact directory changed during verification")
+                )
+                continue
         except OSError as error:
             violations.append(
                 Violation("U4", f"{name} cannot be read: {error}")
@@ -310,6 +455,13 @@ def check_uninstall_cleanup(manifest: Manifest) -> list[Violation]:
                 "something and must not be empty",
             )
         ]
+
+    # Cleanup for another architecture cannot prove that this build's updater
+    # and autostart entries are removed. The manifest platform must be covered.
+    if not isinstance(manifest.platform, str) or manifest.platform not in manifest.cleanup:
+        violations.append(
+            Violation("U8", f"cleanup omits manifest platform {manifest.platform!r}")
+        )
 
     for platform, targets in sorted(manifest.cleanup.items()):
         if platform not in PLATFORMS:
