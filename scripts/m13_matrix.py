@@ -238,6 +238,8 @@ def command_record(args: argparse.Namespace) -> None:
     if supplied_raw.absolute() != raw:
         fail("raw_results_required: raw input must be inside evidence root/raw")
     raw_sha, raw_size = sha256_file(raw)
+    if raw_size == 0:
+        fail("raw_results_required: empty raw sample file")
 
     existing = read_ledger(root)
     if any(entry.get("run_id") == run_id for entry in existing):
@@ -339,6 +341,8 @@ def command_verify(args: argparse.Namespace) -> None:
             problems.append(f"{run_id}: {error}")
         else:
             actual, actual_size = sha256_file(raw_path)
+            if actual_size == 0:
+                problems.append(f"{run_id}: raw_results_required -- empty raw sample file")
             if not isinstance(raw_sha, str) or actual != raw_sha:
                 problems.append(
                     f"{run_id}: raw_results_required -- {raw_path.name} "
@@ -416,6 +420,8 @@ def command_compare(args: argparse.Namespace) -> None:
     for run_id, entry in ((args.baseline, baseline), (args.candidate, candidate)):
         raw_path = checked_raw_file(root, entry.get("raw_path"))
         actual, actual_size = sha256_file(raw_path)
+        if actual_size == 0:
+            fail(f"{run_id}: raw_results_required -- empty raw sample file")
         if (
             actual != entry.get("raw_sha256")
             or type(entry.get("raw_bytes")) is not int
