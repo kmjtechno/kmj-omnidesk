@@ -285,6 +285,40 @@ class ReleaseGateTests(ReleaseFixture):
         self.assertTrue(release_gate.check_security_gate({}))
         self.assertTrue(release_gate.check_security_gate({"security_checks": []}))
 
+    def test_malformed_security_check_entries_fail_closed(self) -> None:
+        """A malformed CI report must refuse rather than raise AttributeError."""
+        release = {
+            "security_checks": [
+                None, "green", 42, {"name": None, "status": "green"},
+                {"name": "  ", "status": "green"},
+                {"name": "cargo-deny", "status": "green"},
+            ]
+        }
+        problems = release_gate.check_security_gate(release)
+        self.assertEqual(sum("not a check object" in p for p in problems), 3)
+        self.assertEqual(sum("no non-empty name" in p for p in problems), 2)
+        self.assertFalse(any("cargo-deny" in p for p in problems))
+
+    def test_duplicate_security_checks_cannot_inflate_gate_coverage(self) -> None:
+        """Case/whitespace variants of one check are not independent checks."""
+        release = {
+            "security_checks": [
+                {"name": "Cargo-Deny", "status": "green"},
+                {"name": " cargo-deny ", "status": "green"},
+            ]
+        }
+        problems = release_gate.check_security_gate(release)
+        self.assertTrue(any("duplicate check name" in p for p in problems))
+
+    def test_distinct_named_green_checks_are_still_accepted(self) -> None:
+        release = {
+            "security_checks": [
+                {"name": "cargo-deny", "status": "green"},
+                {"name": "rust-tests", "status": "green"},
+            ]
+        }
+        self.assertEqual(release_gate.check_security_gate(release), [])
+
     # --- performance_gate_pass (delegation) ------------------------------
 
     def test_a_missing_performance_matrix_is_refused(self) -> None:
