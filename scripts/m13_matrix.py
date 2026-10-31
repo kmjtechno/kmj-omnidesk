@@ -154,7 +154,21 @@ def checked_raw_file(root: Path, name: object) -> Path:
 
 
 def ledger_path(root: Path) -> Path:
-    return root / "ledger.jsonl"
+    path = root / "ledger.jsonl"
+    if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+        fail("redirected M13 evidence ledger forbidden")
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return path
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_nlink != 1
+        or (getattr(metadata, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    ):
+        fail("M13 evidence ledger must be an unshared regular file")
+    return path
 
 
 def command_init(args: argparse.Namespace) -> None:
