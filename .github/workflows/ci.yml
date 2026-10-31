@@ -301,6 +301,9 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v6
+      - name: M9 protected signer path refusal gate (unsigned negative tests)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/test_windows_release_signing_gate.ps1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt

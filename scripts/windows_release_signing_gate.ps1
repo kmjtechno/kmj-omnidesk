@@ -19,13 +19,60 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Path-based checks cannot replace a protected signer or handle-bound
+# verification. They do prevent an operator-supplied junction/symlink parent
+# from silently redirecting an otherwise ordinary installer file.
+function Assert-NoRedirectedInstallerAncestors([string]$Path) {
+    # Do not touch network shares, device namespaces, drive-relative paths or
+    # a caller-dependent working directory. Check lexically before any IO.
+    if ($Path -cnotmatch '^[A-Za-z]:[\\/]') {
+        throw 'Installer path must be an absolute local drive path'
+    }
+    if (($Path -split '[\\/]') -contains '..') {
+        throw 'Installer path cannot contain parent traversal'
+    }
+    # Reject Windows path aliases before filesystem access or signature checks.
+    # ADS, trailing dot/space normalization and DOS devices (including Windows
+    # superscript-digit COM/LPT aliases) are not canonical
+    # local installer paths and must not be accepted as release artifacts.
+    foreach ($component in ($Path.Substring(3) -split '[\\/]')) {
+        if ($component -match ':' -or $component -match '[. ]$' -or
+            $component -match '^(?i:CONIN\$|CONOUT\$|CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\..*)?$') {
+            throw 'Installer path contains unsupported Windows path syntax'
+        }
+    }
+    $absolute = [IO.Path]::GetFullPath($Path)
+    $parent = [IO.Path]::GetDirectoryName($absolute)
+    while (-not [string]::IsNullOrEmpty($parent)) {
+        $directory = Get-Item -LiteralPath $parent -Force -ErrorAction Stop
+        if (-not $directory.PSIsContainer) {
+            throw "Installer ancestor is not a directory: $parent"
+        }
+        if (($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Redirected installer ancestor forbidden: $parent"
+        }
+        $next = [IO.Path]::GetDirectoryName($parent.TrimEnd([char]'\', [char]'/'))
+        if ([string]::IsNullOrEmpty($next) -or $next -eq $parent) { break }
+        $parent = $next
+    }
+}
+
 try {
+    Assert-NoRedirectedInstallerAncestors $InstallerPath
     $artifact = Get-Item -LiteralPath $InstallerPath -ErrorAction Stop
     if ($artifact.PSIsContainer -or $artifact.Length -le 0) {
         throw 'Installer must be a non-empty regular file'
     }
     if (($artifact.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'Installer cannot be a reparse point or symbolic link'
+    }
+
+    # Check the pinned artifact digest before processing its signature, then
+    # hash again after Authenticode verification. This catches persistent
+    # replacement during verification but is NOT a race-free handle binding.
+    $beforeSignatureDigest = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($beforeSignatureDigest -cne $ExpectedSha256.ToLowerInvariant()) {
+        throw 'Installer SHA-256 differs from the pinned release manifest digest'
     }
 
     $signature = Get-AuthenticodeSignature -LiteralPath $artifact.FullName
@@ -44,8 +91,9 @@ try {
     }
 
     $actualDigest = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actualDigest -cne $ExpectedSha256.ToLowerInvariant()) {
-        throw 'Installer SHA-256 differs from the pinned release manifest digest'
+    if ($actualDigest -cne $beforeSignatureDigest -or
+        $actualDigest -cne $ExpectedSha256.ToLowerInvariant()) {
+        throw 'Installer SHA-256 changed during signature verification or differs from pinned digest'
     }
 
     [ordered]@{
