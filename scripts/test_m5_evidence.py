@@ -432,6 +432,95 @@ class TestEvidenceIntegrity(Fixture):
         self.assertTrue(any("raw observation path" in p for p in report["problems"]))
 
 
+
+class TestLedgerClaimIntegrity(Fixture):
+    """Malformed ledger claims must not be promoted to transport evidence."""
+
+    def test_string_gate_claim_cannot_satisfy_transport_gate(self) -> None:
+        self.append(self.transport_run(gates_observed=CONF))
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertTrue(any("gates_observed must be a list" in p for p in report["problems"]))
+
+    def test_duplicate_gate_claims_cannot_satisfy_transport_gate(self) -> None:
+        self.append(self.transport_run(gates_observed=[CONF, CONF]))
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertTrue(any("duplicate gates_observed" in p for p in report["problems"]))
+
+    def test_unknown_extra_gate_invalidates_otherwise_valid_claim(self) -> None:
+        self.append(self.transport_run(gates_observed=[CONF, "undeclared_gate"]))
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertTrue(any("unknown gates_observed" in p for p in report["problems"]))
+
+    def test_non_string_gate_name_refuses_without_crashing(self) -> None:
+        self.append(self.transport_run(gates_observed=[CONF, {"unexpected": "object"}]))
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertTrue(any("gates_observed must be a list" in p for p in report["problems"]))
+
+    def test_non_string_evidence_class_refuses_without_crashing(self) -> None:
+        self.append(self.transport_run(evidence_class=["transport_observed"]))
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertTrue(any("non-string evidence class" in p for p in report["problems"]))
+
+    def test_unclaimed_invalid_evidence_class_invalidates_ledger(self) -> None:
+        self.append(self.code_run(), self.entry(
+            "M5-OTHER-R002", evidence_class={"type": "code_observed"},
+            gates_observed=[],
+        ))
+        report = self.report()
+        self.assertFalse(report["m5_satisfied"])
+        self.assertTrue(any("invalid evidence_class in M5 ledger" in p for p in report["problems"]))
+
+    def test_observation_byte_count_must_match(self) -> None:
+        self.append(self.transport_run(raw_bytes=0))
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertTrue(any("raw_bytes does not match" in p for p in report["problems"]))
+
+    def test_truthy_string_cannot_prove_forced_link_impairment(self) -> None:
+        self.append(self.entry(
+            "M5-FORCED-R001",
+            evidence_class="link_forced_observed",
+            relay_endpoint="relay.example:4433",
+            client_endpoint="10.0.0.1:9000",
+            server_endpoint="10.0.0.2:9000",
+            impairment={"method": "drop direct packets", "applied_before_session": "false"},
+            gates_observed=[EXIT],
+        ))
+        report = self.report()
+        self.assertEqual(report["gates"][EXIT]["status"], "unmet")
+        self.assertTrue(any("applied_before_session" in p for p in report["problems"]))
+
+    def test_duplicate_ledger_run_identity_blocks_release_report(self) -> None:
+        run = self.transport_run()
+        self.append(run, dict(run))
+        report = self.report()
+        self.assertFalse(report["m5_satisfied"])
+        self.assertTrue(any("duplicate run_id in M5 ledger" in p for p in report["problems"]))
+
+    def test_duplicate_record_gate_refused_before_artifact_creation(self) -> None:
+        import argparse
+
+        source = self.raw("source")
+        args = argparse.Namespace(
+            root=str(self.root), run_id="M5-NEW-R001",
+            evidence_class="code_observed", raw=source,
+            gate=[DECRYPT, DECRYPT], environment=None,
+            test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None, unauthorized_outcome=None,
+        )
+        with self.assertRaises(SystemExit) as refusal:
+            m5.command_record(args)
+        self.assertIn("duplicate --gate", str(refusal.exception))
+        self.assertFalse((self.root / "raw" / "M5-NEW-R001.json").exists())
+        self.assertEqual(m5.read_ledger(self.root), [])
+
+
 class TestFailClosed(Fixture):
     """The gate that must not pass on absence."""
 

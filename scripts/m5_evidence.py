@@ -325,11 +325,28 @@ def check_gate_coverage(
     return problems
 
 
+def entry_claim_errors(entry: dict, run_id: str) -> list[str]:
+    """Refuse malformed or ambiguous gate claims, including unclaimed rows."""
+    claims = entry.get("gates_observed")
+    if not isinstance(claims, list) or any(type(name) is not str for name in claims):
+        return [f"{run_id}: gates_observed must be a list of gate names"]
+    problems = []
+    if len(set(claims)) != len(claims):
+        problems.append(f"{run_id}: duplicate gates_observed names")
+    unknown = sorted(set(claims) - (set(EXIT_CRITERIA) | set(SECURITY_GATES)))
+    if unknown:
+        problems.append(f"{run_id}: unknown gates_observed names: {', '.join(unknown)}")
+    return problems
+
+
 def gate_runs(entries: list[dict], gate: str) -> list[dict]:
+    # Never treat a JSON string as a collection of gate claims. A substring
+    # match could otherwise turn malformed evidence into an observed gate.
     return [
         entry
         for entry in entries
-        if gate in (entry.get("gates_observed") or [])
+        if isinstance(entry.get("gates_observed"), list)
+        and gate in entry["gates_observed"]
     ]
 
 
@@ -362,6 +379,10 @@ def gate_satisfied(
         run_id = entry.get("run_id", "<missing>")
         evidence_class = entry.get("evidence_class")
 
+        # JSON ledger values may be arrays/objects. Never hash them as dict keys.
+        if not isinstance(evidence_class, str):
+            problems.append(f"{gate}: run {run_id} declares non-string evidence class {evidence_class!r}")
+            continue
         if evidence_class not in EVIDENCE_CLASSES:
             problems.append(f"{gate}: run {run_id} declares unknown evidence class {evidence_class!r}")
             continue
@@ -383,11 +404,13 @@ def gate_satisfied(
         # only reason it is not still there.
         integrity = entry_problems(entry, run_id, raw_root)
         class_errors = entry_class_errors(entry, run_id) or []
+        claim_errors = entry_claim_errors(entry, str(run_id))
 
         problems.extend(integrity)
         problems.extend(class_errors)
+        problems.extend(claim_errors)
 
-        if not integrity and not class_errors:
+        if not integrity and not class_errors and not claim_errors:
             honoured += 1
 
     if honoured:
@@ -427,9 +450,12 @@ def entry_problems(entry: dict, run_id: str, raw_root: Path) -> list[str]:
         problems.append(f"{run_id}: raw observation {name} is gone")
         return problems
 
-    actual, _ = sha256_file(path)
+    actual, size = sha256_file(path)
     if actual != digest:
         problems.append(f"{run_id}: raw observation {name} no longer hashes to what was recorded")
+    expected_size = entry.get("raw_bytes")
+    if type(expected_size) is not int or expected_size != size:
+        problems.append(f"{run_id}: raw_bytes does not match the observation size")
 
     return problems
 
@@ -463,7 +489,11 @@ def entry_class_errors(entry: dict, run_id: str) -> list[str] | None:
         impairment = entry.get("impairment")
         if not isinstance(impairment, dict):
             errors.append(f"{run_id}: link_forced_observed run must record how the link was broken")
-        elif not impairment.get("method") or not impairment.get("applied_before_session"):
+        elif (
+            not isinstance(impairment.get("method"), str)
+            or not impairment["method"].strip()
+            or impairment.get("applied_before_session") is not True
+        ):
             errors.append(
                 f"{run_id}: link_forced_observed run must record impairment.method and "
                 "impairment.applied_before_session -- an impairment applied afterwards did not cause the failure"
@@ -516,9 +546,11 @@ def check_fail_closed_authorization(entries: list[dict], raw_root: Path) -> list
             # this only decides whether the attempt counts as a *refusal*.
             integrity = entry_problems(entry, run_id, raw_root)
             class_errors = entry_class_errors(entry, run_id) or []
-            if integrity or class_errors:
+            claim_errors = entry_claim_errors(entry, str(run_id))
+            if integrity or class_errors or claim_errors:
                 problems.extend(integrity)
                 problems.extend(class_errors)
+                problems.extend(claim_errors)
                 continue
             # Only a sound run claiming this gate can establish refusal;
             # unrelated refusals may not satisfy another run's gate.
@@ -545,6 +577,19 @@ def evaluate(root: Path, roadmap: Path) -> dict:
     raw_root = root / "raw"
 
     problems: list[str] = list(check_gate_coverage(exit_criteria, security_gates))
+    seen_run_ids: set[str] = set()
+    for entry in entries:
+        run_id = entry.get("run_id")
+        if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
+            problems.append(f"invalid run_id in M5 ledger: {run_id!r}")
+        elif run_id in seen_run_ids:
+            problems.append(f"duplicate run_id in M5 ledger: {run_id}")
+        else:
+            seen_run_ids.add(run_id)
+        problems.extend(entry_claim_errors(entry, str(run_id)))
+        evidence_class = entry.get("evidence_class")
+        if not isinstance(evidence_class, str) or evidence_class not in EVIDENCE_CLASSES:
+            problems.append(f"{run_id!r}: invalid evidence_class in M5 ledger: {evidence_class!r}")
 
     if not entries:
         problems.append(f"no runs recorded under {root}; nothing was observed")
@@ -641,6 +686,8 @@ def command_record(args: argparse.Namespace) -> None:
     unknown = [gate for gate in gates if gate not in known]
     if unknown:
         fail(f"run names gates M5 does not declare: {', '.join(sorted(unknown))}")
+    if len(set(gates)) != len(gates):
+        fail("duplicate --gate claim forbidden")
 
     # The ledger must already exist as a regular file created by init.
     # Without this preflight, append mode silently creates a new ledger or
