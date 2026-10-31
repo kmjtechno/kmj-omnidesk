@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -40,7 +41,7 @@ ENVIRONMENT = {
 class MatrixToolTests(unittest.TestCase):
     def run_tool(self, *args, ok=True):
         result = subprocess.run(
-            ["python3", str(SCRIPT), *args],
+            [sys.executable, str(SCRIPT), *args],
             text=True,
             capture_output=True,
             check=False,

@@ -72,7 +72,7 @@ if (process.argv.length !== 3 || !Object.hasOwn(commands, variant)) {
     if (variant === "capture" && run.status === 0) {
       const receiptPath = path.join(evidence, "native-ui-smoke.json");
       try {
-        const receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8").replace(/^\\uFEFF/, ""));
+        const receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8").replace(/^\uFEFF/, ""));
         if (
           receipt.evidence_type !== "real_windows_native_window" ||
           !receipt.process_started ||
