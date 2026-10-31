@@ -230,6 +230,14 @@ class ReleaseGateTests(ReleaseFixture):
         """Mutation: return `[]` when no metadata is declared."""
         self.assertTrue(release_gate.check_update_metadata({}))
 
+    def test_non_object_metadata_document_is_refused_not_crashed(self) -> None:
+        """A parseable JSON list is not a signed metadata document."""
+        metadata = self.write("stable.json", '["not metadata"]')
+        problems = release_gate.check_update_metadata(
+            {"update_metadata": [{"channel": "stable", "path": str(metadata)}]}
+        )
+        self.assertTrue(any("missing or unparseable" in p for p in problems))
+
     # --- licensing_integration_verified ---------------------------------
 
     def test_a_licensing_contract_with_no_plans_is_refused(self) -> None:
@@ -263,6 +271,14 @@ class ReleaseGateTests(ReleaseFixture):
 
         self.assertTrue(any("missing or unparseable" in problem for problem in problems))
 
+    def test_non_object_licensing_contract_is_refused_not_crashed(self) -> None:
+        """A parseable JSON array cannot satisfy a licensing contract."""
+        contract = self.write("contract.json", '["pro"]')
+        problems = release_gate.check_licensing_integration(
+            {"licensing_contract": {"path": str(contract)}}
+        )
+        self.assertTrue(any("missing or unparseable" in p for p in problems))
+
     # --- security_gate_pass ----------------------------------------------
 
     def test_a_non_green_security_check_fails_the_gate(self) -> None:
@@ -284,6 +300,40 @@ class ReleaseGateTests(ReleaseFixture):
         """
         self.assertTrue(release_gate.check_security_gate({}))
         self.assertTrue(release_gate.check_security_gate({"security_checks": []}))
+
+    def test_malformed_security_check_entries_fail_closed(self) -> None:
+        """A malformed CI report must refuse rather than raise AttributeError."""
+        release = {
+            "security_checks": [
+                None, "green", 42, {"name": None, "status": "green"},
+                {"name": "  ", "status": "green"},
+                {"name": "cargo-deny", "status": "green"},
+            ]
+        }
+        problems = release_gate.check_security_gate(release)
+        self.assertEqual(sum("not a check object" in p for p in problems), 3)
+        self.assertEqual(sum("no non-empty name" in p for p in problems), 2)
+        self.assertFalse(any("cargo-deny" in p for p in problems))
+
+    def test_duplicate_security_checks_cannot_inflate_gate_coverage(self) -> None:
+        """Case/whitespace variants of one check are not independent checks."""
+        release = {
+            "security_checks": [
+                {"name": "Cargo-Deny", "status": "green"},
+                {"name": " cargo-deny ", "status": "green"},
+            ]
+        }
+        problems = release_gate.check_security_gate(release)
+        self.assertTrue(any("duplicate check name" in p for p in problems))
+
+    def test_distinct_named_green_checks_are_still_accepted(self) -> None:
+        release = {
+            "security_checks": [
+                {"name": "cargo-deny", "status": "green"},
+                {"name": "rust-tests", "status": "green"},
+            ]
+        }
+        self.assertEqual(release_gate.check_security_gate(release), [])
 
     # --- performance_gate_pass (delegation) ------------------------------
 
@@ -553,6 +603,19 @@ class CommandLineTests(ReleaseFixture):
         self.assertFalse(report["admissible"])
         self.assertEqual(report["release"], "<unreadable>")
         self.assertEqual(result.returncode, 1)
+
+    def test_parseable_non_object_release_manifest_refuses_cleanly(self) -> None:
+        """JSON scalars and arrays must not crash the commercial release gate."""
+        for payload in ("[]", '"green"', "null", "42"):
+            with self.subTest(payload=payload):
+                path = self.write("non-object-release.json", payload)
+                result = self._run_cli(path)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                report = json.loads(result.stdout)
+                self.assertFalse(report["admissible"])
+                self.assertEqual(report["release"], "<unreadable>")
+                self.assertTrue(report["problems"])
 
     def test_an_unreadable_manifest_names_the_path_it_could_not_read(self) -> None:
         """Mutation: report an unreadable manifest with an empty problem list.
