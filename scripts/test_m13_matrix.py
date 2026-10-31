@@ -528,5 +528,59 @@ class MatrixToolTests(unittest.TestCase):
             self.assertTrue(json.loads(compared.stdout)["comparable"])
 
 
+    def test_missing_middle_run_number_refuses_verify_and_compare(self):
+        # Deleting R002 must not make R001 versus R003 look admissible.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            for run_id in ("M13-office-R001", "M13-office-R002", "M13-office-R003"):
+                self.make_run(root, run_id)
+            ledger = root / "ledger.jsonl"
+            lines = ledger.read_text(encoding="utf-8").splitlines()
+            ledger.write_text("\n".join((lines[0], lines[2])) + "\n", encoding="utf-8")
+            for command in (
+                ("verify", "--root", str(root)),
+                ("compare", "--root", str(root), "--baseline",
+                 "M13-office-R001", "--candidate", "M13-office-R003"),
+            ):
+                result = self.run_tool(*command, ok=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("cherry_picking_forbidden", self.output(result))
+
+    def test_reordered_run_numbers_refuse_verify_and_compare(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            self.make_run(root, "M13-office-R002")
+            ledger = root / "ledger.jsonl"
+            lines = ledger.read_text(encoding="utf-8").splitlines()
+            ledger.write_text("\n".join(reversed(lines)) + "\n", encoding="utf-8")
+            for command in (
+                ("verify", "--root", str(root)),
+                ("compare", "--root", str(root), "--baseline",
+                 "M13-office-R001", "--candidate", "M13-office-R002"),
+            ):
+                result = self.run_tool(*command, ok=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("ledger order", self.output(result))
+
+    def test_record_refuses_skipping_next_run_number(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            result = self.run_tool(
+                "record", "--root", str(root), "--run-id", "M13-office-R003",
+                "--raw", str(root / "raw" / "M13-office-R001.samples.jsonl"),
+                "--environment", str(root / "M13-office-R001.env.json"),
+                "--metrics", str(root / "M13-office-R001.metrics.json"),
+                ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("expected R002", self.output(result))
+            self.assertEqual(len((root / "ledger.jsonl").read_text().splitlines()), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
