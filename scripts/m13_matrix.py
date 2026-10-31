@@ -398,11 +398,11 @@ def command_compare(args: argparse.Namespace) -> None:
         fail("comparative_claims_require_reproducible_comparable_tests: distinct runs required")
     root = checked_root(args.root)
     ledger = read_ledger(root)
+    if len({entry["run_id"] for entry in ledger}) != len(ledger):
+        fail("cherry_picking_forbidden: duplicate run_id in comparison ledger")
     sequence_errors = sequence_problems(ledger)
     if sequence_errors:
         fail("; ".join(sequence_errors))
-    if len({entry["run_id"] for entry in ledger}) != len(ledger):
-        fail("cherry_picking_forbidden: duplicate run_id in comparison ledger")
     entries = {entry["run_id"]: entry for entry in ledger}
 
     for run_id in (args.baseline, args.candidate):
