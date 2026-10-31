@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -203,6 +205,140 @@ class TestArtifacts(unittest.TestCase):
         self.assertEqual(rules(violations), {"U4"})
         self.assertIn("symbolic link", str(violations[0]))
 
+    def test_symlinked_artifact_directory_and_parent_are_refused(self):
+        with tempfile.TemporaryDirectory() as external_dir:
+            external = Path(external_dir)
+            (external / "app.exe").write_bytes(PAYLOAD)
+            nested = external / "nested"
+            nested.mkdir()
+            (nested / "app.exe").write_bytes(PAYLOAD)
+            redirected = self.artifacts / "redirected"
+            try:
+                redirected.symlink_to(external, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks unavailable")
+            manifest = good_manifest(
+                artifacts={"app.exe": hashlib.sha256(PAYLOAD).hexdigest()}
+            )
+            before = (external / "app.exe").read_bytes()
+            for selected in (redirected, redirected / "nested"):
+                with self.subTest(selected=selected):
+                    violations = check_artifacts(manifest, selected)
+                    self.assertEqual(rules(violations), {"U4"})
+                    self.assertIn("redirected artifact directory", str(violations[0]))
+            self.assertEqual((external / "app.exe").read_bytes(), before)
+
+    def test_artifact_directory_parent_traversal_is_refused(self):
+        digest = self.write("app.exe")
+        (self.artifacts / "empty").mkdir()
+        selected = self.artifacts / "empty" / ".."
+        violations = check_artifacts(
+            good_manifest(artifacts={"app.exe": digest}), selected
+        )
+        self.assertEqual(rules(violations), {"U4"})
+        self.assertIn("parent traversal", str(violations[0]))
+
+    def test_artifact_directory_must_be_a_directory(self):
+        digest = self.write("app.exe")
+        not_directory = self.artifacts / "not-a-directory"
+        not_directory.write_text("owner data", encoding="utf-8")
+        violations = check_artifacts(
+            good_manifest(artifacts={"app.exe": digest}), not_directory
+        )
+        self.assertEqual(rules(violations), {"U4"})
+        self.assertIn("not an existing directory", str(violations[0]))
+        self.assertEqual(not_directory.read_text(encoding="utf-8"), "owner data")
+
+    def test_hardlinked_external_payload_is_refused_without_modifying_it(self):
+        external = self.artifacts.parent / (self.artifacts.name + "-hardlink-source.exe")
+        external.write_bytes(PAYLOAD)
+        self.addCleanup(external.unlink, missing_ok=True)
+        artifact = self.artifacts / "app.exe"
+        try:
+            artifact.hardlink_to(external)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard links are unavailable on this filesystem")
+        self.assertGreater(artifact.stat().st_nlink, 1)
+        violations = check_artifacts(
+            good_manifest(artifacts={"app.exe": hashlib.sha256(PAYLOAD).hexdigest()}),
+            self.artifacts,
+        )
+        self.assertEqual(rules(violations), {"U4"})
+        self.assertIn("hard links", str(violations[0]))
+        self.assertEqual(external.read_bytes(), PAYLOAD)
+
+    def test_same_bytes_replacement_between_inspection_and_open_is_refused(self):
+        # Matching content is not enough: a replaced inode must not attest
+        # the release artifact that was inspected before opening.
+        digest = self.write("app.exe")
+        artifact = self.artifacts / "app.exe"
+        replacement = self.artifacts / "replacement.tmp"
+        replacement.write_bytes(PAYLOAD)
+        original_open = os.open
+        swapped = False
+
+        def replace_before_open(path, flags, *args, **kwargs):
+            nonlocal swapped
+            if Path(path) == artifact and not swapped:
+                swapped = True
+                os.replace(replacement, artifact)
+            return original_open(path, flags, *args, **kwargs)
+
+        with patch("verify_release_manifest.os.open", side_effect=replace_before_open):
+            violations = check_artifacts(
+                good_manifest(artifacts={"app.exe": digest}), self.artifacts
+            )
+        self.assertTrue(swapped)
+        self.assertEqual(rules(violations), {"U4"})
+        self.assertIn("changed between inspection and open", str(violations[0]))
+        self.assertEqual(artifact.read_bytes(), PAYLOAD)
+
+    def test_matching_bytes_in_swapped_artifact_directory_are_refused(self):
+        # Replacing an admitted directory with another ordinary directory
+        # containing the SAME bytes must not attest the substituted package.
+        digest = self.write("app.exe")
+        artifact = self.artifacts / "app.exe"
+        original_open = os.open
+        swapped = False
+        with tempfile.TemporaryDirectory() as other_parent:
+            replacement = Path(other_parent) / "replacement"
+            replacement.mkdir()
+            (replacement / "app.exe").write_bytes(PAYLOAD)
+            saved = self.artifacts.with_name(self.artifacts.name + "-saved")
+            self.assertFalse(saved.exists())
+
+            def swap_before_open(path, flags, *args, **kwargs):
+                nonlocal swapped
+                if Path(path) == artifact and not swapped:
+                    self.artifacts.rename(saved)
+                    try:
+                        replacement.rename(self.artifacts)
+                    except OSError:
+                        saved.rename(self.artifacts)
+                        raise
+                    swapped = True
+                return original_open(path, flags, *args, **kwargs)
+
+            try:
+                with patch("verify_release_manifest.os.open", side_effect=swap_before_open):
+                    violations = check_artifacts(
+                        good_manifest(artifacts={"app.exe": digest}), self.artifacts
+                    )
+            finally:
+                if swapped:
+                    self.artifacts.rename(replacement)
+                    saved.rename(self.artifacts)
+            self.assertTrue(swapped)
+            self.assertEqual(rules(violations), {"U4"})
+            # The per-file identity guard may reject the swap before the
+            # directory identity guard runs. Either is a fail-closed result.
+            self.assertRegex(
+                str(violations[0]),
+                r"changed between inspection and open|artifact directory changed",
+            )
+            self.assertEqual((self.artifacts / "app.exe").read_bytes(), PAYLOAD)
+            self.assertEqual((replacement / "app.exe").read_bytes(), PAYLOAD)
+
     def test_malformed_digest_is_refused(self):
         self.write("app.exe")
         for digest in ("", "abc", "F" * 64, 123, None):
@@ -252,6 +388,30 @@ class TestUninstallCleanup(unittest.TestCase):
     def test_an_empty_platform_cleanup_is_refused(self):
         violations = check_uninstall_cleanup(
             good_manifest(cleanup={"windows-x86_64": []})
+        )
+        self.assertEqual(rules(violations), {"U8"})
+
+    def test_cleanup_for_another_platform_cannot_attest_this_build(self):
+        violations = check_uninstall_cleanup(
+            good_manifest(cleanup={"linux-x86_64": ["OmniDeskUpdaterService"]})
+        )
+        self.assertEqual(rules(violations), {"U8"})
+        self.assertIn("omits manifest platform", str(violations[0]))
+
+    def test_multi_platform_cleanup_must_include_current_platform(self):
+        manifest = good_manifest(
+            cleanup={
+                "linux-x86_64": ["OmniDeskUpdaterService"],
+                "windows-aarch64": ["OmniDeskUpdateTask"],
+            }
+        )
+        self.assertEqual(rules(check_uninstall_cleanup(manifest)), {"U8"})
+        manifest.cleanup["windows-x86_64"] = ["OmniDeskUpdateTask"]
+        self.assertEqual(check_uninstall_cleanup(manifest), [])
+
+    def test_nonstring_manifest_platform_fails_closed(self):
+        violations = check_uninstall_cleanup(
+            good_manifest(platform=["windows-x86_64"], cleanup={"windows-x86_64": ["OmniDeskUpdateTask"]})
         )
         self.assertEqual(rules(violations), {"U8"})
 
@@ -309,6 +469,40 @@ class TestLoadManifest(unittest.TestCase):
         manifest = load_manifest(path)
         self.assertEqual(manifest.version, 3)
         self.assertEqual(manifest.artifacts, {"app": "abc"})
+
+    def test_duplicate_json_keys_are_rejected_at_every_depth(self):
+        # Python's default json.loads silently keeps the final duplicate.
+        # Release metadata must not admit two interpretations of a key.
+        base = (
+            '{"version":1,"channel":"stable","platform":"windows-x86_64",'
+            '"minimum_client_version":1}'
+        )
+        cases = (
+            (
+                "top-level",
+                base.replace('"version":1', '"version":1,"version":2', 1),
+                "version",
+            ),
+            (
+                "artifact digest",
+                base[:-1] + ',"artifacts":{"app.exe":"bad","app.exe":"good"}}',
+                "app.exe",
+            ),
+            (
+                "cleanup entries",
+                base[:-1]
+                + ',"cleanup":{"windows-x86_64":[],"windows-x86_64":["OmniDeskUpdateTask"]}}',
+                "windows-x86_64",
+            ),
+        )
+        path = self.dir / "manifest.json"
+        for case, content, key in cases:
+            with self.subTest(case=case):
+                path.write_text(content, encoding="utf-8")
+                with self.assertRaisesRegex(
+                    ValueError, f"duplicate JSON key '{key}'"
+                ):
+                    load_manifest(path)
 
     def test_a_missing_required_key_is_rejected(self):
         path = self.write({"version": 1, "channel": "stable", "platform": "linux-x86_64"})
