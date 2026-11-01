@@ -81,13 +81,13 @@ MUTATIONS: list[tuple[str, str, str]] = [
     ),
     (
         "a hardlinked raw observation is accepted",
-        'if not unshared_regular_evidence_file(path):\\n        return [f"{run_id}: raw observation {name} is not an unshared regular file"]',
-        'if False:\\n        return [f"{run_id}: raw observation {name} is not an unshared regular file"]',
+        'if not unshared_regular_evidence_file(path):\n        return [f"{run_id}: raw observation {name} is not an unshared regular file"]',
+        'if False:\n        return [f"{run_id}: raw observation {name} is not an unshared regular file"]',
     ),
     (
         "a hardlinked evidence ledger is accepted",
-        'if not unshared_regular_evidence_file(path):\\n        fail(f"evidence ledger is not an unshared regular file: {path}")',
-        'if False:\\n        fail(f"evidence ledger is not an unshared regular file: {path}")',
+        'if not unshared_regular_evidence_file(path):\n        fail(f"evidence ledger is not an unshared regular file: {path}")',
+        'if False:\n        fail(f"evidence ledger is not an unshared regular file: {path}")',
     ),
     (
         "digest comparison is truncated",
