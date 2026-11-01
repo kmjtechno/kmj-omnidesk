@@ -886,6 +886,62 @@ class TestUnsharedEvidenceFiles(Fixture):
         self.assertEqual(outside.read_bytes(), before)
 
 
+    def test_ledger_symlink_swap_after_preflight_is_refused(self) -> None:
+        """A path swapped after the initial stat must not import outside bytes."""
+        from unittest.mock import patch
+
+        ledger = self.root / "ledger.jsonl"
+        external = Path(self.directory.name) / "external-ledger.jsonl"
+        external.write_bytes(b'{"run_id":"M5-OTHER-R001"}\\n')
+        before = external.read_bytes()
+        probe = Path(self.directory.name) / "symlink-probe"
+        try:
+            probe.symlink_to(external)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        probe.unlink()
+
+        original = m5.unshared_regular_evidence_file
+
+        def swap_after_check(path: Path) -> bool:
+            accepted = original(path)
+            ledger.unlink()
+            ledger.symlink_to(external)
+            return accepted
+
+        with patch.object(m5, "unshared_regular_evidence_file", side_effect=swap_after_check):
+            with self.assertRaises(SystemExit) as refusal:
+                m5.read_ledger(self.root)
+        self.assertIn("evidence ledger", str(refusal.exception))
+        self.assertEqual(external.read_bytes(), before)
+
+    def test_ledger_hardlink_swap_after_preflight_is_refused(self) -> None:
+        """The descriptor itself must be checked for an external hardlink."""
+        from unittest.mock import patch
+
+        ledger = self.root / "ledger.jsonl"
+        external = Path(self.directory.name) / "external-ledger.jsonl"
+        external.write_bytes(b'{"run_id":"M5-OTHER-R001"}\\n')
+        before = external.read_bytes()
+        probe = Path(self.directory.name) / "hardlink-probe"
+        self.link_or_skip(external, probe)
+        probe.unlink()
+
+        original = m5.unshared_regular_evidence_file
+
+        def swap_after_check(path: Path) -> bool:
+            accepted = original(path)
+            ledger.unlink()
+            self.link_or_skip(external, ledger)
+            return accepted
+
+        with patch.object(m5, "unshared_regular_evidence_file", side_effect=swap_after_check):
+            with self.assertRaises(SystemExit) as refusal:
+                m5.read_ledger(self.root)
+        self.assertIn("unshared regular file", str(refusal.exception))
+        self.assertEqual(external.read_bytes(), before)
+
+
 class TestRecording(Fixture):
     def test_a_duplicate_run_id_is_refused(self) -> None:
         """Mutation: drop the duplicate-run_id refusal."""
