@@ -155,6 +155,24 @@ def sha256_file(path: Path) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
+def unshared_regular_evidence_file(path: Path) -> bool:
+    """Refuse hardlinks importing external bytes and Windows reparse files."""
+    if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+        return False
+    try:
+        metadata = path.lstat()
+    except OSError:
+        return False
+    return (
+        stat.S_ISREG(metadata.st_mode)
+        and metadata.st_nlink == 1
+        and not (
+            getattr(metadata, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        )
+    )
+
+
 # --- roadmap -------------------------------------------------------------
 
 
@@ -275,8 +293,8 @@ def read_ledger(root: Path) -> list[dict]:
         fail(f"symlinked evidence ledger forbidden: {path}")
     if not path.exists():
         return []
-    if not path.is_file():
-        fail(f"evidence ledger is not a regular file: {path}")
+    if not unshared_regular_evidence_file(path):
+        fail(f"evidence ledger is not an unshared regular file: {path}")
     entries = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
@@ -476,14 +494,16 @@ def entry_problems(entry: dict, run_id: str, raw_root: Path) -> list[str]:
         or name != f"{run_id}{Path(name).suffix}"
     ):
         return [f"{run_id}: invalid or cross-run raw observation path"]
-    if raw_root.is_symlink():
+    if raw_root.is_symlink() or getattr(raw_root, "is_junction", lambda: False)():
         return [f"{run_id}: symlinked raw observation directory forbidden"]
     path = raw_root / name
     if path.is_symlink():
         return [f"{run_id}: symlinked raw observation forbidden"]
-    if not path.is_file():
+    if not path.exists():
         problems.append(f"{run_id}: raw observation {name} is gone")
         return problems
+    if not unshared_regular_evidence_file(path):
+        return [f"{run_id}: raw observation {name} is not an unshared regular file"]
 
     actual, size = sha256_file(path)
     if actual != digest:
@@ -684,7 +704,7 @@ def command_init(args: argparse.Namespace) -> None:
     if path.exists() or path.is_symlink():
         fail(f"{path} already exists; refusing to overwrite a run ledger")
     raw_directory = root / "raw"
-    if raw_directory.is_symlink():
+    if raw_directory.is_symlink() or getattr(raw_directory, "is_junction", lambda: False)():
         fail(f"refusing symlinked raw observation directory: {raw_directory}")
     raw_directory.mkdir(parents=True, exist_ok=True)
     if not raw_directory.is_dir():
@@ -707,7 +727,7 @@ def command_record(args: argparse.Namespace) -> None:
     root = checked_evidence_root(args.root)
     root.mkdir(parents=True, exist_ok=True)
     raw_directory = root / "raw"
-    if raw_directory.is_symlink():
+    if raw_directory.is_symlink() or getattr(raw_directory, "is_junction", lambda: False)():
         fail(f"refusing symlinked raw observation directory: {raw_directory}")
     raw_directory.mkdir(parents=True, exist_ok=True)
     run_id = validate_run_id(args.run_id)
@@ -728,7 +748,7 @@ def command_record(args: argparse.Namespace) -> None:
     # Without this preflight, append mode silently creates a new ledger or
     # follows a symlink to another package after the raw file was copied.
     ledger = ledger_path(root)
-    if ledger.is_symlink() or not ledger.is_file():
+    if not unshared_regular_evidence_file(ledger):
         fail(f"missing or unsafe evidence ledger (run init first): {ledger}")
 
     # Validate the complete record before touching any existing evidence.
@@ -792,8 +812,9 @@ def command_record(args: argparse.Namespace) -> None:
     except OSError:
         fail(f"cannot safely append to evidence ledger: {ledger}")
     with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
-        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
-            fail(f"evidence ledger is not a regular file: {ledger}")
+        metadata = os.fstat(handle.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            fail(f"evidence ledger is not an unshared regular file: {ledger}")
         handle.write(json.dumps(entry, sort_keys=True) + "\n")
     print(json.dumps({"run_id": run_id, "recorded": True}, sort_keys=True))
 
