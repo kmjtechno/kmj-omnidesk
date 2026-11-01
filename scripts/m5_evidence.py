@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import stat
@@ -232,6 +233,40 @@ def ledger_path(root: Path) -> Path:
     return root / "ledger.jsonl"
 
 
+def strict_json_loads(content: str):
+    """Reject ambiguous keys and non-finite numbers in release evidence JSON.
+
+    Python's default decoder accepts duplicate object keys (last one wins),
+    NaN/Infinity and exponent overflow. None is a portable evidence value.
+    Apply the same rules to nested metadata and existing ledger entries.
+    """
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ValueError(f"non-finite JSON constant: {value}")
+
+    def check_finite(value):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError("non-finite JSON number")
+        if isinstance(value, dict):
+            for child in value.values():
+                check_finite(child)
+        elif isinstance(value, list):
+            for child in value:
+                check_finite(child)
+        return value
+
+    return check_finite(json.loads(
+        content, object_pairs_hook=unique_keys, parse_constant=reject_constant
+    ))
+
+
 def read_ledger(root: Path) -> list[dict]:
     path = ledger_path(root)
     # A ledger must be a real file in this evidence package. Following a
@@ -245,10 +280,10 @@ def read_ledger(root: Path) -> list[dict]:
     entries = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
-            continue
+            fail(f"{path}:{number}: blank ledger line forbidden")
         try:
-            entry = json.loads(line)
-        except json.JSONDecodeError as error:
+            entry = strict_json_loads(line)
+        except ValueError as error:
             fail(f"{path}:{number}: corrupt ledger line: {error}")
         if not isinstance(entry, dict):
             fail(f"{path}:{number}: ledger entry must be a JSON object")
@@ -267,8 +302,8 @@ def load_json(path: Path, label: str) -> dict | None:
     from the same failure.
     """
     try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        parsed = strict_json_loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
         return None
     if not isinstance(parsed, dict):
         return None
