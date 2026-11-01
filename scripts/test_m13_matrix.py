@@ -417,18 +417,37 @@ class MatrixToolTests(unittest.TestCase):
             with self.subTest(value=repr(value)), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 self.init_ledger(root)
-                self.make_run(root, "M13-office-R001", metrics={"interactive_latency_ms": value})
-                self.make_run(root, "M13-office-R002")
+                if isinstance(value, float):
+                    # Strict input parsing now refuses nonfinite metrics at record.
+                    # Inject the forged value into an existing ledger to exercise
+                    # the verify/compare boundary independently.
+                    self.make_run(root, "M13-office-R001")
+                    self.make_run(root, "M13-office-R002")
+                    ledger = root / "ledger.jsonl"
+                    entries = [json.loads(line) for line in ledger.read_text().splitlines()]
+                    entries[0]["metrics"]["interactive_latency_ms"] = value
+                    ledger.write_text(
+                        "".join(json.dumps(entry) + "\n" for entry in entries),
+                        encoding="utf-8",
+                    )
+                    refusal = "nonfinite JSON constant"
+                else:
+                    self.make_run(root, "M13-office-R001", metrics={"interactive_latency_ms": value})
+                    self.make_run(root, "M13-office-R002")
+                    refusal = "interactive_latency_ms"
                 verified = self.run_tool("verify", "--root", str(root), ok=False)
                 self.assertNotEqual(verified.returncode, 0)
-                self.assertIn("interactive_latency_ms", self.output(verified))
+                self.assertIn(refusal, self.output(verified))
                 compared = self.run_tool(
                     "compare", "--root", str(root),
                     "--baseline", "M13-office-R001",
                     "--candidate", "M13-office-R002", ok=False,
                 )
                 self.assertNotEqual(compared.returncode, 0)
-                self.assertIn("incomplete metrics", self.output(compared))
+                self.assertIn(
+                    "nonfinite JSON constant" if isinstance(value, float) else "incomplete metrics",
+                    self.output(compared),
+                )
 
     def test_invalid_environment_types_refused_by_verify_and_compare(self):
         for field, value in (("machine_id", 42), ("profile", []), ("os_build", "  ")):
@@ -777,7 +796,7 @@ class MatrixToolTests(unittest.TestCase):
         for payload, reason in (
             (b"[]\n", "invalid JSONL sample object"),
             (b"{}\n", "invalid JSONL sample object"),
-            (b'{"latency_ms": NaN}\n', "invalid JSONL sample object"),
+            (b'{"latency_ms": NaN}\n', "invalid JSONL sample line"),
             (b'{"latency_ms": 1e999}\n', "invalid JSONL sample object"),
             (b'{"i": 1}\n\n', "blank JSONL sample line"),
         ):
