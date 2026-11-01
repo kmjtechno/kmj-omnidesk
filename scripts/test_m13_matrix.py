@@ -574,7 +574,7 @@ class MatrixToolTests(unittest.TestCase):
             # Use a distinct, valid sample so this test reaches the sequence
             # guard rather than the independent duplicate-raw guard.
             next_raw = root / "raw" / "M13-office-R003.samples.jsonl"
-            next_raw.write_text('{"i": 0, "latency_ms": 50}\\n', encoding="utf-8")
+            next_raw.write_text('{"i": 0, "latency_ms": 50}\n', encoding="utf-8")
             result = self.run_tool(
                 "record", "--root", str(root), "--run-id", "M13-office-R003",
                 "--raw", str(next_raw),
