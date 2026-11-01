@@ -36,6 +36,8 @@ import json
 import math
 import re
 import stat
+from contextlib import redirect_stdout
+from io import StringIO
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NoReturn
@@ -434,6 +436,18 @@ def command_compare(args: argparse.Namespace) -> None:
             fail(f"{run_id}: missing environment for comparison")
         if any(not isinstance(entry["environment"].get(field), str) or not entry["environment"][field].strip() for field in COMPARABILITY_FIELDS):
             fail(f"{run_id}: incomplete environment for comparison")
+
+    # Two intact selected runs are not enough: a corrupt third ledger entry
+    # can conceal discarded or altered measurements. Require the *whole*
+    # matrix to remain admissible before reporting a comparison.
+    report = StringIO()
+    try:
+        with redirect_stdout(report):
+            command_verify(argparse.Namespace(root=str(root)))
+    except SystemExit as error:
+        details = report.getvalue().splitlines()
+        reason = details[0] if details else str(error)
+        fail(f"cherry_picking_forbidden: full ledger inadmissible: {reason}")
 
     # rule: comparative_claims_require_reproducible_comparable_tests
     incomparable = []
