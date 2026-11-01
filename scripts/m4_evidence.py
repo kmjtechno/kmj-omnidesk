@@ -136,10 +136,11 @@ def validated_artifact_metadata(args: argparse.Namespace) -> str:
         ("producer component", args.component),
         ("producer version", args.version),
     ):
-        if not value or len(value) > 128 or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        if not value.strip() or len(value) > 128 or any(ord(char) < 32 or ord(char) == 127 for char in value):
             fail(f"invalid {label} for M4 manifest (1-128 printable characters)")
 
-    created_at = args.created_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    created_at = (datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                  if args.created_at is None else args.created_at)
     if not RFC3339.fullmatch(created_at):
         fail("invalid created_at for M4 manifest (RFC3339 timestamp required)")
     try:
