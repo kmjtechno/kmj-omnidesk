@@ -76,6 +76,8 @@ class EvidenceToolTests(unittest.TestCase):
                 ("--content-type", "application/jsonl\ninjected"),
                 ("--component", ""),
                 ("--version", "x" * 129),
+                ("--component", "   "),
+                ("--created-at", ""),
                 ("--created-at", "not-a-timestamp"),
                 ("--created-at", "2026-02-30T12:00:00Z"),
                 ("--created-at", "2026-11-01T12:30:00"),
