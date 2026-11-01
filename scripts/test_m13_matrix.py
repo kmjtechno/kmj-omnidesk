@@ -749,5 +749,90 @@ class MatrixToolTests(unittest.TestCase):
                 self.assertIn("raw sample already used", self.output(result))
 
 
+
+    def test_record_refuses_non_jsonl_raw_even_when_nonempty(self):
+        # Hashing arbitrary bytes does not establish per-sample observations.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            raw_dir = root / "raw"
+            raw_dir.mkdir()
+            raw = raw_dir / "M13-office-R001.samples.jsonl"
+            raw.write_text("not a JSONL observation\\n", encoding="utf-8")
+            env = root / "env.json"
+            env.write_text(json.dumps(ENVIRONMENT), encoding="utf-8")
+            metrics = root / "metrics.json"
+            metrics.write_text(json.dumps(FULL_METRICS), encoding="utf-8")
+            result = self.run_tool(
+                "record", "--root", str(root), "--run-id", "M13-office-R001",
+                "--raw", str(raw), "--environment", str(env),
+                "--metrics", str(metrics), ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("invalid JSONL sample line", self.output(result))
+            self.assertEqual((root / "ledger.jsonl").read_text(), "")
+
+    def test_forged_hash_cannot_validate_non_jsonl_samples(self):
+        # Even matching SHA-256/byte counts cannot authenticate bad JSONL.
+        for payload, reason in (
+            (b"[]\\n", "invalid JSONL sample object"),
+            (b"{}\\n", "invalid JSONL sample object"),
+            (b'{"latency_ms": NaN}\\n', "invalid JSONL sample object"),
+            (b'{"latency_ms": 1e999}\\n', "invalid JSONL sample object"),
+            (b'{"i": 1}\\n\\n', "blank JSONL sample line"),
+        ):
+            with self.subTest(payload=payload), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                self.make_run(root, "M13-office-R001")
+                self.make_run(root, "M13-office-R002")
+                raw = root / "raw" / "M13-office-R001.samples.jsonl"
+                raw.write_bytes(payload)
+                ledger = root / "ledger.jsonl"
+                entries = [json.loads(line) for line in ledger.read_text().splitlines()]
+                entries[0]["raw_sha256"] = hashlib.sha256(payload).hexdigest()
+                entries[0]["raw_bytes"] = len(payload)
+                ledger.write_text(
+                    "".join(json.dumps(entry) + "\\n" for entry in entries),
+                    encoding="utf-8",
+                )
+                for args in (
+                    ("verify", "--root", str(root)),
+                    ("compare", "--root", str(root),
+                     "--baseline", "M13-office-R001",
+                     "--candidate", "M13-office-R002"),
+                ):
+                    result = self.run_tool(*args, ok=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(reason, self.output(result))
+
+    def test_record_refuses_prior_raw_with_forged_matching_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            first = root / "raw" / "M13-office-R001.samples.jsonl"
+            payload = b"not-json\\n"
+            first.write_bytes(payload)
+            ledger = root / "ledger.jsonl"
+            entry = json.loads(ledger.read_text())
+            entry["raw_sha256"] = hashlib.sha256(payload).hexdigest()
+            entry["raw_bytes"] = len(payload)
+            ledger.write_text(json.dumps(entry) + "\\n", encoding="utf-8")
+            before = ledger.read_bytes()
+            next_raw = root / "raw" / "M13-office-R002.samples.jsonl"
+            next_raw.write_text('{"i": 1}\\n', encoding="utf-8")
+            result = self.run_tool(
+                "record", "--root", str(root), "--run-id", "M13-office-R002",
+                "--raw", str(next_raw),
+                "--environment", str(root / "M13-office-R001.env.json"),
+                "--metrics", str(root / "M13-office-R001.metrics.json"),
+                ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("invalid JSONL sample line", self.output(result))
+            self.assertEqual(ledger.read_bytes(), before)
+
+
 if __name__ == "__main__":
     unittest.main()
