@@ -750,8 +750,8 @@ class TestLedgerPathSafety(Fixture):
         # The default JSON decoder silently keeps the last duplicate value.
         ledger = self.root / "ledger.jsonl"
         ledger.write_text(
-            '{"run_id":"M5-CODE-R001","environment":{"host":"p520","host":"other"}}\\n'.replace("\\\\n", "\\n"),
-            encoding="utf-8",
+            '{"run_id":"M5-CODE-R001","environment":{"host":"p520","host":"other"}}'
+            + chr(10), encoding="utf-8",
         )
         with self.assertRaises(SystemExit) as caught:
             m5.read_ledger(self.root)
@@ -764,7 +764,7 @@ class TestLedgerPathSafety(Fixture):
             with self.subTest(bad=bad):
                 ledger.write_text(
                     '{"run_id":"M5-CODE-R001","environment":{"latency_ms":'
-                    + bad + '}}\\n'.replace("\\\\n", "\\n"), encoding="utf-8"
+                    + bad + '}}' + chr(10), encoding="utf-8"
                 )
                 with self.assertRaises(SystemExit) as caught:
                     m5.read_ledger(self.root)
@@ -772,7 +772,7 @@ class TestLedgerPathSafety(Fixture):
 
     def test_blank_line_in_existing_ledger_is_refused(self):
         ledger = self.root / "ledger.jsonl"
-        ledger.write_text('{"run_id":"M5-CODE-R001"}\\n\\n'.replace("\\\\n", "\\n"), encoding="utf-8")
+        ledger.write_text('{"run_id":"M5-CODE-R001"}' + chr(10) * 2, encoding="utf-8")
         with self.assertRaises(SystemExit) as caught:
             m5.read_ledger(self.root)
         self.assertIn(":2:", str(caught.exception))
