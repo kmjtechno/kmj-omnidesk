@@ -798,7 +798,7 @@ class StrictJsonEvidenceTests(ReleaseFixture):
         }))
 
     def test_nonfinite_json_constants_fail_closed_at_every_depth(self):
-        for constant in ("NaN", "Infinity", "-Infinity"):
+        for constant in ("NaN", "Infinity", "-Infinity", "1e999", "-1e999"):
             with self.subTest(constant=constant):
                 path = self.write(
                     "nonfinite-release.json",
