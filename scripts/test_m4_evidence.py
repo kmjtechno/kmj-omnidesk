@@ -54,6 +54,51 @@ class EvidenceToolTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
 
+    def test_artifact_rejects_invalid_schema_metadata_without_touching_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            artifact = root / "runs" / "M4-T1-R01" / "events.jsonl"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b'{"source":"real-observation"}\\n')
+            base = [
+                "artifact", "--root", temp, "--file", str(artifact),
+                "--artifact-id", "artifact-M4-T1-R01-events",
+                "--run-id", "M4-T1-R01", "--kind", "EVENT_LOG",
+                "--content-type", "application/jsonl",
+                "--component", "omnidesk-agent", "--version", "0.0.1",
+                "--created-at", "2026-11-01T12:30:00Z",
+            ]
+            cases = (
+                ("--artifact-id", ""),
+                ("--artifact-id", "invalid id"),
+                ("--artifact-id", "x" * 257),
+                ("--content-type", ""),
+                ("--content-type", "application/jsonl\\ninjected"),
+                ("--component", ""),
+                ("--version", "x" * 129),
+                ("--created-at", "not-a-timestamp"),
+                ("--created-at", "2026-02-30T12:00:00Z"),
+                ("--created-at", "2026-11-01T12:30:00"),
+            )
+            before = artifact.read_bytes()
+            for key, invalid in cases:
+                with self.subTest(field=key, invalid=invalid[:20]):
+                    args = list(base)
+                    args[args.index(key) + 1] = invalid
+                    result = self.run_tool(*args, ok=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "")
+                    self.assertIn("invalid ", result.stderr)
+                    self.assertEqual(artifact.read_bytes(), before)
+            valid = self.run_tool(*base)
+            self.assertEqual(json.loads(valid.stdout)["created_at"], "2026-11-01T12:30:00Z")
+            offset = list(base)
+            offset[offset.index("--created-at") + 1] = "2026-11-01T18:00:00+05:30"
+            self.assertEqual(
+                json.loads(self.run_tool(*offset).stdout)["created_at"],
+                "2026-11-01T18:00:00+05:30",
+            )
+
     def test_checksums_are_sorted_and_exclude_checksum_file(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
