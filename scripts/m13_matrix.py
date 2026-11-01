@@ -120,6 +120,15 @@ def validate_raw_samples(path: Path) -> None:
             return all(finite(item) for item in value)
         return True
 
+    def unique_keys(pairs: list[tuple[str, object]]) -> dict:
+        """Reject ambiguous JSON objects, including nested duplicate keys."""
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key: {key!r}")
+            result[key] = value
+        return result
+
     count = 0
     try:
         with path.open("r", encoding="utf-8") as handle:
@@ -127,8 +136,8 @@ def validate_raw_samples(path: Path) -> None:
                 if not line.strip():
                     fail(f"raw_results_required: blank JSONL sample line {number}")
                 try:
-                    sample = json.loads(line)
-                except json.JSONDecodeError as error:
+                    sample = json.loads(line, object_pairs_hook=unique_keys)
+                except (json.JSONDecodeError, ValueError) as error:
                     fail(f"raw_results_required: invalid JSONL sample line {number}: {error}")
                 if not isinstance(sample, dict) or not sample or not finite(sample):
                     fail(f"raw_results_required: invalid JSONL sample object at line {number}")
