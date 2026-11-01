@@ -39,8 +39,8 @@ MUTATIONS: list[tuple[str, str, str]] = [
     # --- signed artifacts ------------------------------------------------
     (
         "a missing digest counts as a match",
-        'if not declared_digest:\n            problems.append(',
-        'if False:\n            problems.append(',
+        "if not isinstance(declared_digest, str) or not declared_digest:\n            problems.append(",
+        "if False:\n            problems.append(",
     ),
     (
         "digest comparison is truncated",
@@ -49,7 +49,7 @@ MUTATIONS: list[tuple[str, str, str]] = [
     ),
     (
         "a missing signature is accepted",
-        'if not entry.get("signature_declared"):\n            problems.append(',
+        'if entry.get("signature_declared") is not True:\n            problems.append(',
         'if False:\n            problems.append(',
     ),
     (
@@ -59,13 +59,13 @@ MUTATIONS: list[tuple[str, str, str]] = [
     ),
     (
         "a release with no artifacts passes",
-        'if not artifacts:\n        return ["signed_release_artifacts',
-        "if not artifacts:\n        return []\n    if not artifacts:\n        return ['x'",
+        'if not isinstance(artifacts, list) or not artifacts:\n        return ["signed_release_artifacts',
+        'if not isinstance(artifacts, list) or not artifacts:\n        return []\n    if not artifacts:\n        return ["x"',
     ),
     # --- update metadata -------------------------------------------------
     (
         "metadata need not be signed",
-        'elif not document.get("signature_declared"):\n            problems.append(',
+        'elif document.get("signature_declared") is not True:\n            problems.append(',
         'elif False:\n            problems.append(',
     ),
     (
@@ -75,13 +75,13 @@ MUTATIONS: list[tuple[str, str, str]] = [
     ),
     (
         "no declared metadata passes",
-        'if not metadata:\n        return ["update_metadata_verified',
-        'if not metadata:\n        return []\n    if not metadata:\n        return ["update_metadata_verified',
+        'if not isinstance(metadata, list) or not metadata:\n        return ["update_metadata_verified',
+        'if not isinstance(metadata, list) or not metadata:\n        return []\n    if not metadata:\n        return ["update_metadata_verified',
     ),
     # --- licensing -------------------------------------------------------
     (
         "a contract with no plans passes",
-        'if not isinstance(plans, list) or not plans:\n        return [',
+        'if not isinstance(plans, list) or not plans or any(\n        not isinstance(plan, str) or not plan.strip() for plan in plans\n    ):\n        return [',
         'if False:\n        return [',
     ),
     (
@@ -91,8 +91,8 @@ MUTATIONS: list[tuple[str, str, str]] = [
     ),
     (
         "no declared contract passes",
-        'if not entry:\n        return ["licensing_integration_verified',
-        'if not entry:\n        return []\n    if not entry:\n        return ["x"',
+        'if not isinstance(entry, dict) or not entry:\n        return ["licensing_integration_verified',
+        'if not isinstance(entry, dict) or not entry:\n        return []\n    if not entry:\n        return ["x"',
     ),
     # --- security gate ---------------------------------------------------
     (
