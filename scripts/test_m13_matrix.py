@@ -698,5 +698,52 @@ class MatrixToolTests(unittest.TestCase):
                 self.assertEqual(ledger.read_bytes(), original)
 
 
+    def test_record_refuses_reusing_existing_raw_sample_for_new_run(self):
+        # Two run IDs cannot cite the same physical sample as independent runs.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            ledger = root / "ledger.jsonl"
+            before = ledger.read_bytes()
+            result = self.run_tool(
+                "record", "--root", str(root), "--run-id", "M13-office-R002",
+                "--raw", str(root / "raw" / "M13-office-R001.samples.jsonl"),
+                "--environment", str(root / "M13-office-R001.env.json"),
+                "--metrics", str(root / "M13-office-R001.metrics.json"),
+                ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("raw sample already assigned", self.output(result))
+            self.assertEqual(ledger.read_bytes(), before)
+
+    def test_verify_and_compare_refuse_reused_raw_path_in_ledger(self):
+        # A forged ledger may reuse an intact file with matching SHA and size.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            self.make_run(root, "M13-office-R002")
+            ledger = root / "ledger.jsonl"
+            entries = [json.loads(line) for line in ledger.read_text().splitlines()]
+            entries[1]["raw_path"] = entries[0]["raw_path"]
+            # Both helpers generated the same raw bytes, so the old validator
+            # accepted this as a valid independent comparison.
+            self.assertEqual(entries[0]["raw_sha256"], entries[1]["raw_sha256"])
+            ledger.write_text(
+                "".join(json.dumps(entry) + "\n" for entry in entries),
+                encoding="utf-8",
+            )
+            for args in (
+                ("verify", "--root", str(root)),
+                ("compare", "--root", str(root),
+                 "--baseline", "M13-office-R001",
+                 "--candidate", "M13-office-R002"),
+            ):
+                result = self.run_tool(*args, ok=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("raw sample already used", self.output(result))
+
+
 if __name__ == "__main__":
     unittest.main()
