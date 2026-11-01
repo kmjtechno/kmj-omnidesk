@@ -173,6 +173,58 @@ def unshared_regular_evidence_file(path: Path) -> bool:
     )
 
 
+def sha256_unshared_evidence_file(path: Path) -> tuple[str, int]:
+    """Hash the opened raw observation, refusing substituted or shared files.
+
+    A path-only preflight followed by sha256_file(path) can be raced by
+    replacing a regular file with a symlink/hardlink of identical bytes.
+    Identity and metadata are checked on the open descriptor before and
+    after streaming. This is defense in depth, not a Windows race-proof
+    filesystem sandbox.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError("raw observation cannot be safely opened") from error
+
+    with os.fdopen(descriptor, "rb") as handle:
+        def matches_path(metadata: os.stat_result) -> bool:
+            try:
+                linked = path.lstat()
+            except OSError:
+                return False
+            reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            return (
+                stat.S_ISREG(metadata.st_mode)
+                and metadata.st_nlink == 1
+                and stat.S_ISREG(linked.st_mode)
+                and linked.st_nlink == 1
+                and (metadata.st_dev, metadata.st_ino)
+                == (linked.st_dev, linked.st_ino)
+                and not (getattr(metadata, "st_file_attributes", 0) & reparse)
+                and not (getattr(linked, "st_file_attributes", 0) & reparse)
+            )
+
+        before = os.fstat(handle.fileno())
+        if not matches_path(before):
+            raise ValueError("raw observation is not an unshared opened regular file")
+        digest = hashlib.sha256()
+        size = 0
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+            size += len(chunk)
+        after = os.fstat(handle.fileno())
+        if (
+            not matches_path(after)
+            or (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+            != (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            or size != after.st_size
+        ):
+            raise ValueError("raw observation changed while hashing")
+    return digest.hexdigest(), size
+
+
 # --- roadmap -------------------------------------------------------------
 
 
@@ -551,7 +603,10 @@ def entry_problems(entry: dict, run_id: str, raw_root: Path) -> list[str]:
     if not unshared_regular_evidence_file(path):
         return [f"{run_id}: raw observation {name} is not an unshared regular file"]
 
-    actual, size = sha256_file(path)
+    try:
+        actual, size = sha256_unshared_evidence_file(path)
+    except (OSError, ValueError):
+        return [f"{run_id}: raw observation {name} changed or cannot be safely hashed"]
     if actual != digest:
         problems.append(f"{run_id}: raw observation {name} no longer hashes to what was recorded")
     expected_size = entry.get("raw_bytes")
