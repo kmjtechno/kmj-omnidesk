@@ -52,8 +52,19 @@ def parse_deny_toml_licenses(deny_path: Path) -> dict[str, object]:
     if not isinstance(licenses, dict) or not isinstance(licenses.get("allow"), list):
         raise ValueError("deny.toml lacks licenses.allow policy")
     allowed = licenses["allow"]
-    if not all(isinstance(x, str) and x for x in allowed):
-        raise ValueError("Invalid licenses.allow policy")
+    if not allowed or not all(isinstance(x, str) and x.strip() for x in allowed):
+        raise ValueError("Invalid or empty licenses.allow policy")
+    # An inventory-only check must not silently accept an explicitly
+    # prohibited license in the configured release policy. This is not
+    # upstream license clearance; cargo-deny remains the independent gate.
+    seen_allowed: set[str] = set()
+    for expression in allowed:
+        identity = expression.strip().casefold()
+        if identity in seen_allowed:
+            raise ValueError(f"Duplicate licenses.allow policy entry: {expression}")
+        seen_allowed.add(identity)
+        if check_for_viral_copyleft(expression):
+            raise ValueError(f"Prohibited licenses.allow policy entry: {expression}")
     clarifications: dict[str, str] = {}
     for item in licenses.get("clarify", []):
         if not isinstance(item, dict):
