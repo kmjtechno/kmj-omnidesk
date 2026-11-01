@@ -76,20 +76,20 @@ class TestLicenseInventory(unittest.TestCase):
         for prohibited in ("GPL-3.0-only", "AGPL-3.0-or-later", "LGPL-2.1-only", "SSPL-1.0"):
             with self.subTest(prohibited=prohibited):
                 self.deny.write_text(
-                    '[licenses]\\nallow = ["MIT", "' + prohibited + '"]\\n',
+                    '[licenses]\nallow = ["MIT", "' + prohibited + '"]\n',
                     encoding="utf-8",
                 )
                 with self.assertRaisesRegex(ValueError, "Prohibited licenses.allow"):
                     parse_deny_toml_licenses(self.deny)
 
     def test_empty_license_allow_policy_rejected(self) -> None:
-        self.deny.write_text('[licenses]\\nallow = []\\n', encoding="utf-8")
+        self.deny.write_text('[licenses]\nallow = []\n', encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "empty licenses.allow"):
             parse_deny_toml_licenses(self.deny)
 
     def test_duplicate_allow_policy_rejected_without_masking_good_entries(self) -> None:
         self.deny.write_text(
-            '[licenses]\\nallow = ["MIT", "Apache-2.0", " mit "]\\n',
+            '[licenses]\nallow = ["MIT", "Apache-2.0", " mit "]\n',
             encoding="utf-8",
         )
         with self.assertRaisesRegex(ValueError, "Duplicate licenses.allow"):
