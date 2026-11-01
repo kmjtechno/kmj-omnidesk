@@ -80,9 +80,9 @@ MUTATIONS: list[tuple[str, str, str]] = [
         "if False:\n        problems.append(",
     ),
     (
-        "a hardlinked raw observation is accepted",
-        'if not unshared_regular_evidence_file(path):\n        return [f"{run_id}: raw observation {name} is not an unshared regular file"]',
-        'if False:\n        return [f"{run_id}: raw observation {name} is not an unshared regular file"]',
+        "raw digest reopens path after identity preflight",
+        "actual, size = sha256_unshared_evidence_file(path)",
+        "actual, size = sha256_file(path)",
     ),
     (
         "a hardlinked evidence ledger is accepted",
