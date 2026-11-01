@@ -136,8 +136,8 @@ def validated_artifact_metadata(args: argparse.Namespace) -> str:
         ("producer component", args.component),
         ("producer version", args.version),
     ):
-        if not value.strip() or len(value) > 128 or any(ord(char) < 32 or ord(char) == 127 for char in value):
-            fail(f"invalid {label} for M4 manifest (1-128 printable characters)")
+        if not value.strip() or len(value) > 128 or any(ord(char) < 32 or ord(char) > 126 for char in value):
+            fail(f"invalid {label} for M4 manifest (1-128 printable ASCII characters)")
 
     if args.created_at is None:
         created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
