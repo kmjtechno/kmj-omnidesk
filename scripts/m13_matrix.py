@@ -229,6 +229,16 @@ def command_init(args: argparse.Namespace) -> None:
     print(json.dumps({"ledger": str(path), "created_at": utc_now()}))
 
 
+def strict_ledger_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject ambiguous duplicate keys at any nesting depth in ledger JSON."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key!r}")
+        result[key] = value
+    return result
+
+
 def read_ledger(root: Path) -> list[dict]:
     path = ledger_path(root)
     if not path.exists():
@@ -238,8 +248,8 @@ def read_ledger(root: Path) -> list[dict]:
         if not line.strip():
             continue
         try:
-            entries.append(json.loads(line))
-        except json.JSONDecodeError as error:
+            entries.append(json.loads(line, object_pairs_hook=strict_ledger_object))
+        except (json.JSONDecodeError, ValueError) as error:
             fail(f"{path}:{number}: corrupt ledger line: {error}")
         entry = entries[-1]
         if not isinstance(entry, dict) or not isinstance(entry.get("run_id"), str) or not RUN_ID.fullmatch(entry["run_id"]):
