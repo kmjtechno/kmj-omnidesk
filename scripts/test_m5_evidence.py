@@ -998,6 +998,46 @@ class TestUnsharedEvidenceFiles(Fixture):
         self.assertEqual(outside.read_bytes(), b'{"observed": true}')
 
 
+    def test_record_rejects_retargeted_append_descriptor(self) -> None:
+        """A Windows-style no-O_NOFOLLOW open must not append outside bytes."""
+        import argparse
+        import os
+        from unittest.mock import patch
+
+        ledger = self.root / "ledger.jsonl"
+        outside = Path(self.directory.name) / "outside-ledger.jsonl"
+        outside.write_bytes(b"protected outside bytes\\n")
+        original = outside.read_bytes()
+        source = self.raw("source")
+        args = argparse.Namespace(
+            root=str(self.root), run_id="M5-NEW-R001",
+            evidence_class="code_observed", raw=source, gate=[DECRYPT],
+            environment=None, test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None,
+            unauthorized_outcome=None,
+        )
+        real_open = os.open
+
+        def retarget_append(path, flags, *open_args, **open_kwargs):
+            if Path(path) == ledger and flags & os.O_APPEND:
+                # Simulate a symlink substitution on a platform where
+                # O_NOFOLLOW is unavailable. The preflight saw ledger.
+                return real_open(
+                    outside, flags & ~getattr(os, "O_NOFOLLOW", 0),
+                    *open_args, **open_kwargs,
+                )
+            return real_open(path, flags, *open_args, **open_kwargs)
+
+        with patch.object(m5.os, "open", side_effect=retarget_append):
+            with self.assertRaises(SystemExit) as refusal:
+                m5.command_record(args)
+        self.assertIn("expected unshared regular file", str(refusal.exception))
+        self.assertEqual(outside.read_bytes(), original)
+        self.assertEqual(ledger.read_bytes(), b"")
+
+
+
 class TestRecording(Fixture):
     def test_a_duplicate_run_id_is_refused(self) -> None:
         """Mutation: drop the duplicate-run_id refusal."""
