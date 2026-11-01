@@ -834,5 +834,60 @@ class MatrixToolTests(unittest.TestCase):
             self.assertEqual(ledger.read_bytes(), before)
 
 
+    def test_record_refuses_duplicate_jsonl_object_keys(self):
+        # Contradictory duplicate keys, including nested keys, are not raw evidence.
+        for payload in (
+            '{"latency_ms": 42, "latency_ms": 1}\n',
+            '{"sample": {"latency_ms": 42, "latency_ms": 1}}\n',
+        ):
+            with self.subTest(payload=payload), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                raw_dir = root / "raw"
+                raw_dir.mkdir()
+                raw = raw_dir / "M13-office-R001.samples.jsonl"
+                raw.write_text(payload, encoding="utf-8")
+                env = root / "env.json"
+                env.write_text(json.dumps(ENVIRONMENT), encoding="utf-8")
+                metrics = root / "metrics.json"
+                metrics.write_text(json.dumps(FULL_METRICS), encoding="utf-8")
+                result = self.run_tool(
+                    "record", "--root", str(root), "--run-id", "M13-office-R001",
+                    "--raw", str(raw), "--environment", str(env),
+                    "--metrics", str(metrics), ok=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("duplicate JSON key", self.output(result))
+                self.assertEqual((root / "ledger.jsonl").read_text(), "")
+
+    def test_verify_compare_refuse_duplicate_jsonl_keys_with_matching_hash(self):
+        # A forged matching digest/size cannot make ambiguous JSON admissible.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            self.make_run(root, "M13-office-R002")
+            raw = root / "raw" / "M13-office-R001.samples.jsonl"
+            payload = b'{"i": 0, "latency_ms": 42, "latency_ms": 1}\n'
+            raw.write_bytes(payload)
+            ledger = root / "ledger.jsonl"
+            entries = [json.loads(line) for line in ledger.read_text().splitlines()]
+            entries[0]["raw_sha256"] = hashlib.sha256(payload).hexdigest()
+            entries[0]["raw_bytes"] = len(payload)
+            ledger.write_text(
+                "".join(json.dumps(entry) + "\n" for entry in entries),
+                encoding="utf-8",
+            )
+            for args in (
+                ("verify", "--root", str(root)),
+                ("compare", "--root", str(root),
+                 "--baseline", "M13-office-R001",
+                 "--candidate", "M13-office-R002"),
+            ):
+                result = self.run_tool(*args, ok=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("duplicate JSON key", self.output(result))
+
+
 if __name__ == "__main__":
     unittest.main()
