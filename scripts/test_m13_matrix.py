@@ -889,5 +889,71 @@ class MatrixToolTests(unittest.TestCase):
                 self.assertIn("duplicate JSON key", self.output(result))
 
 
+    def test_ledger_duplicate_json_keys_refused_in_verify_and_compare(self):
+        # Python's default JSON parser accepts last-key-wins ambiguity. Even
+        # if the final value is valid, conflicting earlier claims are unsafe.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            self.make_run(root, "M13-office-R002")
+            ledger = root / "ledger.jsonl"
+            first, second = ledger.read_text(encoding="utf-8").splitlines()
+            for old, replacement in (
+                (
+                    '"run_id": "M13-office-R001"',
+                    '"run_id": "M13-office-R999", "run_id": "M13-office-R001"',
+                ),
+                (
+                    '"ram_mb": 41.5',
+                    '"ram_mb": -5, "ram_mb": 41.5',
+                ),
+            ):
+                with self.subTest(field=old):
+                    self.assertIn(old, first)
+                    ledger.write_text(
+                        first.replace(old, replacement, 1) + "\n" + second + "\n",
+                        encoding="utf-8",
+                    )
+                    for args in (
+                        ("verify", "--root", str(root)),
+                        (
+                            "compare", "--root", str(root),
+                            "--baseline", "M13-office-R001",
+                            "--candidate", "M13-office-R002",
+                        ),
+                    ):
+                        result = self.run_tool(*args, ok=False)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("duplicate JSON key", self.output(result))
+
+    def test_record_refuses_append_after_ambiguous_ledger_json(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.init_ledger(root)
+            self.make_run(root, "M13-office-R001")
+            ledger = root / "ledger.jsonl"
+            original = ledger.read_text(encoding="utf-8")
+            ambiguous = original.replace(
+                '"run_id": "M13-office-R001"',
+                '"run_id": "M13-office-R999", "run_id": "M13-office-R001"',
+                1,
+            )
+            self.assertNotEqual(ambiguous, original)
+            ledger.write_text(ambiguous, encoding="utf-8")
+            raw = root / "raw" / "M13-office-R002.samples.jsonl"
+            raw.write_text('{"i": 0, "latency_ms": 50}\n', encoding="utf-8")
+            result = self.run_tool(
+                "record", "--root", str(root), "--run-id", "M13-office-R002",
+                "--raw", str(raw),
+                "--environment", str(root / "M13-office-R001.env.json"),
+                "--metrics", str(root / "M13-office-R001.metrics.json"),
+                ok=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("duplicate JSON key", self.output(result))
+            self.assertEqual(ledger.read_text(encoding="utf-8"), ambiguous)
+
+
 if __name__ == "__main__":
     unittest.main()
