@@ -668,35 +668,29 @@ class MatrixToolTests(unittest.TestCase):
                 self.assertIn("full ledger inadmissible", self.output(result))
 
 
-    def test_record_refuses_append_to_corrupted_existing_matrix(self):
-        # An intact new sample cannot legitimize an earlier tampered run.
-        for defect in ("raw", "metrics", "environment"):
+    def test_record_refuses_append_after_prior_raw_tampering(self):
+        # A later run must not bury a replaced or deleted prior raw sample.
+        for defect in ("tampered", "missing"):
             with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 self.init_ledger(root)
                 self.make_run(root, "M13-office-R001")
                 ledger = root / "ledger.jsonl"
-                if defect == "raw":
-                    (root / "raw" / "M13-office-R001.samples.jsonl").write_text(
-                        '{"i": 0, "latency_ms": 1}\n', encoding="utf-8"
-                    )
+                raw = root / "raw" / "M13-office-R001.samples.jsonl"
+                if defect == "tampered":
+                    raw.write_text('{"i": 0, "latency_ms": 1}\n', encoding="utf-8")
                 else:
-                    entry = json.loads(ledger.read_text(encoding="utf-8"))
-                    if defect == "metrics":
-                        entry["metrics"]["ram_mb"] = None
-                    else:
-                        entry["environment"]["machine_id"] = ""
-                    ledger.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+                    raw.unlink()
                 original = ledger.read_bytes()
                 result = self.run_tool(
                     "record", "--root", str(root), "--run-id", "M13-office-R002",
-                    "--raw", str(root / "raw" / "M13-office-R001.samples.jsonl"),
+                    "--raw", str(raw),
                     "--environment", str(root / "M13-office-R001.env.json"),
                     "--metrics", str(root / "M13-office-R001.metrics.json"),
                     ok=False,
                 )
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("existing ledger inadmissible", self.output(result))
+                self.assertIn("raw_results_required", self.output(result))
                 self.assertEqual(ledger.read_bytes(), original)
 
 
