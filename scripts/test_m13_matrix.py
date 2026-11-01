@@ -955,5 +955,66 @@ class MatrixToolTests(unittest.TestCase):
             self.assertEqual(ledger.read_text(encoding="utf-8"), ambiguous)
 
 
+
+    def test_record_rejects_ambiguous_or_nonfinite_metadata_json(self):
+        # Reject contradictory keys and JSON extensions before ledger append.
+        for field, payload, reason in (
+            ("environment", '{"machine_id":"other","machine_id":"bench-01"}', "duplicate JSON key"),
+            ("metrics", '{"ram_mb":-99,"ram_mb":41.5}', "duplicate JSON key"),
+            ("environment", '{"extra":{"x":1,"x":2}}', "duplicate JSON key"),
+            ("environment", '{"machine_id":"bench-01","extra":NaN}', "nonfinite JSON constant"),
+            ("metrics", '{"ram_mb":Infinity}', "nonfinite JSON constant"),
+            ("metrics", '{"extra":{"x":-Infinity}}', "nonfinite JSON constant"),
+        ):
+            with self.subTest(field=field, payload=payload), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                (root / "raw").mkdir()
+                raw = root / "raw" / "M13-office-R001.samples.jsonl"
+                raw.write_text('{"i":1}\n', encoding="utf-8")
+                env = root / "env.json"
+                env.write_text(payload if field == "environment" else json.dumps(ENVIRONMENT), encoding="utf-8")
+                metrics = root / "metrics.json"
+                metrics.write_text(payload if field == "metrics" else json.dumps(FULL_METRICS), encoding="utf-8")
+                result = self.run_tool(
+                    "record", "--root", str(root), "--run-id", "M13-office-R001",
+                    "--raw", str(raw), "--environment", str(env),
+                    "--metrics", str(metrics), ok=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(reason, self.output(result))
+                self.assertEqual((root / "ledger.jsonl").read_text(encoding="utf-8"), "")
+
+    def test_blank_and_nonfinite_ledger_lines_fail_closed(self):
+        for mutation, reason in (("blank", "blank entry"), ("nonfinite", "nonfinite JSON constant")):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                self.make_run(root, "M13-office-R001")
+                self.make_run(root, "M13-office-R002")
+                ledger = root / "ledger.jsonl"
+                first, second = ledger.read_text(encoding="utf-8").splitlines()
+                if mutation == "blank":
+                    modified = first + "\n\n" + second + "\n"
+                else:
+                    modified = first.replace('"ram_mb": 41.5', '"ram_mb": 41.5, "extra": NaN', 1) + "\n" + second + "\n"
+                    self.assertIn('"extra": NaN', modified)
+                ledger.write_text(modified, encoding="utf-8")
+                raw = root / "raw" / "M13-office-R003.samples.jsonl"
+                raw.write_text('{"i":3}\n', encoding="utf-8")
+                commands = (
+                    ("verify", "--root", str(root)),
+                    ("compare", "--root", str(root), "--baseline", "M13-office-R001", "--candidate", "M13-office-R002"),
+                    ("record", "--root", str(root), "--run-id", "M13-office-R003",
+                     "--raw", str(raw),
+                     "--environment", str(root / "M13-office-R001.env.json"),
+                     "--metrics", str(root / "M13-office-R001.metrics.json")),
+                )
+                for args in commands:
+                    result = self.run_tool(*args, ok=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(reason, self.output(result))
+                    self.assertEqual(ledger.read_text(encoding="utf-8"), modified)
+
 if __name__ == "__main__":
     unittest.main()
