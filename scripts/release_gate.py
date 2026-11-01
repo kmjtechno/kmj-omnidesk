@@ -54,6 +54,7 @@ import hashlib
 import json
 import math
 import sys
+import unicodedata
 from pathlib import Path
 from typing import NoReturn
 
@@ -121,6 +122,16 @@ def _finite_json_float(value: str) -> float:
     return number
 
 
+def _portable_identity(value: str) -> str:
+    """Normalize cosmetic case/Unicode differences before counting evidence."""
+    return unicodedata.normalize("NFC", value.strip()).casefold()
+
+
+def _path_identity(path: Path) -> str:
+    """Count aliases of one document as one source, including symlink aliases."""
+    return _portable_identity(str(path.resolve(strict=False)))
+
+
 def load_json(path: Path, label: str) -> dict | None:
     """Load a required document, returning None rather than raising.
 
@@ -154,6 +165,8 @@ def load_json(path: Path, label: str) -> dict | None:
 def check_signed_release_artifacts(release: dict) -> list[str]:
     """Each artifact must be present, digested, and declared signed."""
     problems: list[str] = []
+    seen_names: set[str] = set()
+    seen_paths: set[str] = set()
     artifacts = release.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         return ["signed_release_artifacts: release declares no artifact list"]
@@ -166,11 +179,25 @@ def check_signed_release_artifacts(release: dict) -> list[str]:
         if not isinstance(name, str) or not name.strip():
             problems.append(f"signed_release_artifacts: artifact #{index} has no name")
             continue
+        name_key = _portable_identity(name)
+        if name_key in seen_names:
+            problems.append(f"signed_release_artifacts: duplicate artifact name {name!r}")
+        seen_names.add(name_key)
         declared_path = entry.get("path")
         if not isinstance(declared_path, str) or not declared_path.strip():
             problems.append(f"signed_release_artifacts: {name} has no valid path")
             continue
         path = REPO_ROOT / declared_path
+        try:
+            path_key = _path_identity(path)
+        except (OSError, RuntimeError):
+            problems.append(f"signed_release_artifacts: {name} has an invalid path")
+            continue
+        if path_key in seen_paths:
+            problems.append(
+                f"signed_release_artifacts: duplicate artifact path {declared_path!r}"
+            )
+        seen_paths.add(path_key)
         if not path.is_file():
             problems.append(f"signed_release_artifacts: {name} is not on disk: {path}")
             continue
@@ -200,6 +227,8 @@ def check_signed_release_artifacts(release: dict) -> list[str]:
 def check_update_metadata(release: dict) -> list[str]:
     """Every channel in the release needs a metadata document that parses."""
     problems: list[str] = []
+    seen_channels: set[str] = set()
+    seen_paths: set[str] = set()
     metadata = release.get("update_metadata")
     if not isinstance(metadata, list) or not metadata:
         return ["update_metadata_verified: release declares no update metadata list"]
@@ -216,7 +245,21 @@ def check_update_metadata(release: dict) -> list[str]:
         if not isinstance(declared_path, str) or not declared_path.strip():
             problems.append(f"update_metadata_verified: {channel} has no valid path")
             continue
+        channel_key = _portable_identity(channel)
+        if channel_key in seen_channels:
+            problems.append(f"update_metadata_verified: duplicate channel {channel!r}")
+        seen_channels.add(channel_key)
         path = REPO_ROOT / declared_path
+        try:
+            path_key = _path_identity(path)
+        except (OSError, RuntimeError):
+            problems.append(f"update_metadata_verified: {channel} has an invalid path")
+            continue
+        if path_key in seen_paths:
+            problems.append(
+                f"update_metadata_verified: duplicate metadata path {declared_path!r}"
+            )
+        seen_paths.add(path_key)
         document = load_json(path, f"update_metadata_verified[{channel}]")
         if document is None:
             problems.append(

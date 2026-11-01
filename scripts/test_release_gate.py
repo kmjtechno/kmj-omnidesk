@@ -203,6 +203,37 @@ class ReleaseGateTests(ReleaseFixture):
 
         self.assertTrue(any("not on disk" in problem for problem in problems))
 
+    def test_duplicate_artifact_names_do_not_count_as_independent_binaries(self) -> None:
+        release = self.a_complete_release()
+        duplicate = dict(release["artifacts"][0], name=" OMNIDESK.EXE ")
+        release["artifacts"].append(duplicate)
+
+        problems = release_gate.check_signed_release_artifacts(release)
+
+        self.assertTrue(any("duplicate artifact name" in p for p in problems))
+
+    def test_duplicate_artifact_paths_do_not_count_twice(self) -> None:
+        release = self.a_complete_release()
+        duplicate = dict(release["artifacts"][0], name="second.exe")
+        release["artifacts"].append(duplicate)
+
+        problems = release_gate.check_signed_release_artifacts(release)
+
+        self.assertTrue(any("duplicate artifact path" in p for p in problems))
+
+    def test_distinct_signed_artifacts_are_still_accepted(self) -> None:
+        release = self.a_complete_release()
+        second = self.root / "second.exe"
+        second.write_bytes(b"another test artifact")
+        release["artifacts"].append({
+            "name": "second.exe",
+            "path": str(second),
+            "sha256": hashlib.sha256(second.read_bytes()).hexdigest(),
+            "signature_declared": True,
+        })
+
+        self.assertEqual(release_gate.check_signed_release_artifacts(release), [])
+
     # --- update_metadata_verified ----------------------------------------
 
     def test_metadata_without_a_signature_is_refused(self) -> None:
@@ -237,6 +268,39 @@ class ReleaseGateTests(ReleaseFixture):
             {"update_metadata": [{"channel": "stable", "path": str(metadata)}]}
         )
         self.assertTrue(any("missing or unparseable" in p for p in problems))
+
+    def test_duplicate_update_channels_are_refused(self) -> None:
+        release = self.a_complete_release()
+        beta = self.write("beta.json", '{"signature_declared": true}')
+        release["update_metadata"].append({
+            "channel": " STABLE ",
+            "path": str(beta),
+        })
+
+        problems = release_gate.check_update_metadata(release)
+
+        self.assertTrue(any("duplicate channel" in p for p in problems))
+
+    def test_reusing_one_update_document_for_two_channels_is_refused(self) -> None:
+        release = self.a_complete_release()
+        release["update_metadata"].append({
+            "channel": "beta",
+            "path": release["update_metadata"][0]["path"],
+        })
+
+        problems = release_gate.check_update_metadata(release)
+
+        self.assertTrue(any("duplicate metadata path" in p for p in problems))
+
+    def test_distinct_update_channels_and_documents_are_accepted(self) -> None:
+        release = self.a_complete_release()
+        beta = self.write("beta.json", '{"signature_declared": true}')
+        release["update_metadata"].append({
+            "channel": "beta",
+            "path": str(beta),
+        })
+
+        self.assertEqual(release_gate.check_update_metadata(release), [])
 
     # --- licensing_integration_verified ---------------------------------
 
