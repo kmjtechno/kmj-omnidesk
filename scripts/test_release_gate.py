@@ -750,5 +750,72 @@ class MalformedManifestTests(ReleaseFixture):
             self.assertEqual(report["gates"][gate]["status"], "refused")
 
 
+
+class StrictJsonEvidenceTests(ReleaseFixture):
+    """Unambiguous evidence is required before any release gate is evaluated."""
+
+    def test_duplicate_root_and_nested_release_keys_fail_closed(self):
+        release = self.a_complete_release()
+        valid = json.dumps(release)
+        nested = valid.replace(
+            '"signature_declared": true',
+            '"signature_declared": false, "signature_declared": true',
+            1,
+        )
+        self.assertNotEqual(nested, valid)
+        for payload in (
+            '{"release_id": "first", "release_id": "second"}',
+            nested,
+        ):
+            with self.subTest(payload=payload[:75]):
+                path = self.write("ambiguous-release.json", payload)
+                self.assertIsNone(release_gate.load_json(path, "release"))
+                result = subprocess.run(
+                    [sys.executable, str(REPO_ROOT / "scripts" / "release_gate.py"),
+                     "--release", str(path)],
+                    capture_output=True, text=True, cwd=REPO_ROOT,
+                )
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                report = json.loads(result.stdout)
+                self.assertEqual(report["release"], "<unreadable>")
+                self.assertFalse(report["admissible"])
+
+    def test_duplicate_signature_and_licensing_plan_keys_fail_closed(self):
+        metadata = self.write(
+            "ambiguous-update.json",
+            '{"signature_declared": false, "signature_declared": true}',
+        )
+        self.assertTrue(release_gate.check_update_metadata({
+            "update_metadata": [{"channel": "stable", "path": str(metadata)}]
+        }))
+        contract = self.write(
+            "ambiguous-contract.json",
+            '{"plans": [], "plans": ["pro"]}',
+        )
+        self.assertTrue(release_gate.check_licensing_integration({
+            "licensing_contract": {"path": str(contract)}
+        }))
+
+    def test_nonfinite_json_constants_fail_closed_at_every_depth(self):
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant):
+                path = self.write(
+                    "nonfinite-release.json",
+                    '{"release_id": "test", "metrics": {"sample": ' + constant + '}}',
+                )
+                self.assertIsNone(release_gate.load_json(path, "release"))
+
+    def test_valid_nested_json_remains_readable(self):
+        path = self.write(
+            "valid-release.json",
+            '{"release_id": "test", "metrics": {"sample": 1.5}, '
+            '"artifacts": [{"name": "example"}]}',
+        )
+        parsed = release_gate.load_json(path, "release")
+        self.assertIsInstance(parsed, dict)
+        self.assertEqual(parsed["metrics"]["sample"], 1.5)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
