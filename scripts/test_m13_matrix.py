@@ -681,16 +681,20 @@ class MatrixToolTests(unittest.TestCase):
                     raw.write_text('{"i": 0, "latency_ms": 1}\n', encoding="utf-8")
                 else:
                     raw.unlink()
+                next_raw = root / "raw" / "M13-office-R002.samples.jsonl"
+                next_raw.write_text('{"i": 0, "latency_ms": 50}\n', encoding="utf-8")
                 original = ledger.read_bytes()
                 result = self.run_tool(
                     "record", "--root", str(root), "--run-id", "M13-office-R002",
-                    "--raw", str(raw),
+                    "--raw", str(next_raw),
                     "--environment", str(root / "M13-office-R001.env.json"),
                     "--metrics", str(root / "M13-office-R001.metrics.json"),
                     ok=False,
                 )
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("raw_results_required", self.output(result))
+                expected = ("existing raw evidence inadmissible"
+                            if defect == "tampered" else "raw_results_required")
+                self.assertIn(expected, self.output(result))
                 self.assertEqual(ledger.read_bytes(), original)
 
 
