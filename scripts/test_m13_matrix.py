@@ -634,5 +634,39 @@ class MatrixToolTests(unittest.TestCase):
                 self.assertIn("empty raw sample file", self.output(result))
 
 
+    def test_compare_rejects_invalid_unselected_ledger_run(self):
+        # A clean R001/R002 pair cannot hide a corrupted R003 in the same
+        # evidence ledger. The entire matrix must remain admissible.
+        for defect in ("raw", "metrics", "environment"):
+            with self.subTest(defect=defect), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.init_ledger(root)
+                for ordinal in (1, 2, 3):
+                    self.make_run(root, f"M13-office-R{ordinal:03d}")
+                args = (
+                    "compare", "--root", str(root),
+                    "--baseline", "M13-office-R001",
+                    "--candidate", "M13-office-R002",
+                )
+                self.assertTrue(json.loads(self.run_tool(*args).stdout)["comparable"])
+                if defect == "raw":
+                    raw = root / "raw" / "M13-office-R003.samples.jsonl"
+                    raw.write_text('{"i": 0, "latency_ms": 1}\\n', encoding="utf-8")
+                else:
+                    ledger = root / "ledger.jsonl"
+                    entries = [json.loads(line) for line in ledger.read_text().splitlines()]
+                    if defect == "metrics":
+                        entries[2]["metrics"]["ram_mb"] = None
+                    else:
+                        entries[2]["environment"]["machine_id"] = ""
+                    ledger.write_text(
+                        "".join(json.dumps(entry) + "\\n" for entry in entries),
+                        encoding="utf-8",
+                    )
+                result = self.run_tool(*args, ok=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("full ledger inadmissible", self.output(result))
+
+
 if __name__ == "__main__":
     unittest.main()
