@@ -85,9 +85,9 @@ MUTATIONS: list[tuple[str, str, str]] = [
         "actual, size = sha256_file(path)",
     ),
     (
-        "a hardlinked evidence ledger is accepted",
-        'if not unshared_regular_evidence_file(path):\n        fail(f"evidence ledger is not an unshared regular file: {path}")',
-        'if False:\n        fail(f"evidence ledger is not an unshared regular file: {path}")',
+        "ledger opened descriptor identity is not verified",
+        "def matches_open_file(metadata: os.stat_result) -> bool:\n            try:",
+        "def matches_open_file(metadata: os.stat_result) -> bool:\n            return True\n            try:",
     ),
     (
         "digest comparison is truncated",
