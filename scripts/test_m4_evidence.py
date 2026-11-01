@@ -59,7 +59,7 @@ class EvidenceToolTests(unittest.TestCase):
             root = Path(temp)
             artifact = root / "runs" / "M4-T1-R01" / "events.jsonl"
             artifact.parent.mkdir(parents=True)
-            artifact.write_bytes(b'{"source":"real-observation"}\\n')
+            artifact.write_bytes(b'{"source":"real-observation"}\n')
             base = [
                 "artifact", "--root", temp, "--file", str(artifact),
                 "--artifact-id", "artifact-M4-T1-R01-events",
@@ -73,7 +73,7 @@ class EvidenceToolTests(unittest.TestCase):
                 ("--artifact-id", "invalid id"),
                 ("--artifact-id", "x" * 257),
                 ("--content-type", ""),
-                ("--content-type", "application/jsonl\\ninjected"),
+                ("--content-type", "application/jsonl\ninjected"),
                 ("--component", ""),
                 ("--version", "x" * 129),
                 ("--created-at", "not-a-timestamp"),
