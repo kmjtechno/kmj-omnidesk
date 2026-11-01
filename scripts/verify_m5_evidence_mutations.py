@@ -76,8 +76,18 @@ MUTATIONS: list[tuple[str, str, str]] = [
     # --- observation integrity --------------------------------------------
     (
         "a deleted raw observation is skipped",
-        "if not path.is_file():\n        problems.append(",
+        "if not path.exists():\n        problems.append(",
         "if False:\n        problems.append(",
+    ),
+    (
+        "a hardlinked raw observation is accepted",
+        'if not unshared_regular_evidence_file(path):\\n        return [f"{run_id}: raw observation {name} is not an unshared regular file"]',
+        'if False:\\n        return [f"{run_id}: raw observation {name} is not an unshared regular file"]',
+    ),
+    (
+        "a hardlinked evidence ledger is accepted",
+        'if not unshared_regular_evidence_file(path):\\n        fail(f"evidence ledger is not an unshared regular file: {path}")',
+        'if False:\\n        fail(f"evidence ledger is not an unshared regular file: {path}")',
     ),
     (
         "digest comparison is truncated",
