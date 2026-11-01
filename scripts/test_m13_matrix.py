@@ -651,7 +651,7 @@ class MatrixToolTests(unittest.TestCase):
                 self.assertTrue(json.loads(self.run_tool(*args).stdout)["comparable"])
                 if defect == "raw":
                     raw = root / "raw" / "M13-office-R003.samples.jsonl"
-                    raw.write_text('{"i": 0, "latency_ms": 1}\\n', encoding="utf-8")
+                    raw.write_text('{"i": 0, "latency_ms": 1}\n', encoding="utf-8")
                 else:
                     ledger = root / "ledger.jsonl"
                     entries = [json.loads(line) for line in ledger.read_text().splitlines()]
@@ -660,7 +660,7 @@ class MatrixToolTests(unittest.TestCase):
                     else:
                         entries[2]["environment"]["machine_id"] = ""
                     ledger.write_text(
-                        "".join(json.dumps(entry) + "\\n" for entry in entries),
+                        "".join(json.dumps(entry) + "\n" for entry in entries),
                         encoding="utf-8",
                     )
                 result = self.run_tool(*args, ok=False)
