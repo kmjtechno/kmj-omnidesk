@@ -187,6 +187,10 @@ def command_artifact(args: argparse.Namespace) -> None:
 
 def command_checksums(args: argparse.Namespace) -> None:
     root = checked_evidence_root(args.root)
+    # An absent or non-directory root must not produce an apparently valid
+    # empty checksum manifest. Never create a root during verification.
+    if not root.is_dir():
+        fail("evidence package root must be an existing directory")
     rows: list[str] = []
     seen_portable_names: dict[str, str] = {}
     for path in sorted(root.rglob("*")):
@@ -221,6 +225,8 @@ def command_checksums(args: argparse.Namespace) -> None:
             continue
         digest, _ = sha256_file(path)
         rows.append(f"{digest}  {name}")
+    if not rows:
+        fail("evidence package contains no checksum-eligible files")
     print("\n".join(rows))
 
 
