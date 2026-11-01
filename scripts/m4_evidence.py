@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 RUN_ID = re.compile(r"^M4-T[1-6]-R[0-9]{2,}$")
+ARTIFACT_ID = re.compile(r"^[A-Za-z0-9._:-]{1,256}$")
+RFC3339 = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)$")
 KINDS = {
     "RUN_JSON",
     "EVENT_LOG",
@@ -122,10 +124,33 @@ def command_prepare_run(args: argparse.Namespace) -> None:
     print(run_dir)
 
 
+def validated_artifact_metadata(args: argparse.Namespace) -> str:
+    """Refuse entries that cannot satisfy the M4 manifest artifactRecord schema."""
+    if not ARTIFACT_ID.fullmatch(args.artifact_id):
+        fail("invalid artifact_id for M4 manifest (1-256 ASCII id characters)")
+    for label, value in (
+        ("content_type", args.content_type),
+        ("producer component", args.component),
+        ("producer version", args.version),
+    ):
+        if not value or len(value) > 128 or any(ord(char) < 32 or ord(char) == 127 for char in value):
+            fail(f"invalid {label} for M4 manifest (1-128 printable characters)")
+
+    created_at = args.created_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if not RFC3339.fullmatch(created_at):
+        fail("invalid created_at for M4 manifest (RFC3339 timestamp required)")
+    try:
+        datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError:
+        fail("invalid created_at for M4 manifest (nonexistent calendar date)")
+    return created_at
+
+
 def command_artifact(args: argparse.Namespace) -> None:
     run_id = validate_run_id(args.run_id)
     if args.kind not in KINDS:
         fail(f"unsupported artifact kind: {args.kind}")
+    created_at = validated_artifact_metadata(args)
     root = checked_evidence_root(args.root)
     resolved, relative = safe_relative(root, Path(args.file))
     # A run-scoped artifact must actually belong to the named run. Merely
@@ -139,7 +164,6 @@ def command_artifact(args: argparse.Namespace) -> None:
     if len(relative.parts) < 3 or relative.parts[:2] != ("runs", run_id):
         fail("artifact is not inside its declared run directory")
     checksum, size = sha256_file(resolved)
-    created_at = args.created_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     entry = {
         "artifact_id": args.artifact_id,
         "run_id": run_id,
