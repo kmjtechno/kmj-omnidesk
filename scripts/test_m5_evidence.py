@@ -942,6 +942,62 @@ class TestUnsharedEvidenceFiles(Fixture):
         self.assertEqual(external.read_bytes(), before)
 
 
+    def test_raw_symlink_swap_after_preflight_is_refused(self) -> None:
+        """An external file with identical bytes is not valid relay evidence."""
+        from unittest.mock import patch
+
+        entry = self.transport_run()
+        raw = self.root / "raw" / entry["raw_path"]
+        outside = Path(self.directory.name) / "external-raw.json"
+        outside.write_bytes(raw.read_bytes())
+        probe = Path(self.directory.name) / "symlink-probe"
+        try:
+            probe.symlink_to(outside)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        probe.unlink()
+        original = m5.unshared_regular_evidence_file
+
+        def swap_after_check(path: Path) -> bool:
+            accepted = original(path)
+            if path == raw:
+                raw.unlink()
+                raw.symlink_to(outside)
+            return accepted
+
+        with patch.object(m5, "unshared_regular_evidence_file", side_effect=swap_after_check):
+            problems = m5.entry_problems(entry, entry["run_id"], self.root / "raw")
+        self.assertTrue(problems)
+        self.assertTrue(any("safely hashed" in problem for problem in problems))
+        self.assertEqual(outside.read_bytes(), b'{"observed": true}')
+
+    def test_raw_hardlink_swap_after_preflight_is_refused(self) -> None:
+        """Matching digest cannot make an externally linked raw file admissible."""
+        from unittest.mock import patch
+
+        entry = self.transport_run()
+        raw = self.root / "raw" / entry["raw_path"]
+        outside = Path(self.directory.name) / "external-raw.json"
+        outside.write_bytes(raw.read_bytes())
+        probe = Path(self.directory.name) / "hardlink-probe"
+        self.link_or_skip(outside, probe)
+        probe.unlink()
+        original = m5.unshared_regular_evidence_file
+
+        def swap_after_check(path: Path) -> bool:
+            accepted = original(path)
+            if path == raw:
+                raw.unlink()
+                self.link_or_skip(outside, raw)
+            return accepted
+
+        with patch.object(m5, "unshared_regular_evidence_file", side_effect=swap_after_check):
+            problems = m5.entry_problems(entry, entry["run_id"], self.root / "raw")
+        self.assertTrue(problems)
+        self.assertTrue(any("safely hashed" in problem for problem in problems))
+        self.assertEqual(outside.read_bytes(), b'{"observed": true}')
+
+
 class TestRecording(Fixture):
     def test_a_duplicate_run_id_is_refused(self) -> None:
         """Mutation: drop the duplicate-run_id refusal."""
