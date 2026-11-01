@@ -676,5 +676,79 @@ class CommandLineTests(ReleaseFixture):
                 release_gate.m14_gates_from_roadmap(empty)
 
 
+
+class MalformedManifestTests(ReleaseFixture):
+    """Reject malformed release declarations without crashing or passing."""
+
+    def test_malformed_artifact_entries_are_refused(self):
+        for value in ("signed", {"name": "app"}, [None], [42], [{}],
+                      [{"name": "app", "path": None}]):
+            with self.subTest(value=value):
+                self.assertTrue(release_gate.check_signed_release_artifacts(
+                    {"artifacts": value}
+                ))
+
+    def test_nonboolean_signature_and_digest_are_refused(self):
+        release = self.a_complete_release()
+        release["artifacts"][0]["signature_declared"] = "false"
+        self.assertTrue(any("no signature" in p for p in
+                            release_gate.check_signed_release_artifacts(release)))
+        release["artifacts"][0]["sha256"] = 123
+        self.assertTrue(any("no digest" in p for p in
+                            release_gate.check_signed_release_artifacts(release)))
+
+    def test_malformed_update_entries_and_truthy_signature_are_refused(self):
+        for value in ("stable", {"channel": "stable"}, [None], [42], [{}],
+                      [{"channel": "stable", "path": None}]):
+            with self.subTest(value=value):
+                self.assertTrue(release_gate.check_update_metadata(
+                    {"update_metadata": value}
+                ))
+        metadata = self.write("stable.json", '{"signature_declared": "false"}')
+        self.assertTrue(any("not declared signed" in p for p in
+                            release_gate.check_update_metadata({
+                                "update_metadata": [{"channel": "stable",
+                                                     "path": str(metadata)}]
+                            })))
+
+    def test_malformed_contract_and_plans_are_refused(self):
+        for value in ("contract", [1], {"path": None}, {"path": 42}):
+            with self.subTest(value=value):
+                self.assertTrue(release_gate.check_licensing_integration(
+                    {"licensing_contract": value}
+                ))
+        contract = self.write("contract.json", '{"plans": [null, "pro"]}')
+        self.assertTrue(release_gate.check_licensing_integration(
+            {"licensing_contract": {"path": str(contract)}}
+        ))
+
+    def test_invalid_performance_root_is_refused(self):
+        for value in (None, [], 123, {}):
+            with self.subTest(value=value):
+                self.assertTrue(any("invalid performance matrix root" in p
+                                    for p in release_gate.check_performance_gate(
+                                        {"performance_matrix_root": value}
+                                    )))
+
+    def test_malformed_release_produces_structured_refusals(self):
+        release = self.a_complete_release()
+        release["artifacts"] = ["not-an-artifact"]
+        release["update_metadata"] = [None]
+        release["licensing_contract"] = "not-a-contract"
+        path = self.write("malformed-release.json", json.dumps(release))
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "release_gate.py"),
+             "--release", str(path)],
+            capture_output=True, text=True, cwd=REPO_ROOT,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        report = json.loads(result.stdout)
+        self.assertFalse(report["admissible"])
+        for gate in ("signed_release_artifacts", "update_metadata_verified",
+                     "licensing_integration_verified"):
+            self.assertEqual(report["gates"][gate]["status"], "refused")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
