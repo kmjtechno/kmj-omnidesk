@@ -252,6 +252,9 @@ def command_record(args: argparse.Namespace) -> None:
 
     if sequence_problems(existing):
         fail("cherry_picking_forbidden: existing ledger sequence is invalid")
+    # A single raw sample cannot establish two independent run identities.
+    if any(prior.get("raw_path") == raw.name for prior in existing):
+        fail("raw_results_required: raw sample already assigned to another run")
     # A later append must not proceed after an earlier raw sample has
     # disappeared or changed. Keep summary-metric validation in verify so
     # recording remains possible for a failed/poorly measured run.
@@ -349,8 +352,21 @@ def command_verify(args: argparse.Namespace) -> None:
             )
         seen[run_id] = seen.get(run_id, 0) + 1
 
+    raw_owners: dict[str, str] = {}
     for entry in entries:
         run_id = entry.get("run_id", "<missing>")
+
+        # A ledger may be edited after recording; detect reused sample paths
+        # here as well, even if each entry's digest and byte count match.
+        raw_name = entry.get("raw_path")
+        if isinstance(raw_name, str):
+            if raw_name in raw_owners:
+                problems.append(
+                    f"{run_id}: raw_results_required -- raw sample already used by "
+                    f"{raw_owners[raw_name]}"
+                )
+            else:
+                raw_owners[raw_name] = run_id
 
         # rule: raw_results_required
         raw_sha = entry.get("raw_sha256")
