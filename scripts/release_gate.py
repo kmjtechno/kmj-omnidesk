@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from pathlib import Path
 from typing import NoReturn
@@ -112,6 +113,14 @@ def _reject_nonfinite_json(value: str) -> NoReturn:
     raise ValueError(f"non-finite JSON constant: {value}")
 
 
+def _finite_json_float(value: str) -> float:
+    """A valid JSON exponent may still overflow to infinity in Python."""
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"non-finite JSON number: {value}")
+    return number
+
+
 def load_json(path: Path, label: str) -> dict | None:
     """Load a required document, returning None rather than raising.
 
@@ -132,6 +141,7 @@ def load_json(path: Path, label: str) -> dict | None:
             path.read_text(encoding="utf-8"),
             object_pairs_hook=_unique_json_object,
             parse_constant=_reject_nonfinite_json,
+            parse_float=_finite_json_float,
         )
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
         return None
