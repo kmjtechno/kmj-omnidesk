@@ -82,13 +82,22 @@ def validate_run_id(value: str) -> str:
     return value
 
 
+def reject_nonfinite_constant(value: str) -> NoReturn:
+    """Refuse NaN/Infinity JSON extensions even in unvalidated nested fields."""
+    raise ValueError(f"nonfinite JSON constant: {value}")
+
+
 def load_json(path: Path) -> dict:
     try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
+        parsed = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=strict_ledger_object,
+            parse_constant=reject_nonfinite_constant,
+        )
     except FileNotFoundError:
         fail(f"missing file: {path}")
-    except json.JSONDecodeError as error:
-        fail(f"{path}: not valid JSON: {error}")
+    except (ValueError, UnicodeError) as error:
+        fail(f"{path}: not strict JSON: {error}")
     if not isinstance(parsed, dict):
         fail(f"{path}: expected a JSON object at the top level")
     return parsed
@@ -136,7 +145,10 @@ def validate_raw_samples(path: Path) -> None:
                 if not line.strip():
                     fail(f"raw_results_required: blank JSONL sample line {number}")
                 try:
-                    sample = json.loads(line, object_pairs_hook=unique_keys)
+                    sample = json.loads(
+                        line, object_pairs_hook=unique_keys,
+                        parse_constant=reject_nonfinite_constant,
+                    )
                 except (json.JSONDecodeError, ValueError) as error:
                     fail(f"raw_results_required: invalid JSONL sample line {number}: {error}")
                 if not isinstance(sample, dict) or not sample or not finite(sample):
@@ -246,9 +258,12 @@ def read_ledger(root: Path) -> list[dict]:
     entries = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
-            continue
+            fail(f"{path}:{number}: corrupt ledger line: blank entry")
         try:
-            entries.append(json.loads(line, object_pairs_hook=strict_ledger_object))
+            entries.append(json.loads(
+                line, object_pairs_hook=strict_ledger_object,
+                parse_constant=reject_nonfinite_constant,
+            ))
         except (json.JSONDecodeError, ValueError) as error:
             fail(f"{path}:{number}: corrupt ledger line: {error}")
         entry = entries[-1]
