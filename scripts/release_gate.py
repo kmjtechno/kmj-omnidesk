@@ -97,6 +97,21 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict:
+    """Reject ambiguous JSON objects, including duplicates in nested evidence."""
+    result: dict = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json(value: str) -> NoReturn:
+    """Python accepts NaN/Infinity by default, but JSON evidence must not."""
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
 def load_json(path: Path, label: str) -> dict | None:
     """Load a required document, returning None rather than raising.
 
@@ -113,8 +128,12 @@ def load_json(path: Path, label: str) -> dict | None:
     try:
         if not path.is_file():
             return None
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+        document = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_nonfinite_json,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
         return None
     # Valid JSON can still be a list, scalar or null. Every caller expects
     # a mapping; refusing non-objects avoids an AttributeError and preserves
