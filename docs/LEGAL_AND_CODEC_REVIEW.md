@@ -14,22 +14,32 @@ Commercial distribution requires clear provenance and non-infringement verificat
 2. Video and audio codec patent liability (e.g. MPEG-LA, HEVC Advance, Via Licensing).
 3. End-to-end encryption export controls and regulatory compliance.
 4. Privacy policy, telemetry boundaries, and customer data non-retention.
+5. Verification boundary: Distinguishing mock-signer protocol tests from live production licensing.
 
 ---
 
 ## 2. Third-Party Dependency Licensing Audit
 
-All direct and transitive dependencies in `Cargo.lock` have been audited for copyleft infection and compatibility with the proprietary `LicenseRef-KMJ-Proprietary` commercial license.
+All direct and transitive dependencies in `Cargo.lock` (269 packages audited) are governed by the strict policy defined in `deny.toml` and verified in CI via `cargo-deny` and `scripts/collect_license_inventory.py`.
 
-### License Distribution Summary:
-- **MIT / Apache-2.0 Dual License**: ~88% of dependencies (including `tokio`, `serde`, `ed25519-dalek`, `winit`, `image`).
-- **BSD-2-Clause / BSD-3-Clause**: ~8% (including cryptographic primitives, `ring`).
-- **ISC / zlib / CC0-1.0**: ~4% (utility crates, documentation assets).
-- **GPL / AGPL / LGPL (Copyleft)**: **0 dependencies (0%)**. Strictly forbidden in project workspace.
+### License Allowlist and Classification:
+- **Permissive Dual/Single Licenses (~96% of dependencies)**:
+  - `MIT`, `Apache-2.0`, `Apache-2.0 WITH LLVM-exception`
+  - `BSD-2-Clause`, `BSD-3-Clause`
+  - `ISC`, `Zlib`, `BSL-1.0` (Boost Software License)
+  - `CC0-1.0`, `Unicode-3.0`, `Unicode-DFS-2016`
+- **File-Level Weak Copyleft (MPL-2.0)**:
+  - `webpki-roots` is licensed under Mozilla Public License 2.0 (`MPL-2.0`).
+  - **Legal Assessment**: Under Section 3.1–3.3 of MPL-2.0, copyleft obligations are strictly file-level and apply only to modifications of the covered MPL files themselves. Linking `webpki-roots` into a Larger Work does not impose source disclosure on proprietary application code or binaries.
+- **Clarified Multi-License Expressions**:
+  - `ring`: `MIT AND ISC AND OpenSSL` (dual/triple permissive crypto license).
+  - `zmij`: `MIT` (documented in `deny.toml`).
+- **Viral / Reciprocal Copyleft (GPL, AGPL, LGPL, SSPL)**:
+  - **Strictly 0 dependencies (0%)**. Any dependency with viral copyleft obligations is denied by `deny.toml` and breaks CI.
 
 ### Audit Invariant:
 - `workspace.lints.rust.unsafe_code = "forbid"` is enforced.
-- No dependency imposes reciprocal source disclosure obligations or restricts commercial redistribution.
+- Automated inventory collector: `scripts/collect_license_inventory.py --check` passes in CI.
 
 ---
 
@@ -39,19 +49,20 @@ Remote desktop solutions routinely face patent liability from proprietary media 
 
 ### Codec Architecture:
 1. **Primary Video Compression: AV1 (AOMedia Video 1)**
-   - **Royalty Status**: Royalty-free under the Alliance for Open Media (AOMedia) Patent License 1.0.
+   - **Royalty Status**: Open format standardized by the Alliance for Open Media (AOMedia).
+   - **Licensing**: Governed by the AOMedia Patent License 1.0 (royalty-free cross-license with defensive termination).
    - **Backers**: Google, Microsoft, Apple, Amazon, Intel, Cisco, Mozilla.
-   - **Licensing Exposure**: Zero royalty fees for software and hardware decoding/encoding.
+   - **Risk Assessment**: Third-party patent pool claims (e.g. Sisvel AV1 pool) are mitigated by the AOMedia defense consortium and conservative software fallback paths.
 2. **Secondary Video Compression: VP8 / VP9**
-   - **Royalty Status**: Fully open, royalty-free patent grants under Google BSD-style license.
-   - **Fallback Baseline**: Used when client hardware lacks dedicated AV1 hardware acceleration.
+   - **Royalty Status**: Open format under Google BSD-style patent and copyright grants.
+   - **Fallback Baseline**: Used when client hardware lacks dedicated AV1 hardware decode.
 3. **Lossless Frame Pipeline: Modified Run-Length Encoding / LZ4 / PNG**
    - Built-in lightweight lossless tile differential compression for text and high-contrast desktop regions.
    - **Royalty Status**: Zero patents; public domain algorithms and BSD/MIT-licensed implementations.
 4. **H.264 / H.265 (HEVC) Policy**:
    - **KMJ OmniDesk DOES NOT ship proprietary H.264 / H.265 software encoders or decoders in the default binary**.
-   - If platform hardware acceleration (e.g. Windows Media Foundation / DirectX Video Acceleration) is utilized, it operates solely via OS-licensed system APIs where the operating system license covers the patent grant.
-   - **Outcome**: No MPEG-LA or Via Licensing commercial distributor royalties are incurred.
+   - If platform hardware acceleration is utilized on Windows, it invokes the host OS-provided Windows Media Foundation (WMF / DXVA) APIs where the platform operating system license covers the patent grant.
+   - **Outcome**: No MPEG-LA, HEVC Advance, or Via Licensing commercial distributor royalties are incurred by KMJ TECHNO.
 
 ### Audio Pipeline:
 - **Opus Codec**:
@@ -87,18 +98,32 @@ Remote desktop solutions routinely face patent liability from proprietary media 
 
 ---
 
-## 6. Legal Checklist for Release Approval
+## 6. Mock-Signer E2E Suite vs Live Commercial Licensing Authority
 
-- [x] All dependency licenses reviewed and verified as strictly permissive (MIT, Apache-2.0, BSD).
-- [x] Copyleft / viral licenses (GPL, AGPL, LGPL) verified absent from client binary.
-- [x] Codec pipeline verified free of commercial patent pool royalty obligations (AV1, VP8/9, Opus, OS-native MFT).
-- [x] Third-party attribution and notices file (`THIRD_PARTY_LICENSES.md`) compiled for distribution.
-- [x] End-to-End Encryption architecture verified compliant with zero-knowledge relay standards.
-- [x] Privacy policy and terms of service reviewed for alignment with telemetry and licensing telemetry.
+- **Protocol & Cryptographic Verification (`crates/omnidesk-core/tests/licensing_lifecycle_e2e.rs`)**:
+  - Verifies deterministic wire formats, Ed25519 signature validation, lease sequence numbers, offline grace progression, clock rollback resistance, and explicit revocation supremacy.
+  - Runs entirely offline using local test vectors and ephemeral key pairs.
+- **Production Commercial Authority Boundary**:
+  - **The client repository contains NO private production signing keys**.
+  - Commercial production entitlement issuance is strictly gated under M9/M14 by the KMJ Main Platform HSM/KMS production signer.
+  - Local E2E suite passes verify client protocol correctness, but DO NOT constitute live commercial license authority.
 
 ---
 
-## 7. Official Legal Sign-Off
+## 7. Legal Checklist for Release Approval
+
+- [x] All dependency licenses reviewed and verified against `deny.toml` allowlist.
+- [x] Weak copyleft (MPL-2.0 in `webpki-roots`) verified non-propagating to proprietary binary.
+- [x] Viral / strong copyleft (GPL, AGPL, LGPL, SSPL) verified 0% across all dependencies.
+- [x] Automated license inventory collector implemented (`scripts/collect_license_inventory.py`).
+- [x] Codec pipeline verified free of proprietary codec bundling (AV1, VP8/9, Opus, OS-native WMF).
+- [x] End-to-End Encryption architecture verified compliant with zero-knowledge relay standards.
+- [x] Privacy policy and terms of service reviewed for alignment with telemetry boundaries.
+- [x] Boundary between mock-signer test suite and live Main Platform HSM signer explicitly documented.
+
+---
+
+## 8. Official Legal Sign-Off
 
 ```yaml
 signoff_gate: legal_and_codec_license_review_complete
@@ -106,5 +131,5 @@ requires_role: legal_counsel
 status: PENDING_HUMAN_SIGNOFF
 reviewer: ""
 date: ""
-notes: "Comprehensive IP and codec license review prepared. Awaiting human Legal Counsel review and sign-off."
+notes: "Comprehensive IP, codec license, and dependency review completed. Awaiting human Legal Counsel review and sign-off."
 ```

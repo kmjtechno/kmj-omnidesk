@@ -57,6 +57,10 @@ jobs:
       # SECURITY.md/ROADMAP.yaml with nothing enforcing them.
       - name: Dependency audit
         uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Third-party license inventory verification
+        run: |
+          python3 scripts/collect_license_inventory.py --check
+          python3 scripts/test_collect_license_inventory.py
       - name: Secret scan
         run: |
           python3 scripts/scan_secrets.py
