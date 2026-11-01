@@ -79,6 +79,7 @@ class EvidenceToolTests(unittest.TestCase):
                 ("--created-at", "not-a-timestamp"),
                 ("--created-at", "2026-02-30T12:00:00Z"),
                 ("--created-at", "2026-11-01T12:30:00"),
+                ("--created-at", "2026-11-01T12:30:00+14:30"),
             )
             before = artifact.read_bytes()
             for key, invalid in cases:
