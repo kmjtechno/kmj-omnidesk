@@ -295,8 +295,54 @@ def read_ledger(root: Path) -> list[dict]:
         return []
     if not unshared_regular_evidence_file(path):
         fail(f"evidence ledger is not an unshared regular file: {path}")
+    # Open the ledger by descriptor, not by path after the preflight: a
+    # replacement symlink/hardlink must not import unrelated evidence.
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        fail(f"cannot safely open evidence ledger: {path}")
+    with os.fdopen(descriptor, "rb") as handle:
+        before = os.fstat(handle.fileno())
+
+        def matches_open_file(metadata: os.stat_result) -> bool:
+            try:
+                linked = path.lstat()
+            except OSError:
+                return False
+            return (
+                stat.S_ISREG(metadata.st_mode)
+                and metadata.st_nlink == 1
+                and stat.S_ISREG(linked.st_mode)
+                and linked.st_nlink == 1
+                and (metadata.st_dev, metadata.st_ino)
+                == (linked.st_dev, linked.st_ino)
+                and not (
+                    getattr(metadata, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                )
+                and not (
+                    getattr(linked, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                )
+            )
+
+        if not matches_open_file(before):
+            fail(f"evidence ledger changed or is not an unshared regular file: {path}")
+        content = handle.read()
+        after = os.fstat(handle.fileno())
+        if (
+            not matches_open_file(after)
+            or (before.st_size, before.st_mtime_ns)
+            != (after.st_size, after.st_mtime_ns)
+        ):
+            fail(f"evidence ledger changed while reading: {path}")
+    try:
+        lines = content.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        fail(f"evidence ledger is not valid UTF-8: {path}")
     entries = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for number, line in enumerate(lines, start=1):
         if not line.strip():
             fail(f"{path}:{number}: blank ledger line forbidden")
         try:
