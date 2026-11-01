@@ -892,7 +892,7 @@ class TestUnsharedEvidenceFiles(Fixture):
 
         ledger = self.root / "ledger.jsonl"
         external = Path(self.directory.name) / "external-ledger.jsonl"
-        external.write_bytes(b'{"run_id":"M5-OTHER-R001"}\\n')
+        external.write_bytes(b'{"run_id":"M5-OTHER-R001"}\n')
         before = external.read_bytes()
         probe = Path(self.directory.name) / "symlink-probe"
         try:
@@ -921,7 +921,7 @@ class TestUnsharedEvidenceFiles(Fixture):
 
         ledger = self.root / "ledger.jsonl"
         external = Path(self.directory.name) / "external-ledger.jsonl"
-        external.write_bytes(b'{"run_id":"M5-OTHER-R001"}\\n')
+        external.write_bytes(b'{"run_id":"M5-OTHER-R001"}\n')
         before = external.read_bytes()
         probe = Path(self.directory.name) / "hardlink-probe"
         self.link_or_skip(external, probe)
