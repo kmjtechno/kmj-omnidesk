@@ -914,8 +914,25 @@ def command_record(args: argparse.Namespace) -> None:
         fail(f"cannot safely append to evidence ledger: {ledger}")
     with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
         metadata = os.fstat(handle.fileno())
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-            fail(f"evidence ledger is not an unshared regular file: {ledger}")
+        # O_NOFOLLOW is unavailable on some platforms (notably Windows).
+        # Verify the opened handle still names the expected unshared file
+        # before appending; the earlier pathname preflight is insufficient.
+        try:
+            linked = ledger.lstat()
+        except OSError:
+            fail(f"evidence ledger changed before append: {ledger}")
+        reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or not stat.S_ISREG(linked.st_mode)
+            or linked.st_nlink != 1
+            or (metadata.st_dev, metadata.st_ino)
+            != (linked.st_dev, linked.st_ino)
+            or (getattr(metadata, "st_file_attributes", 0) & reparse)
+            or (getattr(linked, "st_file_attributes", 0) & reparse)
+        ):
+            fail(f"evidence ledger is not the expected unshared regular file: {ledger}")
         handle.write(json.dumps(entry, sort_keys=True) + "\n")
     print(json.dumps({"run_id": run_id, "recorded": True}, sort_keys=True))
 
