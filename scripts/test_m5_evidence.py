@@ -746,6 +746,38 @@ class TestLedgerPathSafety(Fixture):
                 self.assertIn(":2:", str(refusal.exception))
                 self.assertIn("ledger entry must be a JSON object", str(refusal.exception))
 
+    def test_duplicate_nested_ledger_key_is_refused(self):
+        # The default JSON decoder silently keeps the last duplicate value.
+        ledger = self.root / "ledger.jsonl"
+        ledger.write_text(
+            '{"run_id":"M5-CODE-R001","environment":{"host":"p520","host":"other"}}'
+            + chr(10), encoding="utf-8",
+        )
+        with self.assertRaises(SystemExit) as caught:
+            m5.read_ledger(self.root)
+        self.assertIn("duplicate JSON key", str(caught.exception))
+        self.assertIn(":1:", str(caught.exception))
+
+    def test_nonfinite_ledger_values_are_refused(self):
+        ledger = self.root / "ledger.jsonl"
+        for bad in ("NaN", "Infinity", "-Infinity", "1e999"):
+            with self.subTest(bad=bad):
+                ledger.write_text(
+                    '{"run_id":"M5-CODE-R001","environment":{"latency_ms":'
+                    + bad + '}}' + chr(10), encoding="utf-8"
+                )
+                with self.assertRaises(SystemExit) as caught:
+                    m5.read_ledger(self.root)
+                self.assertIn("non-finite", str(caught.exception))
+
+    def test_blank_line_in_existing_ledger_is_refused(self):
+        ledger = self.root / "ledger.jsonl"
+        ledger.write_text('{"run_id":"M5-CODE-R001"}' + chr(10) * 2, encoding="utf-8")
+        with self.assertRaises(SystemExit) as caught:
+            m5.read_ledger(self.root)
+        self.assertIn(":2:", str(caught.exception))
+        self.assertIn("blank ledger line", str(caught.exception))
+
     def test_record_rejects_symlinked_ledger_before_copy(self):
         ledger = self.root / "ledger.jsonl"
         external = Path(self.directory.name) / "external-ledger.jsonl"
@@ -1090,6 +1122,21 @@ class TestUnreadableOptionalDocument(Fixture):
         with self.assertRaises(SystemExit):
             m5.command_record(args)
         self.assertEqual(m5.read_ledger(self.root), [])
+
+    def test_duplicate_or_nonfinite_optional_json_is_refused_before_copy(self) -> None:
+        for field in ("environment", "impairment"):
+            for invalid in (
+                '{"network":{"latency":5,"latency":0}}',
+                '{"network":{"latency":NaN}}',
+                '{"network":{"latency":1e999}}',
+            ):
+                with self.subTest(field=field, invalid=invalid):
+                    path = self.readable(f"{field}-ambiguous.json", invalid)
+                    with self.assertRaises(SystemExit) as caught:
+                        m5.command_record(self.args_for(**{field: path}))
+                    self.assertIn("could not read", str(caught.exception))
+                    self.assertEqual(m5.read_ledger(self.root), [])
+                    self.assertFalse((self.root / "raw" / "M5-LINK-R001.json").exists())
 
     def test_a_readable_impairment_description_is_recorded_verbatim(self) -> None:
         """The complement of the refusal above.
