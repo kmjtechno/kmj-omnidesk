@@ -72,6 +72,33 @@ class TestLicenseInventory(unittest.TestCase):
         for expression in ("MIT OR Apache-2.0", "MPL-2.0", "BSD-3-Clause"):
             self.assertFalse(check_for_viral_copyleft(expression))
 
+    def test_prohibited_license_in_allow_policy_rejected(self) -> None:
+        for prohibited in ("GPL-3.0-only", "AGPL-3.0-or-later", "LGPL-2.1-only", "SSPL-1.0"):
+            with self.subTest(prohibited=prohibited):
+                self.deny.write_text(
+                    '[licenses]\nallow = ["MIT", "' + prohibited + '"]\n',
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(ValueError, "Prohibited licenses.allow"):
+                    parse_deny_toml_licenses(self.deny)
+
+    def test_empty_license_allow_policy_rejected(self) -> None:
+        self.deny.write_text('[licenses]\nallow = []\n', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "empty licenses.allow"):
+            parse_deny_toml_licenses(self.deny)
+
+    def test_duplicate_allow_policy_rejected_without_masking_good_entries(self) -> None:
+        self.deny.write_text(
+            '[licenses]\nallow = ["MIT", "Apache-2.0", " mit "]\n',
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "Duplicate licenses.allow"):
+            parse_deny_toml_licenses(self.deny)
+
+    def test_permissive_allow_policy_still_accepted(self) -> None:
+        policy = parse_deny_toml_licenses(self.deny)
+        self.assertEqual(policy["allow"], ["MIT", "Apache-2.0", "MPL-2.0"])
+
     def test_duplicate_package_rejected(self) -> None:
         self.lock.write_text(
             '[[package]]\nname = "x"\nversion = "1"\n'
