@@ -105,6 +105,41 @@ def sha256_file(path: Path) -> tuple[str, int]:
 
 
 
+def validate_raw_samples(path: Path) -> None:
+    """Require actual per-sample JSONL, not merely nonempty hashed bytes.
+
+    This checks syntax and finite values, not whether the observations were
+    physically captured. The latter still requires independent real-device QA.
+    """
+    def finite(value: object) -> bool:
+        if isinstance(value, float):
+            return math.isfinite(value)
+        if isinstance(value, dict):
+            return all(finite(item) for item in value.values())
+        if isinstance(value, list):
+            return all(finite(item) for item in value)
+        return True
+
+    count = 0
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    fail(f"raw_results_required: blank JSONL sample line {number}")
+                try:
+                    sample = json.loads(line)
+                except json.JSONDecodeError as error:
+                    fail(f"raw_results_required: invalid JSONL sample line {number}: {error}")
+                if not isinstance(sample, dict) or not sample or not finite(sample):
+                    fail(f"raw_results_required: invalid JSONL sample object at line {number}")
+                count += 1
+    except UnicodeError as error:
+        fail(f"raw_results_required: raw samples are not UTF-8 JSONL: {error}")
+    if not count:
+        fail("raw_results_required: no JSONL samples")
+
+
+
 def checked_root(value: str) -> Path:
     """Do not follow redirected evidence roots or their ancestors."""
     supplied = Path(value)
@@ -242,6 +277,7 @@ def command_record(args: argparse.Namespace) -> None:
     raw_sha, raw_size = sha256_file(raw)
     if raw_size == 0:
         fail("raw_results_required: empty raw sample file")
+    validate_raw_samples(raw)
 
     existing = read_ledger(root)
     if any(entry.get("run_id") == run_id for entry in existing):
@@ -272,6 +308,7 @@ def command_record(args: argparse.Namespace) -> None:
                 "cherry_picking_forbidden: existing raw evidence inadmissible "
                 f"for {prior_id}"
             )
+        validate_raw_samples(prior_raw)
     label, ordinal = run_id.rsplit("-R", 1)
     next_ordinal = 1 + sum(
         row["run_id"].rsplit("-R", 1)[0] == label for row in existing
@@ -378,6 +415,11 @@ def command_verify(args: argparse.Namespace) -> None:
             actual, actual_size = sha256_file(raw_path)
             if actual_size == 0:
                 problems.append(f"{run_id}: raw_results_required -- empty raw sample file")
+            else:
+                try:
+                    validate_raw_samples(raw_path)
+                except SystemExit as error:
+                    problems.append(f"{run_id}: {error}")
             if not isinstance(raw_sha, str) or actual != raw_sha:
                 problems.append(
                     f"{run_id}: raw_results_required -- {raw_path.name} "
@@ -457,6 +499,7 @@ def command_compare(args: argparse.Namespace) -> None:
         actual, actual_size = sha256_file(raw_path)
         if actual_size == 0:
             fail(f"{run_id}: raw_results_required -- empty raw sample file")
+        validate_raw_samples(raw_path)
         if (
             actual != entry.get("raw_sha256")
             or type(entry.get("raw_bytes")) is not int
