@@ -252,6 +252,18 @@ def command_record(args: argparse.Namespace) -> None:
 
     if sequence_problems(existing):
         fail("cherry_picking_forbidden: existing ledger sequence is invalid")
+    # Refuse to append to an already-invalid matrix. Checking only run IDs
+    # would let a later valid run hide an earlier tampered raw sample or
+    # malformed environment/metric claim until a separate verify step.
+    if existing:
+        report = StringIO()
+        try:
+            with redirect_stdout(report):
+                command_verify(argparse.Namespace(root=str(root)))
+        except SystemExit as error:
+            detail = report.getvalue().splitlines()
+            reason = detail[0] if detail else str(error)
+            fail(f"cherry_picking_forbidden: existing ledger inadmissible: {reason}")
     label, ordinal = run_id.rsplit("-R", 1)
     next_ordinal = 1 + sum(
         row["run_id"].rsplit("-R", 1)[0] == label for row in existing
