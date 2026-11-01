@@ -758,7 +758,7 @@ class MatrixToolTests(unittest.TestCase):
             raw_dir = root / "raw"
             raw_dir.mkdir()
             raw = raw_dir / "M13-office-R001.samples.jsonl"
-            raw.write_text("not a JSONL observation\\n", encoding="utf-8")
+            raw.write_text("not a JSONL observation\n", encoding="utf-8")
             env = root / "env.json"
             env.write_text(json.dumps(ENVIRONMENT), encoding="utf-8")
             metrics = root / "metrics.json"
@@ -775,11 +775,11 @@ class MatrixToolTests(unittest.TestCase):
     def test_forged_hash_cannot_validate_non_jsonl_samples(self):
         # Even matching SHA-256/byte counts cannot authenticate bad JSONL.
         for payload, reason in (
-            (b"[]\\n", "invalid JSONL sample object"),
-            (b"{}\\n", "invalid JSONL sample object"),
-            (b'{"latency_ms": NaN}\\n', "invalid JSONL sample object"),
-            (b'{"latency_ms": 1e999}\\n', "invalid JSONL sample object"),
-            (b'{"i": 1}\\n\\n', "blank JSONL sample line"),
+            (b"[]\n", "invalid JSONL sample object"),
+            (b"{}\n", "invalid JSONL sample object"),
+            (b'{"latency_ms": NaN}\n', "invalid JSONL sample object"),
+            (b'{"latency_ms": 1e999}\n', "invalid JSONL sample object"),
+            (b'{"i": 1}\n\n', "blank JSONL sample line"),
         ):
             with self.subTest(payload=payload), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
@@ -793,7 +793,7 @@ class MatrixToolTests(unittest.TestCase):
                 entries[0]["raw_sha256"] = hashlib.sha256(payload).hexdigest()
                 entries[0]["raw_bytes"] = len(payload)
                 ledger.write_text(
-                    "".join(json.dumps(entry) + "\\n" for entry in entries),
+                    "".join(json.dumps(entry) + "\n" for entry in entries),
                     encoding="utf-8",
                 )
                 for args in (
@@ -812,16 +812,16 @@ class MatrixToolTests(unittest.TestCase):
             self.init_ledger(root)
             self.make_run(root, "M13-office-R001")
             first = root / "raw" / "M13-office-R001.samples.jsonl"
-            payload = b"not-json\\n"
+            payload = b"not-json\n"
             first.write_bytes(payload)
             ledger = root / "ledger.jsonl"
             entry = json.loads(ledger.read_text())
             entry["raw_sha256"] = hashlib.sha256(payload).hexdigest()
             entry["raw_bytes"] = len(payload)
-            ledger.write_text(json.dumps(entry) + "\\n", encoding="utf-8")
+            ledger.write_text(json.dumps(entry) + "\n", encoding="utf-8")
             before = ledger.read_bytes()
             next_raw = root / "raw" / "M13-office-R002.samples.jsonl"
-            next_raw.write_text('{"i": 1}\\n', encoding="utf-8")
+            next_raw.write_text('{"i": 1}\n', encoding="utf-8")
             result = self.run_tool(
                 "record", "--root", str(root), "--run-id", "M13-office-R002",
                 "--raw", str(next_raw),
