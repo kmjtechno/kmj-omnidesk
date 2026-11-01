@@ -78,7 +78,17 @@ def checksum_relative_name(relative: Path) -> str:
     Reject control characters too, rather than producing non-portable evidence.
     """
     name = relative.as_posix()
-    if any(ord(char) < 32 or ord(char) == 127 or char == "\\" for char in name):
+    # Unicode format controls, C1 controls and non-ASCII whitespace can
+    # conceal path components or render differently across evidence viewers.
+    # Keep visible Unicode names (and NFC collision checking) supported.
+    if any(
+        ord(char) < 32
+        or ord(char) == 127
+        or char == "\\"
+        or unicodedata.category(char).startswith("C")
+        or (char.isspace() and char != " ")
+        for char in name
+    ):
         fail("non-portable checksum path forbidden")
     return name
 
