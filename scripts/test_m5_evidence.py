@@ -827,6 +827,65 @@ class TestLedgerPathSafety(Fixture):
         self.assertEqual(list(external.iterdir()), [])
 
 
+class TestUnsharedEvidenceFiles(Fixture):
+    """A hardlink must not import externally mutable evidence."""
+
+    def link_or_skip(self, source: Path, destination: Path) -> None:
+        import os
+        try:
+            os.link(source, destination)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"hardlinks unavailable: {error}")
+
+    def test_read_ledger_refuses_external_hardlink(self) -> None:
+        ledger = self.root / "ledger.jsonl"
+        external = Path(self.directory.name) / "external-ledger.jsonl"
+        external.write_bytes(b'{"run_id":"M5-OTHER-R001"}\n')
+        before = external.read_bytes()
+        ledger.unlink()
+        self.link_or_skip(external, ledger)
+        with self.assertRaises(SystemExit) as caught:
+            m5.read_ledger(self.root)
+        self.assertIn("unshared regular file", str(caught.exception))
+        self.assertEqual(external.read_bytes(), before)
+
+    def test_record_refuses_hardlinked_ledger_before_copy(self) -> None:
+        import argparse
+        ledger = self.root / "ledger.jsonl"
+        external = Path(self.directory.name) / "external-ledger.jsonl"
+        external.write_bytes(b"owner external bytes\n")
+        before = external.read_bytes()
+        ledger.unlink()
+        self.link_or_skip(external, ledger)
+        source = self.raw("source")
+        args = argparse.Namespace(
+            root=str(self.root), run_id="M5-NEW-R001",
+            evidence_class="code_observed", raw=source, gate=[DECRYPT],
+            environment=None, test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None, unauthorized_outcome=None,
+        )
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_record(args)
+        self.assertIn("unsafe evidence ledger", str(caught.exception))
+        self.assertFalse((self.root / "raw" / "M5-NEW-R001.json").exists())
+        self.assertEqual(external.read_bytes(), before)
+
+    def test_hardlinked_raw_file_cannot_establish_transport_gate(self) -> None:
+        entry = self.transport_run()
+        self.append(entry)
+        raw = self.root / "raw" / entry["raw_path"]
+        outside = Path(self.directory.name) / "external-observation.json"
+        self.link_or_skip(raw, outside)
+        before = raw.read_bytes()
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertFalse(report["m5_satisfied"])
+        self.assertTrue(any("unshared regular file" in p for p in report["problems"]))
+        self.assertEqual(raw.read_bytes(), before)
+        self.assertEqual(outside.read_bytes(), before)
+
+
 class TestRecording(Fixture):
     def test_a_duplicate_run_id_is_refused(self) -> None:
         """Mutation: drop the duplicate-run_id refusal."""
