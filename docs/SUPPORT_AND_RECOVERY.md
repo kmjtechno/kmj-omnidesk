@@ -119,6 +119,15 @@ If an update results in a regression or crash-loop:
   2. Revoke stale activations from decommissioned devices.
   3. Upgrade tenant plan seat capacity if needed.
 
+### 5.1 Verification Boundary: Mock-Signer E2E vs Production Support
+- **Automated Integration Tests (`licensing_lifecycle_e2e.rs`)**:
+  - Run entirely offline with deterministic ephemeral Ed25519 mock keys.
+  - Prove protocol wire formats, proof-of-possession binding, and client fail-closed rules.
+  - Do NOT verify that live production KMS/HSM signing infrastructure is online.
+- **Production Support Invariant**:
+  - Real customer entitlements must be signed by the live KMJ Main Platform authority.
+  - For customer reports of `InvalidSignature` or `UnknownOrRevokedKey`, first inspect the live discovery endpoint (`https://kmjtechno.com/licensing/v1/keys`) for key rotation before replacing client installations.
+
 ---
 
 ## 6. Uninstaller Residue and State Cleanup
@@ -129,10 +138,29 @@ Upon uninstalling KMJ OmniDesk:
 - **Shortcuts**: Start Menu and Desktop shortcuts removed.
 - **State Files**:
   - By default, cached identity and leases remain to preserve device binding across upgrades.
-  - For full clean de-provisioning (e.g. employee off-boarding or device repurposing):
+  - For full clean de-provisioning (e.g. employee off-boarding or device repurposing), use the guarded cleanup function below to prevent accidental deletion of unrelated user state:
     ```powershell
-    Remove-Item -Path "$env:LOCALAPPDATA\KMJ-OmniDesk" -Recurse -Force
-    Remove-Item -Path "$env:APPDATA\KMJ-OmniDesk" -Recurse -Force -ErrorAction SilentlyContinue
+    # Guarded de-provisioning script: verifies target paths and prevents path traversal
+    function Remove-OmniDeskStateSafely {
+        [CmdletBinding(SupportsShouldProcess)]
+        param([switch]$Force)
+
+        $targets = @(
+            "$env:LOCALAPPDATA\KMJ-OmniDesk",
+            "$env:APPDATA\KMJ-OmniDesk"
+        )
+        foreach ($target in $targets) {
+            # Safety check: enforce exact directory tail match to prevent root/drive wipe
+            if ((Test-Path $target) -and ($target -match "KMJ-OmniDesk$")) {
+                if ($Force -or $PSCmdlet.ShouldProcess($target, "Permanently remove state directory")) {
+                    Remove-Item -Path $target -Recurse -Force
+                    Write-Host "Safely removed: $target" -ForegroundColor Green
+                }
+            } else {
+                Write-Host "Target does not exist or failed safety check: $target" -ForegroundColor Yellow
+            }
+        }
+    }
     ```
 
 ---
