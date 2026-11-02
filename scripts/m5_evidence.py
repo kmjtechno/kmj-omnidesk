@@ -182,7 +182,7 @@ def sha256_unshared_evidence_file(path: Path) -> tuple[str, int]:
     after streaming. This is defense in depth, not a Windows race-proof
     filesystem sandbox.
     """
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
     try:
         descriptor = os.open(path, flags)
     except OSError as error:
@@ -349,7 +349,7 @@ def read_ledger(root: Path) -> list[dict]:
         fail(f"evidence ledger is not an unshared regular file: {path}")
     # Open the ledger by descriptor, not by path after the preflight: a
     # replacement symlink/hardlink must not import unrelated evidence.
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
     try:
         descriptor = os.open(path, flags)
     except OSError:
