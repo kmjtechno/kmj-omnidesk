@@ -296,6 +296,54 @@ class EvidenceToolTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("non-regular evidence path", result.stderr)
 
+    def test_windows_reparse_tagged_paths_fail_closed_without_evidence_writes(self):
+        """Unknown reparse tags must be rejected, not only symlinks/junctions."""
+        import argparse
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            runs = root / "runs"
+            run = runs / "M4-T1-R01"
+            run.mkdir(parents=True)
+            artifact = run / "events.jsonl"
+            artifact.write_bytes(b"owner observation\\n")
+            original = artifact.read_bytes()
+            original_lstat = Path.lstat
+            tagged = root
+
+            def simulated_windows_lstat(path, *args, **kwargs):
+                metadata = original_lstat(path, *args, **kwargs)
+                if path == tagged:
+                    return SimpleNamespace(
+                        st_mode=metadata.st_mode,
+                        st_file_attributes=0x400,
+                    )
+                return metadata
+
+            # Simulate a Windows reparse point that is not a recognized
+            # symlink/junction, including on Linux CI hosts.
+            with patch.object(m4.stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400, create=True):
+                with patch.object(Path, "lstat", simulated_windows_lstat):
+                    with self.assertRaises(SystemExit) as failure:
+                        m4.checked_evidence_root(str(root))
+                    self.assertIn("symlinked evidence root path", str(failure.exception))
+
+                    tagged = runs
+                    with self.assertRaises(SystemExit) as failure:
+                        m4.command_prepare_run(argparse.Namespace(
+                            root=str(root), run_id="M4-T1-R02"
+                        ))
+                    self.assertIn("redirected runs directory", str(failure.exception))
+
+                    tagged = run
+                    with self.assertRaises(SystemExit) as failure:
+                        m4.safe_relative(root, artifact)
+                    self.assertIn("redirected artifact path", str(failure.exception))
+
+            self.assertEqual(artifact.read_bytes(), original)
+            self.assertFalse((runs / "M4-T1-R02").exists())
+
     def test_symlinked_package_root_rejected_for_all_commands(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
