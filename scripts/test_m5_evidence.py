@@ -827,6 +827,372 @@ class TestLedgerPathSafety(Fixture):
         self.assertEqual(list(external.iterdir()), [])
 
 
+class TestUnsharedEvidenceFiles(Fixture):
+    """A hardlink must not import externally mutable evidence."""
+
+    def link_or_skip(self, source: Path, destination: Path) -> None:
+        import os
+        try:
+            os.link(source, destination)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"hardlinks unavailable: {error}")
+
+    @unittest.skipUnless(
+        hasattr(__import__("os"), "mkfifo")
+        and hasattr(__import__("os"), "O_NONBLOCK"),
+        "POSIX FIFO and nonblocking open required",
+    )
+    def test_raw_fifo_substitution_does_not_hang(self) -> None:
+        """A swapped FIFO must be refused before a blocking read."""
+        import os
+        import subprocess
+        import sys
+
+        fifo = Path(self.directory.name) / "substituted-raw.fifo"
+        try:
+            os.mkfifo(fifo)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"FIFO unavailable: {error}")
+        code = (
+            "import sys; from pathlib import Path; "
+            "sys.path.insert(0, sys.argv[1]); import m5_evidence as m5; "
+            "m5.sha256_unshared_evidence_file(Path(sys.argv[2]))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(ROOT / "scripts"), str(fifo)],
+            text=True, capture_output=True, check=False, timeout=5,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unshared opened regular file", result.stderr)
+
+    @unittest.skipUnless(
+        hasattr(__import__("os"), "mkfifo")
+        and hasattr(__import__("os"), "O_NONBLOCK"),
+        "POSIX FIFO and nonblocking open required",
+    )
+    def test_ledger_fifo_swap_after_preflight_does_not_hang(self) -> None:
+        """An attacker-swapped ledger FIFO must not stall verification."""
+        import os
+        import subprocess
+        import sys
+
+        ledger = self.root / "ledger.jsonl"
+        code = """
+import os
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import m5_evidence as m5
+ledger = Path(sys.argv[2])
+original = m5.unshared_regular_evidence_file
+def swap(path):
+    accepted = original(path)
+    if accepted:
+        path.unlink()
+        os.mkfifo(path)
+    return accepted
+m5.unshared_regular_evidence_file = swap
+m5.read_ledger(ledger.parent)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(ROOT / "scripts"), str(ledger)],
+            text=True, capture_output=True, check=False, timeout=5,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not an unshared regular file", result.stderr)
+        self.assertTrue(ledger.exists())
+        self.assertEqual(os.stat(ledger).st_mode & 0o170000, 0o010000)  # POSIX FIFO
+
+    def test_ledger_ctime_only_change_during_read_is_refused(self) -> None:
+        """Even an unchanged size/mtime cannot excuse changed ledger metadata."""
+        import os
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        self.append(self.code_run())
+        original_fstat = os.fstat
+        calls = 0
+
+        def changed_ctime(descriptor):
+            nonlocal calls
+            metadata = original_fstat(descriptor)
+            calls += 1
+            if calls != 2:
+                return metadata
+            return SimpleNamespace(
+                st_mode=metadata.st_mode, st_nlink=metadata.st_nlink,
+                st_dev=metadata.st_dev, st_ino=metadata.st_ino,
+                st_size=metadata.st_size, st_mtime_ns=metadata.st_mtime_ns,
+                st_ctime_ns=metadata.st_ctime_ns + 1,
+                st_file_attributes=getattr(metadata, "st_file_attributes", 0),
+            )
+
+        with patch.object(m5.os, "fstat", side_effect=changed_ctime):
+            with self.assertRaises(SystemExit) as refusal:
+                m5.read_ledger(self.root)
+        self.assertEqual(calls, 2)
+        self.assertIn("changed while reading", str(refusal.exception))
+
+    def test_ledger_short_descriptor_read_is_refused(self) -> None:
+        """A short read must not silently accept a complete-looking JSON line."""
+        import os
+        from unittest.mock import patch
+
+        entry = self.code_run()
+        self.append(entry)
+        original_bytes = (self.root / "ledger.jsonl").read_bytes()
+        self.assertTrue(original_bytes.endswith(b"\n"))
+        real_fdopen = os.fdopen
+
+        class ShortRead:
+            def __init__(self, handle):
+                self.handle = handle
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.handle.close()
+
+            def fileno(self):
+                return self.handle.fileno()
+
+            def read(self, limit=-1):
+                return self.handle.read(limit)[:-1]
+
+        def truncate_descriptor_read(descriptor, mode):
+            return ShortRead(real_fdopen(descriptor, mode))
+
+        with patch.object(m5.os, "fdopen", side_effect=truncate_descriptor_read):
+            with self.assertRaises(SystemExit) as refusal:
+                m5.read_ledger(self.root)
+        self.assertIn("changed while reading", str(refusal.exception))
+        self.assertEqual((self.root / "ledger.jsonl").read_bytes(), original_bytes)
+
+    def test_read_ledger_refuses_external_hardlink(self) -> None:
+        ledger = self.root / "ledger.jsonl"
+        external = Path(self.directory.name) / "external-ledger.jsonl"
+        external.write_bytes(b'{"run_id":"M5-OTHER-R001"}\n')
+        before = external.read_bytes()
+        ledger.unlink()
+        self.link_or_skip(external, ledger)
+        with self.assertRaises(SystemExit) as caught:
+            m5.read_ledger(self.root)
+        self.assertIn("unshared regular file", str(caught.exception))
+        self.assertEqual(external.read_bytes(), before)
+
+    def test_record_refuses_hardlinked_ledger_before_copy(self) -> None:
+        import argparse
+        ledger = self.root / "ledger.jsonl"
+        external = Path(self.directory.name) / "external-ledger.jsonl"
+        external.write_bytes(b"owner external bytes\n")
+        before = external.read_bytes()
+        ledger.unlink()
+        self.link_or_skip(external, ledger)
+        source = self.raw("source")
+        args = argparse.Namespace(
+            root=str(self.root), run_id="M5-NEW-R001",
+            evidence_class="code_observed", raw=source, gate=[DECRYPT],
+            environment=None, test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None, unauthorized_outcome=None,
+        )
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_record(args)
+        self.assertIn("unsafe evidence ledger", str(caught.exception))
+        self.assertFalse((self.root / "raw" / "M5-NEW-R001.json").exists())
+        self.assertEqual(external.read_bytes(), before)
+
+    def test_hardlinked_raw_file_cannot_establish_transport_gate(self) -> None:
+        entry = self.transport_run()
+        self.append(entry)
+        raw = self.root / "raw" / entry["raw_path"]
+        outside = Path(self.directory.name) / "external-observation.json"
+        self.link_or_skip(raw, outside)
+        before = raw.read_bytes()
+        report = self.report()
+        self.assertEqual(report["gates"][CONF]["status"], "unmet")
+        self.assertFalse(report["m5_satisfied"])
+        self.assertTrue(any("unshared regular file" in p for p in report["problems"]))
+        self.assertEqual(raw.read_bytes(), before)
+        self.assertEqual(outside.read_bytes(), before)
+
+
+    def test_ledger_symlink_swap_after_preflight_is_refused(self) -> None:
+        """A path swapped after the initial stat must not import outside bytes."""
+        from unittest.mock import patch
+
+        ledger = self.root / "ledger.jsonl"
+        external = Path(self.directory.name) / "external-ledger.jsonl"
+        external.write_bytes(b'{"run_id":"M5-OTHER-R001"}\n')
+        before = external.read_bytes()
+        probe = Path(self.directory.name) / "symlink-probe"
+        try:
+            probe.symlink_to(external)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        probe.unlink()
+
+        original = m5.unshared_regular_evidence_file
+
+        def swap_after_check(path: Path) -> bool:
+            accepted = original(path)
+            ledger.unlink()
+            ledger.symlink_to(external)
+            return accepted
+
+        with patch.object(m5, "unshared_regular_evidence_file", side_effect=swap_after_check):
+            with self.assertRaises(SystemExit) as refusal:
+                m5.read_ledger(self.root)
+        self.assertIn("evidence ledger", str(refusal.exception))
+        self.assertEqual(external.read_bytes(), before)
+
+    def test_ledger_hardlink_swap_after_preflight_is_refused(self) -> None:
+        """The descriptor itself must be checked for an external hardlink."""
+        from unittest.mock import patch
+
+        ledger = self.root / "ledger.jsonl"
+        external = Path(self.directory.name) / "external-ledger.jsonl"
+        external.write_bytes(b'{"run_id":"M5-OTHER-R001"}\n')
+        before = external.read_bytes()
+        probe = Path(self.directory.name) / "hardlink-probe"
+        self.link_or_skip(external, probe)
+        probe.unlink()
+
+        original = m5.unshared_regular_evidence_file
+
+        def swap_after_check(path: Path) -> bool:
+            accepted = original(path)
+            ledger.unlink()
+            self.link_or_skip(external, ledger)
+            return accepted
+
+        with patch.object(m5, "unshared_regular_evidence_file", side_effect=swap_after_check):
+            with self.assertRaises(SystemExit) as refusal:
+                m5.read_ledger(self.root)
+        self.assertIn("unshared regular file", str(refusal.exception))
+        self.assertEqual(external.read_bytes(), before)
+
+
+    def test_raw_symlink_swap_after_preflight_is_refused(self) -> None:
+        """An external file with identical bytes is not valid relay evidence."""
+        from unittest.mock import patch
+
+        entry = self.transport_run()
+        raw = self.root / "raw" / entry["raw_path"]
+        outside = Path(self.directory.name) / "external-raw.json"
+        outside.write_bytes(raw.read_bytes())
+        probe = Path(self.directory.name) / "symlink-probe"
+        try:
+            probe.symlink_to(outside)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        probe.unlink()
+        original = m5.unshared_regular_evidence_file
+
+        def swap_after_check(path: Path) -> bool:
+            accepted = original(path)
+            if path == raw:
+                raw.unlink()
+                raw.symlink_to(outside)
+            return accepted
+
+        with patch.object(m5, "unshared_regular_evidence_file", side_effect=swap_after_check):
+            problems = m5.entry_problems(entry, entry["run_id"], self.root / "raw")
+        self.assertTrue(problems)
+        self.assertTrue(any("safely hashed" in problem for problem in problems))
+        self.assertEqual(outside.read_bytes(), b'{"observed": true}')
+
+    def test_raw_hardlink_swap_after_preflight_is_refused(self) -> None:
+        """Matching digest cannot make an externally linked raw file admissible."""
+        from unittest.mock import patch
+
+        entry = self.transport_run()
+        raw = self.root / "raw" / entry["raw_path"]
+        outside = Path(self.directory.name) / "external-raw.json"
+        outside.write_bytes(raw.read_bytes())
+        probe = Path(self.directory.name) / "hardlink-probe"
+        self.link_or_skip(outside, probe)
+        probe.unlink()
+        original = m5.unshared_regular_evidence_file
+
+        def swap_after_check(path: Path) -> bool:
+            accepted = original(path)
+            if path == raw:
+                raw.unlink()
+                self.link_or_skip(outside, raw)
+            return accepted
+
+        with patch.object(m5, "unshared_regular_evidence_file", side_effect=swap_after_check):
+            problems = m5.entry_problems(entry, entry["run_id"], self.root / "raw")
+        self.assertTrue(problems)
+        self.assertTrue(any("safely hashed" in problem for problem in problems))
+        self.assertEqual(outside.read_bytes(), b'{"observed": true}')
+
+
+    def test_record_rejects_retargeted_append_descriptor(self) -> None:
+        """A Windows-style no-O_NOFOLLOW open must not append outside bytes."""
+        import argparse
+        import os
+        from unittest.mock import patch
+
+        ledger = self.root / "ledger.jsonl"
+        outside = Path(self.directory.name) / "outside-ledger.jsonl"
+        outside.write_bytes(b"protected outside bytes\\n")
+        original = outside.read_bytes()
+        source = self.raw("source")
+        args = argparse.Namespace(
+            root=str(self.root), run_id="M5-NEW-R001",
+            evidence_class="code_observed", raw=source, gate=[DECRYPT],
+            environment=None, test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None,
+            unauthorized_outcome=None,
+        )
+        real_open = os.open
+
+        def retarget_append(path, flags, *open_args, **open_kwargs):
+            if Path(path) == ledger and flags & os.O_APPEND:
+                # Simulate a symlink substitution on a platform where
+                # O_NOFOLLOW is unavailable. The preflight saw ledger.
+                return real_open(
+                    outside, flags & ~getattr(os, "O_NOFOLLOW", 0),
+                    *open_args, **open_kwargs,
+                )
+            return real_open(path, flags, *open_args, **open_kwargs)
+
+        with patch.object(m5.os, "open", side_effect=retarget_append):
+            with self.assertRaises(SystemExit) as refusal:
+                m5.command_record(args)
+        self.assertIn("expected unshared regular file", str(refusal.exception))
+        self.assertEqual(outside.read_bytes(), original)
+        self.assertEqual(ledger.read_bytes(), b"")
+
+
+
+
+class TestBoundedEvidenceReads(Fixture):
+    """Release evidence must not consume unbounded memory from forged files."""
+
+    def test_oversized_sparse_ledger_is_rejected_without_mutation(self) -> None:
+        ledger = self.root / "ledger.jsonl"
+        with ledger.open("wb") as handle:
+            handle.truncate(m5.MAX_LEDGER_BYTES + 1)
+        before = ledger.stat().st_size
+        with self.assertRaises(SystemExit) as caught:
+            m5.read_ledger(self.root)
+        self.assertIn("byte limit", str(caught.exception))
+        self.assertEqual(ledger.stat().st_size, before)
+
+    def test_oversized_sparse_metadata_is_refused_without_mutation(self) -> None:
+        metadata = self.root / "environment.json"
+        with metadata.open("wb") as handle:
+            handle.truncate(m5.MAX_METADATA_BYTES + 1)
+        before = metadata.stat().st_size
+        self.assertIsNone(m5.load_json(metadata, "environment metadata"))
+        self.assertEqual(metadata.stat().st_size, before)
+
+
 class TestRecording(Fixture):
     def test_a_duplicate_run_id_is_refused(self) -> None:
         """Mutation: drop the duplicate-run_id refusal."""
@@ -1052,6 +1418,29 @@ class TestRecording(Fixture):
         self.assertIsNone(m5.entry_class_errors(entries[0], "M5-CODE-R001"))
 
 
+class TestNestedJsonEvidence(Fixture):
+    """Deeply nested JSON is invalid evidence, not an uncaught traceback."""
+
+    @staticmethod
+    def nested_json() -> str:
+        # Under the byte cap, but deeper than the JSON parser's safe limit.
+        return '{"nested":' + "[" * 10000 + "0" + "]" * 10000 + "}"
+
+    def test_deeply_nested_ledger_fails_closed(self) -> None:
+        ledger = self.root / "ledger.jsonl"
+        ledger.write_text(self.nested_json() + "\n", encoding="utf-8")
+        with self.assertRaises(SystemExit) as refusal:
+            m5.read_ledger(self.root)
+        self.assertIn("corrupt ledger line", str(refusal.exception))
+        self.assertIn("nesting", str(refusal.exception))
+
+    def test_deeply_nested_metadata_is_unreadable(self) -> None:
+        metadata = self.root / "environment.json"
+        metadata.write_text(self.nested_json(), encoding="utf-8")
+        self.assertIsNone(m5.load_json(metadata, "environment metadata"))
+        self.assertEqual(m5.read_ledger(self.root), [])
+
+
 class TestUnreadableOptionalDocument(Fixture):
     """A file named but unreadable is not the same as a file not named.
 
@@ -1137,6 +1526,54 @@ class TestUnreadableOptionalDocument(Fixture):
                     self.assertIn("could not read", str(caught.exception))
                     self.assertEqual(m5.read_ledger(self.root), [])
                     self.assertFalse((self.root / "raw" / "M5-LINK-R001.json").exists())
+
+    @unittest.skipUnless(
+        hasattr(__import__("os"), "mkfifo")
+        and hasattr(__import__("os"), "O_NONBLOCK"),
+        "POSIX FIFO and nonblocking open required",
+    )
+    def test_optional_json_fifo_refused_without_hanging(self) -> None:
+        """A named metadata FIFO must not block before its type is checked."""
+        import os
+        import subprocess
+        import sys
+
+        fifo = self.root / "environment.fifo"
+        try:
+            os.mkfifo(fifo)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"FIFO unavailable: {error}")
+        code = (
+            "import sys; sys.path.insert(0, sys.argv[1]); "
+            "import m5_evidence as m5; "
+            "m5.load_json_or_empty(sys.argv[2], 'environment metadata')"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(ROOT / "scripts"), str(fifo)],
+            text=True, capture_output=True, check=False, timeout=5,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not read environment metadata", result.stderr)
+        self.assertEqual(m5.read_ledger(self.root), [])
+
+    def test_optional_json_hardlink_refused_without_recording(self) -> None:
+        """An externally shared JSON file must not supply release metadata."""
+        import os
+
+        external = Path(self.directory.name) / "outside-environment.json"
+        external.write_text('{"network":"external"}', encoding="utf-8")
+        linked = self.root / "environment.json"
+        try:
+            os.link(external, linked)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"hardlinks unavailable: {error}")
+        before = external.read_bytes()
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_record(self.args_for(environment=str(linked)))
+        self.assertIn("could not read environment metadata", str(caught.exception))
+        self.assertEqual(external.read_bytes(), before)
+        self.assertEqual(m5.read_ledger(self.root), [])
+        self.assertFalse((self.root / "raw" / "M5-LINK-R001.json").exists())
 
     def test_a_readable_impairment_description_is_recorded_verbatim(self) -> None:
         """The complement of the refusal above.
