@@ -1424,7 +1424,7 @@ class TestNestedJsonEvidence(Fixture):
     @staticmethod
     def nested_json() -> str:
         # Under the byte cap, but deeper than the JSON parser's safe limit.
-        return '{"nested":' + "[" * 5000 + "0" + "]" * 5000 + "}"
+        return '{"nested":' + "[" * 10000 + "0" + "]" * 10000 + "}"
 
     def test_deeply_nested_ledger_fails_closed(self) -> None:
         ledger = self.root / "ledger.jsonl"
