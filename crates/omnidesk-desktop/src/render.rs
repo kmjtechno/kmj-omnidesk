@@ -561,7 +561,7 @@ fn draw_controls(
         // "UNAVAILABLE", which collided with the label on narrow windows.
         let trailing = if is_online {
             format!("[{}]", control.keyboard_key.to_ascii_uppercase())
-        } else if matches!(control.action, crate::DesktopAction::ConnectDevice(_)) {
+        } else if matches!(control.action, crate::DesktopAction::ConnectDevice(_, _)) {
             "OFFLINE".to_owned()
         } else {
             "UNAVAILABLE".to_owned()
