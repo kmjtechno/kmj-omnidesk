@@ -1016,7 +1016,7 @@ fn draw_locked_secondary_tab(
             "Automations run on paired host devices",
         ),
         omnidesk_core::product_shell::NavTab::Security => {
-            ("Security status", "WireGuard / Noise protocol: Ready")
+            ("Security status", "Transport security not verified")
         }
         omnidesk_core::product_shell::NavTab::Settings => {
             ("Settings view", "Default display quality: Balanced")
@@ -1156,7 +1156,7 @@ fn draw_locked_remote_view(
             screen.x + 22,
             screen.y + 123,
             screen.width - 44,
-            "Click any navigation tab or HELP to close",
+            "Click HELP again to close",
             p.accent,
         );
     } else {
