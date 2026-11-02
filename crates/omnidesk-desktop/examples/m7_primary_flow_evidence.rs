@@ -44,9 +44,10 @@ fn main() {
     ]);
 
     assert_eq!(shell.primary_view(), PrimaryView::Devices);
+    let directory_revision = shell.device_revision();
     assert_eq!(
         click_first_enabled(&mut shell),
-        DesktopAction::ConnectDevice(0)
+        DesktopAction::ConnectDevice(0, directory_revision)
     );
     assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
 
