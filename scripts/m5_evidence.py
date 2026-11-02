@@ -417,8 +417,42 @@ def load_json(path: Path, label: str) -> dict | None:
     The same reasoning is recorded in `release_gate.py`; both tools learned it
     from the same failure.
     """
+    # Metadata files are operator-provided but still release evidence. A FIFO
+    # substituted for an ordinary JSON file must not hang the recorder, and a
+    # retargeted path must not silently import another file's metadata.
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
     try:
-        parsed = strict_json_loads(path.read_text(encoding="utf-8"))
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as handle:
+            before = os.fstat(handle.fileno())
+            linked = path.lstat()
+            reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_nlink != 1
+                or not stat.S_ISREG(linked.st_mode)
+                or linked.st_nlink != 1
+                or (before.st_dev, before.st_ino) != (linked.st_dev, linked.st_ino)
+                or (getattr(before, "st_file_attributes", 0) & reparse)
+                or (getattr(linked, "st_file_attributes", 0) & reparse)
+            ):
+                return None
+            content = handle.read()
+            after = os.fstat(handle.fileno())
+            linked_after = path.lstat()
+            if (
+                (after.st_dev, after.st_ino) != (linked_after.st_dev, linked_after.st_ino)
+                or (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+                != (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+                or after.st_nlink != 1
+                or linked_after.st_nlink != 1
+                or (getattr(after, "st_file_attributes", 0) & reparse)
+                or (getattr(linked_after, "st_file_attributes", 0) & reparse)
+                or len(content) != after.st_size
+            ):
+                return None
+        parsed = strict_json_loads(content.decode("utf-8"))
     except (OSError, ValueError, UnicodeError):
         return None
     if not isinstance(parsed, dict):
