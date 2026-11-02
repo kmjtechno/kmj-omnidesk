@@ -506,7 +506,8 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
                 || shell.primary_view() != PrimaryView::Devices
                 || shell.nav_tab() != NavTab::Devices
                 || !controls_for_shell(shell).iter().any(|control| {
-                    control.enabled && control.action == DesktopAction::ConnectDevice(index, revision)
+                    control.enabled
+                        && control.action == DesktopAction::ConnectDevice(index, revision)
                 })
             {
                 return;
@@ -902,7 +903,10 @@ mod tests {
         ]);
 
         let controls = controls_for_shell(&shell);
-        assert_eq!(controls[0].action, DesktopAction::ConnectDevice(0, shell.device_revision()));
+        assert_eq!(
+            controls[0].action,
+            DesktopAction::ConnectDevice(0, shell.device_revision())
+        );
         assert!(controls[0].enabled);
         assert!(!controls[1].enabled);
 
@@ -1016,7 +1020,10 @@ mod tests {
             first.x + first.width / 2,
             first.y + first.height / 2,
         );
-        assert_eq!(connect, Some(DesktopAction::ConnectDevice(0, shell.device_revision())));
+        assert_eq!(
+            connect,
+            Some(DesktopAction::ConnectDevice(0, shell.device_revision()))
+        );
         apply_action(&mut shell, connect.unwrap());
         assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
 
@@ -1066,12 +1073,18 @@ mod tests {
         shell.set_device_filter(DeviceFilter::Online);
         let online = controls_for_shell(&shell);
         assert_eq!(online.len(), 1);
-        assert_eq!(online[0].action, DesktopAction::ConnectDevice(1, shell.device_revision()));
+        assert_eq!(
+            online[0].action,
+            DesktopAction::ConnectDevice(1, shell.device_revision())
+        );
         assert!(online[0].enabled);
 
         let rect = control_rects_for(&presentation_for(&shell), 1419, 611)[0];
         let action = action_at_point(&shell, 1419, 611, rect.x + 12, rect.y + 12);
-        assert_eq!(action, Some(DesktopAction::ConnectDevice(1, shell.device_revision())));
+        assert_eq!(
+            action,
+            Some(DesktopAction::ConnectDevice(1, shell.device_revision()))
+        );
         apply_action(&mut shell, action.unwrap());
         assert_eq!(shell.selected_device(), Some("online-second"));
 
@@ -1079,7 +1092,10 @@ mod tests {
         shell.set_device_filter(DeviceFilter::Offline);
         let offline = controls_for_shell(&shell);
         assert_eq!(offline.len(), 1);
-        assert_eq!(offline[0].action, DesktopAction::ConnectDevice(0, shell.device_revision()));
+        assert_eq!(
+            offline[0].action,
+            DesktopAction::ConnectDevice(0, shell.device_revision())
+        );
         assert!(!offline[0].enabled);
     }
 
