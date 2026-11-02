@@ -901,7 +901,7 @@ m5.read_ledger(ledger.parent)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not an unshared regular file", result.stderr)
         self.assertTrue(ledger.exists())
-        self.assertTrue(os.stat(ledger).st_mode)
+        self.assertEqual(os.stat(ledger).st_mode & 0o170000, 0o010000)  # POSIX FIFO
 
     def test_read_ledger_refuses_external_hardlink(self) -> None:
         ledger = self.root / "ledger.jsonl"
