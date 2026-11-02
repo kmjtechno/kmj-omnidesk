@@ -7,10 +7,26 @@ $ErrorActionPreference = 'Stop'
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $worktreeRoot = (Resolve-Path (Join-Path $scriptDir "..")).Path
-$resolvedOutputDir = [System.IO.Path]::GetFullPath((Join-Path $worktreeRoot $OutputDir))
-if (-not (Test-Path $resolvedOutputDir)) {
-    [System.IO.Directory]::CreateDirectory($resolvedOutputDir) | Out-Null
+# Each QA invocation gets a new evidence directory. Never overwrite a
+# previous screenshot or owner-authored receipt in the checkout.
+$baseOutputDir = [System.IO.Path]::GetFullPath((Join-Path $worktreeRoot $OutputDir))
+$rootPrefix = $worktreeRoot.TrimEnd('\\', '/') + [System.IO.Path]::DirectorySeparatorChar
+if (-not $baseOutputDir.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "QA output must remain under the project root"
 }
+$walk = $baseOutputDir
+while ($walk.Length -ge $worktreeRoot.Length -and $walk -ne $worktreeRoot) {
+    if (Test-Path -LiteralPath $walk) {
+        $item = Get-Item -LiteralPath $walk -Force
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            throw "QA output directory traverses a symlink/junction"
+        }
+    }
+    $walk = Split-Path -Parent $walk
+}
+$resolvedOutputDir = Join-Path $baseOutputDir ("run-" + [Guid]::NewGuid().ToString("N"))
+if (Test-Path -LiteralPath $resolvedOutputDir) { throw "QA run directory already exists" }
+[System.IO.Directory]::CreateDirectory($resolvedOutputDir) | Out-Null
 
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
