@@ -957,8 +957,8 @@ m5.read_ledger(ledger.parent)
             def fileno(self):
                 return self.handle.fileno()
 
-            def read(self):
-                return self.handle.read()[:-1]
+            def read(self, limit=-1):
+                return self.handle.read(limit)[:-1]
 
         def truncate_descriptor_read(descriptor, mode):
             return ShortRead(real_fdopen(descriptor, mode))
@@ -1168,6 +1168,29 @@ m5.read_ledger(ledger.parent)
         self.assertEqual(outside.read_bytes(), original)
         self.assertEqual(ledger.read_bytes(), b"")
 
+
+
+
+class TestBoundedEvidenceReads(Fixture):
+    """Release evidence must not consume unbounded memory from forged files."""
+
+    def test_oversized_sparse_ledger_is_rejected_without_mutation(self) -> None:
+        ledger = self.root / "ledger.jsonl"
+        with ledger.open("wb") as handle:
+            handle.truncate(m5.MAX_LEDGER_BYTES + 1)
+        before = ledger.stat().st_size
+        with self.assertRaises(SystemExit) as caught:
+            m5.read_ledger(self.root)
+        self.assertIn("byte limit", str(caught.exception))
+        self.assertEqual(ledger.stat().st_size, before)
+
+    def test_oversized_sparse_metadata_is_refused_without_mutation(self) -> None:
+        metadata = self.root / "environment.json"
+        with metadata.open("wb") as handle:
+            handle.truncate(m5.MAX_METADATA_BYTES + 1)
+        before = metadata.stat().st_size
+        self.assertIsNone(m5.load_json(metadata, "environment metadata"))
+        self.assertEqual(metadata.stat().st_size, before)
 
 
 class TestRecording(Fixture):
