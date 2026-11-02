@@ -1080,7 +1080,16 @@ def load_json_or_empty(value: str | None, label: str) -> dict:
     """
     if not value:
         return {}
-    path = Path(value).resolve(strict=True)
+    # Do not resolve() operator-supplied metadata paths: doing so hides a
+    # symlink (or junction) before load_json's O_NOFOLLOW/identity checks.
+    # That would allow a redirected private document to enter the ledger.
+    supplied = Path(value)
+    if ".." in supplied.parts:
+        fail(f"parent traversal in {label} path forbidden")
+    path = supplied.absolute()
+    for component in (path, *path.parents):
+        if component.is_symlink() or getattr(component, "is_junction", lambda: False)():
+            fail(f"redirected {label} path forbidden: {component}")
     document = load_json(path, str(path))
     if document is None:
         fail(f"could not read {label} at {value}")
