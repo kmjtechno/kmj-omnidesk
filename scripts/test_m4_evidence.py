@@ -394,7 +394,12 @@ class EvidenceToolTests(unittest.TestCase):
         # Windows does not permit several of these characters; Linux does.
         # A raw checksum row must never embed a newline or a backslash.
         exercised = 0
-        for bad_name in ("events\ninjected.jsonl", "events\\backslash.jsonl", "events\tcontrol.jsonl"):
+        for bad_name in (
+            "events\ninjected.jsonl", "events\\backslash.jsonl", "events\tcontrol.jsonl",
+            "events\u0085c1.jsonl", "events\u200bzero-width.jsonl",
+            "events\u202ebidi.jsonl", "events\u00a0nbsp.jsonl",
+            "events\u2028separator.jsonl",
+        ):
             with self.subTest(name=repr(bad_name)), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 run = root / "runs" / "M4-T1-R01"
@@ -419,6 +424,21 @@ class EvidenceToolTests(unittest.TestCase):
                 self.assertEqual(artifact.read_bytes(), b"real-observation\n")
         if not exercised:
             self.skipTest("host filesystem disallows ambiguous checksum filenames")
+
+
+    def test_checksums_preserve_visible_unicode_filenames(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run = root / "runs" / "M4-T1-R01"
+            run.mkdir(parents=True)
+            artifact = run / "évents.jsonl"
+            artifact.write_bytes(b"real-observation\\n")
+            result = self.run_tool("checksums", "--root", temp)
+            self.assertEqual(
+                result.stdout.split("  ", 1)[1].strip(),
+                "runs/M4-T1-R01/évents.jsonl",
+            )
+            self.assertEqual(artifact.read_bytes(), b"real-observation\\n")
 
 
 if __name__ == "__main__":
