@@ -38,17 +38,13 @@ $binHash = (Get-FileHash $resolvedBin -Algorithm SHA256).Hash
 Write-Host "Target executable: $resolvedBin"
 Write-Host "Executable SHA-256: $binHash"
 
-# Check for existing process
+# Never commandeer an existing owner session or use an unverified binary.
 $existing = Get-Process -Name "omnidesk-desktop" -ErrorAction SilentlyContinue | Select-Object -First 1
-$proc = $null
-
 if ($existing) {
-    Write-Host "Found existing process PID $($existing.Id), bringing to foreground..."
-    $proc = $existing
-} else {
-    Write-Host "Launching process in user interactive session..."
-    $proc = Start-Process -FilePath $resolvedBin -PassThru
+    throw "Existing OmniDesk PID $($existing.Id) detected; refusing to reposition or capture an owner session."
 }
+Write-Host "Launching selected executable in user interactive session..."
+$proc = Start-Process -FilePath $resolvedBin -PassThru
 
 $deadline = (Get-Date).AddSeconds(15)
 do {
@@ -68,14 +64,21 @@ Write-Host "Window Handle acquired: $hwnd"
 # SW_RESTORE = 9, SW_SHOW = 5
 [WinUserForegroundApi]::ShowWindow($hwnd, 9) | Out-Null
 [WinUserForegroundApi]::MoveWindow($hwnd, 100, 100, 1296, 759, $true) | Out-Null
-[WinUserForegroundApi]::SetForegroundWindow($hwnd) | Out-Null
+if (-not [WinUserForegroundApi]::SetForegroundWindow($hwnd)) {
+    throw "Cannot bring the selected QA process to foreground; no foreground receipt will be issued."
+}
 Start-Sleep -Milliseconds 800
+if ([WinUserForegroundApi]::GetForegroundWindow() -ne $hwnd) {
+    throw "Foreground focus does not match the selected QA process."
+}
 
 $proc.Refresh()
 
 # Capture live screenshot
-$timestamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
-$screenshotPath = Join-Path $resolvedOutputDir "foreground-live-$timestamp.png"
+# Per-invocation evidence path prevents overwriting existing owner receipts.
+$runDir = Join-Path $resolvedOutputDir ("run-" + [Guid]::NewGuid().ToString("N"))
+[System.IO.Directory]::CreateDirectory($runDir) | Out-Null
+$screenshotPath = Join-Path $runDir "foreground-live.png"
 
 $rect = [WinUserForegroundApi+RECT]::new()
 [WinUserForegroundApi]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
@@ -88,7 +91,9 @@ try {
     try {
         $dc = $g.GetHdc()
         try {
-            [void][WinUserForegroundApi]::PrintWindow($hwnd, $dc, 0)
+            if (-not [WinUserForegroundApi]::PrintWindow($hwnd, $dc, 0)) {
+                throw "PrintWindow failed; refusing to issue a screenshot receipt."
+            }
         } finally {
             $g.ReleaseHdc($dc)
         }
@@ -103,7 +108,7 @@ try {
 $screenshotHash = (Get-FileHash $screenshotPath -Algorithm SHA256).Hash
 
 $result = [ordered]@{
-    status = "RUNNING_IN_FOREGROUND"
+    status = "FOREGROUND_CAPTURE_OBSERVED_NOT_FUNCTIONAL_PROOF"
     pid = $proc.Id
     start_time_iso = $proc.StartTime.ToString("o")
     binary_path = $resolvedBin
@@ -115,10 +120,10 @@ $result = [ordered]@{
     thread_count = $proc.Threads.Count
     screenshot_path = $screenshotPath
     screenshot_sha256 = $screenshotHash
-    note = "Process was intentionally LEFT RUNNING in foreground on physical display. DO NOT TERMINATE."
+    note = "Foreground window and PrintWindow observed for the selected binary; not proof of functional UI, real network, or hardware signoff. QA process left running."
 }
 
-$jsonPath = Join-Path $resolvedOutputDir "foreground-app-status.json"
+$jsonPath = Join-Path $runDir "foreground-app-status.json"
 $result | ConvertTo-Json -Depth 5 | Set-Content -Path $jsonPath -Encoding utf8
 Write-Output ($result | ConvertTo-Json -Depth 5)
 
