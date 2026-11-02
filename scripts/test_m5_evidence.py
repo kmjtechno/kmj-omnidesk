@@ -1418,6 +1418,29 @@ class TestRecording(Fixture):
         self.assertIsNone(m5.entry_class_errors(entries[0], "M5-CODE-R001"))
 
 
+class TestNestedJsonEvidence(Fixture):
+    """Deeply nested JSON is invalid evidence, not an uncaught traceback."""
+
+    @staticmethod
+    def nested_json() -> str:
+        # Under the byte cap, but deeper than the JSON parser's safe limit.
+        return '{"nested":' + "[" * 1500 + "0" + "]" * 1500 + "}"
+
+    def test_deeply_nested_ledger_fails_closed(self) -> None:
+        ledger = self.root / "ledger.jsonl"
+        ledger.write_text(self.nested_json() + "\n", encoding="utf-8")
+        with self.assertRaises(SystemExit) as refusal:
+            m5.read_ledger(self.root)
+        self.assertIn("corrupt ledger line", str(refusal.exception))
+        self.assertIn("nesting", str(refusal.exception))
+
+    def test_deeply_nested_metadata_is_unreadable(self) -> None:
+        metadata = self.root / "environment.json"
+        metadata.write_text(self.nested_json(), encoding="utf-8")
+        self.assertIsNone(m5.load_json(metadata, "environment metadata"))
+        self.assertEqual(m5.read_ledger(self.root), [])
+
+
 class TestUnreadableOptionalDocument(Fixture):
     """A file named but unreadable is not the same as a file not named.
 
