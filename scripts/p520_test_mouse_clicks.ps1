@@ -44,6 +44,7 @@ public class WinUserClickApi {
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref POINT pt);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
 
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
@@ -53,6 +54,15 @@ public class WinUserClickApi {
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
 
     public static void ClickAtClient(IntPtr hWnd, int clientX, int clientY) {
+        RECT bounds;
+        if (!GetClientRect(hWnd, out bounds) ||
+            clientX < bounds.Left || clientX >= bounds.Right ||
+            clientY < bounds.Top || clientY >= bounds.Bottom) {
+            throw new InvalidOperationException("QA click target is outside the selected window client area");
+        }
+        if (GetForegroundWindow() != hWnd) {
+            throw new InvalidOperationException("Selected QA window lost foreground before cursor movement");
+        }
         POINT pt = new POINT { X = clientX, Y = clientY };
         if (!ClientToScreen(hWnd, ref pt)) throw new InvalidOperationException("ClientToScreen failed");
 
@@ -60,10 +70,18 @@ public class WinUserClickApi {
         // can toggle a control twice and invalidate the observation.
         if (!SetCursorPos(pt.X, pt.Y)) throw new InvalidOperationException("SetCursorPos failed");
         System.Threading.Thread.Sleep(80);
+        // The user can change focus during the cursor-settle delay. Recheck
+        // immediately before injection rather than clicking another application.
+        if (GetForegroundWindow() != hWnd) {
+            throw new InvalidOperationException("Selected QA window lost foreground before mouse down");
+        }
         mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)pt.X, (uint)pt.Y, 0, UIntPtr.Zero);
-        System.Threading.Thread.Sleep(40);
-        mouse_event(MOUSEEVENTF_LEFTUP, (uint)pt.X, (uint)pt.Y, 0, UIntPtr.Zero);
-
+        try {
+            System.Threading.Thread.Sleep(40);
+        } finally {
+            // Always release the button even if the delay throws.
+            mouse_event(MOUSEEVENTF_LEFTUP, (uint)pt.X, (uint)pt.Y, 0, UIntPtr.Zero);
+        }
     }
 }
 '@
