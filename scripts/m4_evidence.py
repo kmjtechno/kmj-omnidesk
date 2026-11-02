@@ -79,6 +79,23 @@ def checksum_relative_name(relative: Path) -> str:
     Reject control characters too, rather than producing non-portable evidence.
     """
     name = relative.as_posix()
+    # A valid POSIX filename can still alias another file, address an NTFS
+    # alternate data stream, or be a reserved device on Windows. Validate
+    # every component, including directories that are absent from SHA rows.
+    for component in name.split("/"):
+        device = component.split(".", 1)[0].rstrip(" ").upper()
+        if (
+            not component
+            or component.endswith((" ", "."))
+            or any(char in '<>:"|?*' for char in component)
+            or device in {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+            or (
+                len(device) == 4
+                and device[:3] in {"COM", "LPT"}
+                and device[3] in "123456789¹²³"
+            )
+        ):
+            fail("non-portable checksum path forbidden")
     # Unicode format controls, C1 controls and non-ASCII whitespace can
     # conceal path components or render differently across evidence viewers.
     # Keep visible Unicode names (and NFC collision checking) supported.
@@ -262,11 +279,10 @@ def command_checksums(args: argparse.Namespace) -> None:
             stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0
         ):
             fail(f"reparse evidence path forbidden: {path}")
-        if stat.S_ISDIR(metadata.st_mode):
-            continue
-        if not stat.S_ISREG(metadata.st_mode):
+        is_dir = stat.S_ISDIR(metadata.st_mode)
+        if not is_dir and not stat.S_ISREG(metadata.st_mode):
             fail(f"non-regular evidence path forbidden: {path}")
-        if metadata.st_nlink != 1:
+        if not is_dir and metadata.st_nlink != 1:
             fail(f"hardlinked evidence path forbidden: {path}")
         relative = path.resolve(strict=True).relative_to(root)
         name = checksum_relative_name(relative)
@@ -278,6 +294,10 @@ def command_checksums(args: argparse.Namespace) -> None:
         if previous is not None:
             fail(f"portable evidence path collision: {previous} / {name}")
         seen_portable_names[portable_name] = name
+        # A collision between directories, or a directory and a file, also
+        # merges distinct evidence trees on case-insensitive extractors.
+        if is_dir:
+            continue
         if name == "checksums.sha256":
             continue
         digest, _ = sha256_file(path)
