@@ -192,6 +192,66 @@ class EvidenceToolTests(unittest.TestCase):
             self.assertEqual(composed.read_bytes(), b"composed\n")
             self.assertEqual(decomposed.read_bytes(), b"decomposed\n")
 
+    @unittest.skipIf(os.name == "nt", "Windows cannot create ambiguous DOS filenames")
+    def test_windows_ambiguous_components_fail_without_touching_evidence(self):
+        for bad_name in (
+            "NUL.txt", "con.jsonl", "COM1.log", "LPT9.log",
+            "COM¹.log", "AUX .txt", "events:stream", "bad?.jsonl",
+            "bad|name", "bad<name", "trailing.", "trailing ",
+        ):
+            with self.subTest(name=bad_name), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                run = root / "runs" / "M4-T1-R01"
+                run.mkdir(parents=True)
+                artifact = run / bad_name
+                artifact.write_bytes(b"original measured bytes\\n")
+                entry = self.run_tool(
+                    "artifact", "--root", temp, "--file", str(artifact),
+                    "--artifact-id", "portable", "--run-id", "M4-T1-R01",
+                    "--kind", "EVENT_LOG", "--content-type", "application/jsonl",
+                    "--component", "agent", "--version", "1", ok=False,
+                )
+                self.assertNotEqual(entry.returncode, 0)
+                self.assertIn("non-portable checksum path", entry.stderr)
+                checksums = self.run_tool("checksums", "--root", temp, ok=False)
+                self.assertNotEqual(checksums.returncode, 0)
+                self.assertIn("non-portable checksum path", checksums.stderr)
+                self.assertEqual(artifact.read_bytes(), b"original measured bytes\\n")
+
+    @unittest.skipIf(os.name == "nt", "Windows cannot create reserved device directories")
+    def test_rejects_unsafe_directory_components(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            artifact = root / "runs" / "M4-T1-R01" / "CON" / "events.jsonl"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b"original\\n")
+            entry = self.run_tool(
+                "artifact", "--root", temp, "--file", str(artifact),
+                "--artifact-id", "portable", "--run-id", "M4-T1-R01",
+                "--kind", "EVENT_LOG", "--content-type", "application/jsonl",
+                "--component", "agent", "--version", "1", ok=False,
+            )
+            self.assertIn("non-portable checksum path", entry.stderr)
+            checksums = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertIn("non-portable checksum path", checksums.stderr)
+            self.assertEqual(artifact.read_bytes(), b"original\\n")
+
+    @unittest.skipIf(os.name == "nt", "Windows is case-insensitive for these directories")
+    def test_checksums_rejects_colliding_directories_with_distinct_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = root / "Session"
+            second = root / "session"
+            first.mkdir()
+            second.mkdir()
+            (first / "one.jsonl").write_bytes(b"first\\n")
+            (second / "two.jsonl").write_bytes(b"second\\n")
+            result = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("portable evidence path collision", result.stderr)
+            self.assertEqual((first / "one.jsonl").read_bytes(), b"first\\n")
+            self.assertEqual((second / "two.jsonl").read_bytes(), b"second\\n")
+
     def test_checksums_rejects_symlinked_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
