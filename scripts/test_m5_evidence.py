@@ -941,7 +941,7 @@ m5.read_ledger(ledger.parent)
         entry = self.code_run()
         self.append(entry)
         original_bytes = (self.root / "ledger.jsonl").read_bytes()
-        self.assertTrue(original_bytes.endswith(b"\\n"))
+        self.assertTrue(original_bytes.endswith(b"\n"))
         real_fdopen = os.fdopen
 
         class ShortRead:
