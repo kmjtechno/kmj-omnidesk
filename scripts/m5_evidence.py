@@ -231,6 +231,85 @@ def sha256_unshared_evidence_file(path: Path) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
+def copy_unshared_raw_source(raw: Path, destination: Path) -> None:
+    """Copy an observed source through one checked descriptor, never a pathname re-open.
+
+    An operator-provided --raw symlink/hardlink can otherwise import unrelated
+    private files into an evidence package. O_NONBLOCK prevents a substituted
+    FIFO from stalling the recorder. Windows needs descriptor/reparse checks
+    because O_NOFOLLOW is not available there. This is defense in depth, not
+    a fully race-proof filesystem sandbox.
+    """
+    absolute = raw.absolute()
+    for component in (absolute, *absolute.parents):
+        if component.is_symlink() or getattr(component, "is_junction", lambda: False)():
+            fail(f"redirected raw observation source forbidden: {component}")
+
+    flags = (
+        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
+    )
+    try:
+        descriptor = os.open(raw, flags)
+    except OSError:
+        fail("cannot safely open raw observation source")
+
+    with os.fdopen(descriptor, "rb") as source:
+        def source_matches(metadata: os.stat_result) -> bool:
+            try:
+                linked = raw.lstat()
+            except OSError:
+                return False
+            reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            return (
+                stat.S_ISREG(metadata.st_mode)
+                and metadata.st_nlink == 1
+                and stat.S_ISREG(linked.st_mode)
+                and linked.st_nlink == 1
+                and (metadata.st_dev, metadata.st_ino)
+                == (linked.st_dev, linked.st_ino)
+                and not (getattr(metadata, "st_file_attributes", 0) & reparse)
+                and not (getattr(linked, "st_file_attributes", 0) & reparse)
+            )
+
+        before = os.fstat(source.fileno())
+        if not source_matches(before):
+            fail("raw observation source is not an unshared regular file")
+
+        created_identity = None
+        try:
+            # Exclusive destination creation refuses orphaned prior attempts.
+            with destination.open("xb") as output:
+                created_identity = os.fstat(output.fileno())
+                copied = 0
+                while chunk := source.read(1024 * 1024):
+                    output.write(chunk)
+                    copied += len(chunk)
+                after = os.fstat(source.fileno())
+                if (
+                    not source_matches(after)
+                    or (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+                    != (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+                    or copied != after.st_size
+                ):
+                    fail("raw observation source changed during copy")
+        except FileExistsError:
+            fail(f"raw observation destination already exists: {destination}")
+        except BaseException:
+            # Only remove the inode this call created; never delete a path
+            # another actor substituted while an unsafe copy was refused.
+            if created_identity is not None:
+                try:
+                    linked = destination.lstat()
+                    if (linked.st_dev, linked.st_ino) == (
+                        created_identity.st_dev, created_identity.st_ino
+                    ):
+                        destination.unlink()
+                except OSError:
+                    pass
+            raise
+
+
 # --- roadmap -------------------------------------------------------------
 
 
@@ -918,21 +997,13 @@ def command_record(args: argparse.Namespace) -> None:
         if args.impairment else None
     )
 
-    raw = Path(args.raw).resolve(strict=True)
-    if not raw.is_file():
-        fail(f"raw observation is not a regular file: {raw}")
+    raw = Path(args.raw)
     raw_name = f"{run_id}{raw.suffix or '.json'}"
     destination = root / "raw" / raw_name
     if destination.is_symlink():
         fail(f"refusing symlinked raw observation destination: {destination}")
-    try:
-        # Exclusive creation protects even an orphaned file not in the ledger.
-        with destination.open("xb") as output, raw.open("rb") as source:
-            while chunk := source.read(1024 * 1024):
-                output.write(chunk)
-    except FileExistsError:
-        fail(f"raw observation destination already exists: {destination}")
-    digest, size = sha256_file(destination)
+    copy_unshared_raw_source(raw, destination)
+    digest, size = sha256_unshared_evidence_file(destination)
 
     entry = {
         "run_id": run_id,
