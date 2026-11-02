@@ -338,9 +338,14 @@ def strict_json_loads(content: str):
                 check_finite(child)
         return value
 
-    return check_finite(json.loads(
-        content, object_pairs_hook=unique_keys, parse_constant=reject_constant
-    ))
+    try:
+        return check_finite(json.loads(
+            content, object_pairs_hook=unique_keys, parse_constant=reject_constant
+        ))
+    except RecursionError as error:
+        # A deeply nested, otherwise bounded JSON document must be a
+        # rejected observation, not an uncaught release-gate traceback.
+        raise ValueError("JSON nesting exceeds parser limit") from error
 
 
 def read_ledger(root: Path) -> list[dict]:
