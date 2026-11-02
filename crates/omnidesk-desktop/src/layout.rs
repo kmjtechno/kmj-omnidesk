@@ -422,6 +422,66 @@ impl LockedDashboardLayout {
             height: self.session_toolbar.height - 10,
         }
     }
+
+    #[must_use]
+    pub const fn nav_tab_rect(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.navigation.x + 6,
+            y: self.navigation.y + 9 + index.saturating_mul(44),
+            width: self.navigation.width.saturating_sub(12),
+            height: 36,
+        }
+    }
+
+    #[must_use]
+    pub const fn filter_all_rect(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.devices.x + 15,
+            y: self.devices.y + 70,
+            width: 45,
+            height: 22,
+        }
+    }
+
+    #[must_use]
+    pub const fn filter_online_rect(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.devices.x + 68,
+            y: self.devices.y + 70,
+            width: 65,
+            height: 22,
+        }
+    }
+
+    #[must_use]
+    pub const fn filter_offline_rect(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.devices.x + 140,
+            y: self.devices.y + 70,
+            width: 70,
+            height: 22,
+        }
+    }
+
+    #[must_use]
+    pub const fn settings_button_rect(&self, window_width: usize) -> DashboardRect {
+        DashboardRect {
+            x: window_width.saturating_sub(194),
+            y: 20,
+            width: 90,
+            height: 30,
+        }
+    }
+
+    #[must_use]
+    pub const fn help_button_rect(&self, window_width: usize) -> DashboardRect {
+        DashboardRect {
+            x: window_width.saturating_sub(100),
+            y: 20,
+            width: 80,
+            height: 30,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -56,6 +56,26 @@ pub struct ConnectionStats {
     pub fps: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NavTab {
+    #[default]
+    Devices,
+    Connections,
+    FileTransfer,
+    RemoteActions,
+    Automation,
+    Security,
+    Settings,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeviceFilter {
+    #[default]
+    All,
+    Online,
+    Offline,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductShell {
     devices: Vec<DeviceSummary>,
@@ -63,6 +83,9 @@ pub struct ProductShell {
     security_state: SecurityState,
     quality_preset: QualityPreset,
     connection_stats: Option<ConnectionStats>,
+    nav_tab: NavTab,
+    device_filter: DeviceFilter,
+    help_open: bool,
 }
 
 impl ProductShell {
@@ -74,6 +97,9 @@ impl ProductShell {
             security_state: SecurityState::Disconnected,
             quality_preset: QualityPreset::Balanced,
             connection_stats: None,
+            nav_tab: NavTab::Devices,
+            device_filter: DeviceFilter::All,
+            help_open: false,
         }
     }
 
@@ -175,6 +201,37 @@ impl ProductShell {
         self.selected_device = None;
         self.security_state = SecurityState::Disconnected;
         self.connection_stats = None;
+    }
+
+    #[must_use]
+    pub const fn nav_tab(&self) -> NavTab {
+        self.nav_tab
+    }
+
+    pub const fn set_nav_tab(&mut self, tab: NavTab) {
+        self.nav_tab = tab;
+    }
+
+    #[must_use]
+    pub const fn device_filter(&self) -> DeviceFilter {
+        self.device_filter
+    }
+
+    pub const fn set_device_filter(&mut self, filter: DeviceFilter) {
+        self.device_filter = filter;
+    }
+
+    #[must_use]
+    pub const fn is_help_open(&self) -> bool {
+        self.help_open
+    }
+
+    pub const fn toggle_help(&mut self) {
+        self.help_open = !self.help_open;
+    }
+
+    pub const fn set_help_open(&mut self, open: bool) {
+        self.help_open = open;
     }
 }
 

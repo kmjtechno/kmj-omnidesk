@@ -721,7 +721,12 @@ fn locked_label(
     canvas.text_clipped(x, y, label, 1, width, color);
 }
 
-fn draw_locked_header(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
+fn draw_locked_header(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
     // Header: branding, search affordance and account utilities, as in lock.
     canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, p.surface);
     canvas.fill_rect(0, 0, canvas.width, 2, p.accent);
@@ -751,14 +756,28 @@ fn draw_locked_header(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p
         "SEARCH UNAVAILABLE UNTIL DEVICE SYNC",
         p.muted,
     );
+
+    let settings_rect = layout.settings_button_rect(canvas.width);
+    let help_rect = layout.help_button_rect(canvas.width);
+    let settings_color = if presentation.nav_tab == omnidesk_core::product_shell::NavTab::Settings {
+        p.accent
+    } else {
+        p.muted
+    };
+    let help_color = if presentation.help_open {
+        p.accent
+    } else {
+        p.muted
+    };
     locked_label(
         canvas,
-        canvas.width.saturating_sub(194),
+        settings_rect.x,
         29,
-        180,
-        "SETTINGS   HELP",
-        p.muted,
+        settings_rect.width,
+        "SETTINGS",
+        settings_color,
     );
+    locked_label(canvas, help_rect.x, 29, help_rect.width, "HELP", help_color);
 }
 
 fn draw_locked_nav_icon(canvas: &mut Canvas<'_>, index: usize, x: usize, y: usize, color: u32) {
@@ -800,7 +819,12 @@ fn draw_locked_nav_icon(canvas: &mut Canvas<'_>, index: usize, x: usize, y: usiz
     }
 }
 
-fn draw_locked_navigation(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
+fn draw_locked_navigation(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
     let nav = layout.navigation;
     let nav_labels = [
         "Devices",
@@ -811,21 +835,30 @@ fn draw_locked_navigation(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayou
         "Security",
         "Settings",
     ];
+    let nav_tabs = [
+        omnidesk_core::product_shell::NavTab::Devices,
+        omnidesk_core::product_shell::NavTab::Connections,
+        omnidesk_core::product_shell::NavTab::FileTransfer,
+        omnidesk_core::product_shell::NavTab::RemoteActions,
+        omnidesk_core::product_shell::NavTab::Automation,
+        omnidesk_core::product_shell::NavTab::Security,
+        omnidesk_core::product_shell::NavTab::Settings,
+    ];
     for (index, label) in nav_labels.iter().enumerate() {
-        let y = nav.y + 9 + index * 44;
-        let enabled = index == 0;
-        if enabled {
-            canvas.fill_rect(nav.x + 6, y, nav.width - 12, 36, 0x6a_14_1d);
-            canvas.fill_rect(nav.x + 6, y, 3, 36, p.accent);
-            canvas.stroke_rect(nav.x + 6, y, nav.width - 12, 36, 1, p.danger);
+        let rect = layout.nav_tab_rect(index);
+        let active = nav_tabs[index] == presentation.nav_tab;
+        if active {
+            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, 0x6a_14_1d);
+            canvas.fill_rect(rect.x, rect.y, 3, rect.height, p.accent);
+            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.danger);
         }
-        let item_color = if enabled { p.foreground } else { p.muted };
-        draw_locked_nav_icon(canvas, index, nav.x + 13, y + 10, item_color);
+        let item_color = if active { p.foreground } else { p.muted };
+        draw_locked_nav_icon(canvas, index, rect.x + 7, rect.y + 10, item_color);
         locked_label(
             canvas,
-            nav.x + 35,
-            y + 13,
-            nav.width.saturating_sub(42),
+            rect.x + 29,
+            rect.y + 13,
+            rect.width.saturating_sub(34),
             label,
             item_color,
         );
@@ -852,41 +885,50 @@ fn draw_locked_navigation(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayou
     );
 }
 
-fn draw_locked_devices(
+fn draw_locked_device_rows(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
     let devices = layout.devices;
-    // Device directory stays empty until an authoritative pairing service
-    // provides real DeviceSummary records; never copy fake peers from mockup.
+    let all_color = if presentation.device_filter == omnidesk_core::product_shell::DeviceFilter::All
+    {
+        p.foreground
+    } else {
+        p.muted
+    };
+    let online_color =
+        if presentation.device_filter == omnidesk_core::product_shell::DeviceFilter::Online {
+            p.foreground
+        } else {
+            p.muted
+        };
+    let offline_color =
+        if presentation.device_filter == omnidesk_core::product_shell::DeviceFilter::Offline {
+            p.foreground
+        } else {
+            p.muted
+        };
+
+    locked_label(canvas, devices.x + 15, devices.y + 75, 45, "ALL", all_color);
     locked_label(
         canvas,
-        devices.x + 14,
-        devices.y + 21,
-        devices.width - 28,
-        "Devices",
-        p.foreground,
-    );
-    canvas.fill_rect(
-        devices.x + 10,
-        devices.y + 60,
-        devices.width - 20,
-        1,
-        p.border,
-    );
-    locked_label(
-        canvas,
-        devices.x + 15,
+        devices.x + 68,
         devices.y + 75,
-        devices.width - 26,
-        "ALL      ONLINE      OFFLINE",
-        p.muted,
+        65,
+        "ONLINE",
+        online_color,
     );
-    // The disabled FocusDevices control is an accessibility placeholder, not
-    // a real registered peer. Rendering its row would cover the empty-state
-    // explanation; do not treat a list of offline real devices as empty.
+    locked_label(
+        canvas,
+        devices.x + 140,
+        devices.y + 75,
+        70,
+        "OFFLINE",
+        offline_color,
+    );
+
     let empty_directory = presentation.controls.len() == 1
         && matches!(
             presentation.controls[0].action,
@@ -948,6 +990,98 @@ fn draw_locked_devices(
     }
 }
 
+fn draw_locked_secondary_tab(
+    canvas: &mut Canvas<'_>,
+    nav_tab: omnidesk_core::product_shell::NavTab,
+    devices_x: usize,
+    devices_y: usize,
+    devices_width: usize,
+    p: Palette,
+) {
+    let (line1, line2) = match nav_tab {
+        omnidesk_core::product_shell::NavTab::Connections => (
+            "No active connections",
+            "Pair or connect a peer to view active sessions",
+        ),
+        omnidesk_core::product_shell::NavTab::FileTransfer => (
+            "No active transfer session",
+            "Connect to a device to send or receive files",
+        ),
+        omnidesk_core::product_shell::NavTab::RemoteActions => (
+            "Select a device",
+            "Remote actions require an active connection",
+        ),
+        omnidesk_core::product_shell::NavTab::Automation => (
+            "No scheduled tasks",
+            "Automations run on paired host devices",
+        ),
+        omnidesk_core::product_shell::NavTab::Security => {
+            ("Security status", "WireGuard / Noise protocol: Ready")
+        }
+        omnidesk_core::product_shell::NavTab::Settings => {
+            ("Settings view", "Default display quality: Balanced")
+        }
+        omnidesk_core::product_shell::NavTab::Devices => ("Unavailable", "No data"),
+    };
+    locked_label(
+        canvas,
+        devices_x + 14,
+        devices_y + 80,
+        devices_width - 28,
+        line1,
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        devices_x + 14,
+        devices_y + 105,
+        devices_width - 28,
+        line2,
+        p.muted,
+    );
+}
+
+fn draw_locked_devices(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let devices = layout.devices;
+    let nav_tab = presentation.nav_tab;
+    let col_title = match nav_tab {
+        omnidesk_core::product_shell::NavTab::Devices => "Devices",
+        omnidesk_core::product_shell::NavTab::Connections => "Connections",
+        omnidesk_core::product_shell::NavTab::FileTransfer => "File Transfer",
+        omnidesk_core::product_shell::NavTab::RemoteActions => "Remote Actions",
+        omnidesk_core::product_shell::NavTab::Automation => "Automation",
+        omnidesk_core::product_shell::NavTab::Security => "Security",
+        omnidesk_core::product_shell::NavTab::Settings => "Settings",
+    };
+
+    locked_label(
+        canvas,
+        devices.x + 14,
+        devices.y + 21,
+        devices.width - 28,
+        col_title,
+        p.foreground,
+    );
+    canvas.fill_rect(
+        devices.x + 10,
+        devices.y + 60,
+        devices.width - 20,
+        1,
+        p.border,
+    );
+
+    if nav_tab == omnidesk_core::product_shell::NavTab::Devices {
+        draw_locked_device_rows(canvas, presentation, layout, p);
+    } else {
+        draw_locked_secondary_tab(canvas, nav_tab, devices.x, devices.y, devices.width, p);
+    }
+}
+
 fn draw_locked_remote_view(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -983,30 +1117,74 @@ fn draw_locked_remote_view(
     );
     canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
     canvas.fill_rect(screen.x + 1, screen.y + 1, screen.width - 2, 3, p.border);
-    locked_label(
-        canvas,
-        screen.x + 22,
-        screen.y + 22,
-        screen.width - 44,
-        "Remote desktop",
-        p.foreground,
-    );
-    locked_label(
-        canvas,
-        screen.x + 22,
-        screen.y + 48,
-        screen.width - 44,
-        "No authenticated remote video",
-        p.muted,
-    );
-    locked_label(
-        canvas,
-        screen.x + 22,
-        screen.y + 73,
-        screen.width - 44,
-        "Connect to a verified device",
-        p.muted,
-    );
+
+    if presentation.help_open {
+        locked_label(
+            canvas,
+            screen.x + 22,
+            screen.y + 22,
+            screen.width - 44,
+            "KMJ OmniDesk Help & Shortcuts",
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            screen.x + 22,
+            screen.y + 48,
+            screen.width - 44,
+            "Navigation: [D] Devices, [C] Connections, [F] File Transfer",
+            p.muted,
+        );
+        locked_label(
+            canvas,
+            screen.x + 22,
+            screen.y + 73,
+            screen.width - 44,
+            "Management: [M] Automation, [S] Security, [O] Settings",
+            p.muted,
+        );
+        locked_label(
+            canvas,
+            screen.x + 22,
+            screen.y + 98,
+            screen.width - 44,
+            "Session: [1] Data Saver, [2] Balanced, [3] High, [X] Disconnect",
+            p.muted,
+        );
+        locked_label(
+            canvas,
+            screen.x + 22,
+            screen.y + 123,
+            screen.width - 44,
+            "Click any navigation tab or HELP to close",
+            p.accent,
+        );
+    } else {
+        locked_label(
+            canvas,
+            screen.x + 22,
+            screen.y + 22,
+            screen.width - 44,
+            "Remote desktop",
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            screen.x + 22,
+            screen.y + 48,
+            screen.width - 44,
+            "No authenticated remote video",
+            p.muted,
+        );
+        locked_label(
+            canvas,
+            screen.x + 22,
+            screen.y + 73,
+            screen.width - 44,
+            "Connect to a verified device",
+            p.muted,
+        );
+    }
 }
 
 fn draw_locked_session_tiles(
@@ -1243,7 +1421,7 @@ fn draw_locked_dashboard(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    draw_locked_header(canvas, layout, p);
+    draw_locked_header(canvas, presentation, layout, p);
     for rect in [
         layout.navigation,
         layout.devices,
@@ -1252,7 +1430,7 @@ fn draw_locked_dashboard(
     ] {
         locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
     }
-    draw_locked_navigation(canvas, layout, p);
+    draw_locked_navigation(canvas, presentation, layout, p);
     draw_locked_devices(canvas, presentation, layout, p);
     draw_locked_remote_view(canvas, presentation, layout, p);
     draw_locked_session_tiles(canvas, presentation, layout, p);

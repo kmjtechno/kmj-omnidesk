@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 
 use omnidesk_core::product_shell::{
-    DeviceStatus, PermissionDecision, PrimaryView, ProductShell, QualityPreset,
+    DeviceFilter, DeviceStatus, NavTab, PermissionDecision, PrimaryView, ProductShell,
+    QualityPreset,
 };
 
 pub mod accesskit_tree;
@@ -22,6 +23,10 @@ pub enum DesktopAction {
     DenyPermission,
     SetQuality(QualityPreset),
     Disconnect,
+    SelectNav(NavTab),
+    SelectFilter(DeviceFilter),
+    ToggleHelp,
+    OpenSettings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +99,9 @@ impl VisualSystem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresentationModel {
     pub primary_view: PrimaryView,
+    pub nav_tab: NavTab,
+    pub device_filter: DeviceFilter,
+    pub help_open: bool,
     pub title: &'static str,
     pub status: &'static str,
     pub details: Vec<String>,
@@ -135,6 +143,9 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
     };
     PresentationModel {
         primary_view: shell.primary_view(),
+        nav_tab: shell.nav_tab(),
+        device_filter: shell.device_filter(),
+        help_open: shell.is_help_open(),
         title: "KMJ OmniDesk",
         status,
         details,
@@ -349,6 +360,73 @@ pub fn action_at_point(
     x: usize,
     y: usize,
 ) -> Option<DesktopAction> {
+    if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
+        // Navigation items (all 7 tabs respond to clicks)
+        const NAV_TABS: [NavTab; 7] = [
+            NavTab::Devices,
+            NavTab::Connections,
+            NavTab::FileTransfer,
+            NavTab::RemoteActions,
+            NavTab::Automation,
+            NavTab::Security,
+            NavTab::Settings,
+        ];
+        for (i, &tab) in NAV_TABS.iter().enumerate() {
+            let rect = locked.nav_tab_rect(i);
+            if x >= rect.x
+                && y >= rect.y
+                && x < rect.x.saturating_add(rect.width)
+                && y < rect.y.saturating_add(rect.height)
+            {
+                return Some(DesktopAction::SelectNav(tab));
+            }
+        }
+
+        // Filter buttons (ALL, ONLINE, OFFLINE)
+        let all_rect = locked.filter_all_rect();
+        if x >= all_rect.x
+            && y >= all_rect.y
+            && x < all_rect.x.saturating_add(all_rect.width)
+            && y < all_rect.y.saturating_add(all_rect.height)
+        {
+            return Some(DesktopAction::SelectFilter(DeviceFilter::All));
+        }
+        let online_rect = locked.filter_online_rect();
+        if x >= online_rect.x
+            && y >= online_rect.y
+            && x < online_rect.x.saturating_add(online_rect.width)
+            && y < online_rect.y.saturating_add(online_rect.height)
+        {
+            return Some(DesktopAction::SelectFilter(DeviceFilter::Online));
+        }
+        let offline_rect = locked.filter_offline_rect();
+        if x >= offline_rect.x
+            && y >= offline_rect.y
+            && x < offline_rect.x.saturating_add(offline_rect.width)
+            && y < offline_rect.y.saturating_add(offline_rect.height)
+        {
+            return Some(DesktopAction::SelectFilter(DeviceFilter::Offline));
+        }
+
+        // Top bar buttons (SETTINGS, HELP)
+        let settings_rect = locked.settings_button_rect(width);
+        if x >= settings_rect.x
+            && y >= settings_rect.y
+            && x < settings_rect.x.saturating_add(settings_rect.width)
+            && y < settings_rect.y.saturating_add(settings_rect.height)
+        {
+            return Some(DesktopAction::OpenSettings);
+        }
+        let help_rect = locked.help_button_rect(width);
+        if x >= help_rect.x
+            && y >= help_rect.y
+            && x < help_rect.x.saturating_add(help_rect.width)
+            && y < help_rect.y.saturating_add(help_rect.height)
+        {
+            return Some(DesktopAction::ToggleHelp);
+        }
+    }
+
     let presentation = presentation_for(shell);
     let rects = control_rects_for(&presentation, width, height);
     presentation
@@ -392,7 +470,9 @@ pub fn action_for_key(view: PrimaryView, key: char) -> Option<DesktopAction> {
 
 pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
     match action {
-        DesktopAction::FocusDevices => {}
+        DesktopAction::FocusDevices => {
+            shell.set_nav_tab(NavTab::Devices);
+        }
         DesktopAction::ConnectDevice(index) => {
             let device_id = shell.devices().get(index).map(|device| device.id.clone());
             if let Some(device_id) = device_id {
@@ -403,19 +483,52 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
         DesktopAction::DenyPermission => shell.decide_permission(PermissionDecision::Deny),
         DesktopAction::SetQuality(preset) => shell.set_quality_preset(preset),
         DesktopAction::Disconnect => shell.disconnect(),
+        DesktopAction::SelectNav(tab) => {
+            shell.set_nav_tab(tab);
+        }
+        DesktopAction::SelectFilter(filter) => {
+            shell.set_device_filter(filter);
+        }
+        DesktopAction::ToggleHelp => {
+            shell.toggle_help();
+        }
+        DesktopAction::OpenSettings => {
+            shell.set_nav_tab(NavTab::Settings);
+        }
     }
 }
 
 pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
     let key = key.to_ascii_lowercase();
-    let Some(control) = controls_for_shell(shell)
+    let control_match = controls_for_shell(shell)
         .into_iter()
-        .find(|control| control.enabled && control.keyboard_key == key)
-    else {
-        return false;
-    };
-    apply_action(shell, control.action);
-    true
+        .find(|control| control.keyboard_key == key);
+
+    if let Some(control) = control_match {
+        if !control.enabled {
+            return false;
+        }
+        apply_action(shell, control.action);
+        return true;
+    }
+
+    // Nav and help shortcuts in Devices / Disconnected view
+    if shell.primary_view() == PrimaryView::Devices {
+        let nav_action = match key {
+            'c' => Some(DesktopAction::SelectNav(NavTab::Connections)),
+            'f' => Some(DesktopAction::SelectNav(NavTab::FileTransfer)),
+            'm' => Some(DesktopAction::SelectNav(NavTab::Automation)),
+            's' => Some(DesktopAction::SelectNav(NavTab::Security)),
+            'o' => Some(DesktopAction::SelectNav(NavTab::Settings)),
+            'h' => Some(DesktopAction::ToggleHelp),
+            _ => None,
+        };
+        if let Some(action) = nav_action {
+            apply_action(shell, action);
+            return true;
+        }
+    }
+    false
 }
 
 #[must_use]
@@ -522,7 +635,12 @@ mod tests {
             action_at_point(&shell, 1419, 611, rect.x + 12, rect.y + 12),
             Some(DesktopAction::ConnectDevice(0))
         );
-        assert_eq!(action_at_point(&shell, 1419, 611, 30, rect.y + 12), None);
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, 30, rect.y + 12),
+            Some(DesktopAction::SelectNav(NavTab::FileTransfer))
+        );
+        // Gutter between navigation and devices column has no hit targets
+        assert_eq!(action_at_point(&shell, 1419, 611, 176, rect.y + 12), None);
         shell.begin_connect("paired-desk").unwrap();
         let approval = presentation_for(&shell);
         let yes = control_rects_for(&approval, 1419, 611)[0];
@@ -878,5 +996,70 @@ mod tests {
                 .iter()
                 .any(|c| c.action == DesktopAction::DenyPermission)
         );
+    }
+
+    #[test]
+    fn navigation_tabs_and_filters_are_hit_testable() {
+        let mut shell = ProductShell::new();
+        let layout = LockedDashboardLayout::for_window(1419, 611).expect("layout fits");
+
+        // 1. Navigation items hit testing
+        let conn_rect = layout.nav_tab_rect(1);
+        let action = action_at_point(&shell, 1419, 611, conn_rect.x + 10, conn_rect.y + 10);
+        assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::Connections)));
+
+        apply_action(&mut shell, action.unwrap());
+        assert_eq!(shell.nav_tab(), NavTab::Connections);
+        let presentation = presentation_for(&shell);
+        assert_eq!(presentation.nav_tab, NavTab::Connections);
+
+        let ft_rect = layout.nav_tab_rect(2);
+        let action = action_at_point(&shell, 1419, 611, ft_rect.x + 10, ft_rect.y + 10);
+        assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::FileTransfer)));
+
+        let sec_rect = layout.nav_tab_rect(5);
+        let action = action_at_point(&shell, 1419, 611, sec_rect.x + 10, sec_rect.y + 10);
+        assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::Security)));
+
+        // 2. Filter buttons hit testing
+        let all_rect = layout.filter_all_rect();
+        let action = action_at_point(&shell, 1419, 611, all_rect.x + 5, all_rect.y + 5);
+        assert_eq!(action, Some(DesktopAction::SelectFilter(DeviceFilter::All)));
+
+        let online_rect = layout.filter_online_rect();
+        let action = action_at_point(&shell, 1419, 611, online_rect.x + 5, online_rect.y + 5);
+        assert_eq!(
+            action,
+            Some(DesktopAction::SelectFilter(DeviceFilter::Online))
+        );
+
+        apply_action(&mut shell, action.unwrap());
+        assert_eq!(shell.device_filter(), DeviceFilter::Online);
+
+        let offline_rect = layout.filter_offline_rect();
+        let action = action_at_point(&shell, 1419, 611, offline_rect.x + 5, offline_rect.y + 5);
+        assert_eq!(
+            action,
+            Some(DesktopAction::SelectFilter(DeviceFilter::Offline))
+        );
+
+        // 3. Top bar buttons hit testing
+        let settings_rect = layout.settings_button_rect(1419);
+        let action = action_at_point(
+            &shell,
+            1419,
+            611,
+            settings_rect.x + 10,
+            settings_rect.y + 10,
+        );
+        assert_eq!(action, Some(DesktopAction::OpenSettings));
+        apply_action(&mut shell, action.unwrap());
+        assert_eq!(shell.nav_tab(), NavTab::Settings);
+
+        let help_rect = layout.help_button_rect(1419);
+        let action = action_at_point(&shell, 1419, 611, help_rect.x + 10, help_rect.y + 10);
+        assert_eq!(action, Some(DesktopAction::ToggleHelp));
+        apply_action(&mut shell, action.unwrap());
+        assert!(shell.is_help_open());
     }
 }
