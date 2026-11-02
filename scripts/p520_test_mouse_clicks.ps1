@@ -155,6 +155,20 @@ do {
 
 $hwnd = $proc.MainWindowHandle
 if ($hwnd -eq [IntPtr]::Zero) { throw "No interactive main window acquired" }
+
+# Re-attest the process launched from the selected file, rather than trusting
+# a pre-launch pathname/hash that could have changed before Start-Process.
+# This is a file/process identity check, not a signed-build or loaded-image proof.
+$proc.Refresh()
+$launchedPath = [System.IO.Path]::GetFullPath($proc.MainModule.FileName)
+if (-not [string]::Equals($launchedPath, $resolvedBin, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Launched QA process executable path differs from the selected binary"
+}
+$launchedHash = (Get-FileHash -LiteralPath $launchedPath -Algorithm SHA256).Hash
+if ($launchedHash -ne $binHash) {
+    throw "QA executable changed between pre-launch hash and process verification"
+}
+Write-Host "Process path and post-launch executable hash: PASS"
 Write-Host "Window handle: $hwnd"
 
 # Position window at (100, 100), size (1296, 759)
