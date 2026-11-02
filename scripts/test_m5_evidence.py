@@ -1707,6 +1707,59 @@ class TestRecordRawSourceSafety(Fixture):
             unauthorized_outcome=None,
         )
 
+    def test_symlinked_metadata_cannot_import_private_json(self):
+        source = Path(self.directory.name) / "observation.json"
+        source.write_bytes(b'{"observed": true}')
+        private = Path(self.directory.name) / "private-metadata.json"
+        private.write_text('{"private": "must not enter ledger"}', encoding="utf-8")
+        for field in ("environment", "impairment"):
+            with self.subTest(field=field):
+                redirected = Path(self.directory.name) / f"linked-{field}.json"
+                try:
+                    redirected.symlink_to(private)
+                except (OSError, NotImplementedError) as error:
+                    self.skipTest(f"metadata symlinks unavailable: {error}")
+                args = self.args_for(source)
+                setattr(args, field, str(redirected))
+                with self.assertRaises(SystemExit) as caught:
+                    m5.command_record(args)
+                self.assertIn("redirected", str(caught.exception))
+                self.assertEqual(m5.read_ledger(self.root), [])
+                self.assertEqual(list((self.root / "raw").iterdir()), [])
+        self.assertEqual(private.read_text(encoding="utf-8"),
+                         '{"private": "must not enter ledger"}')
+
+    def test_symlinked_metadata_parent_is_refused(self):
+        source = Path(self.directory.name) / "observation.json"
+        source.write_bytes(b"raw observation")
+        private_dir = Path(self.directory.name) / "private"
+        private_dir.mkdir()
+        (private_dir / "environment.json").write_text('{"secret": true}', encoding="utf-8")
+        redirected_dir = Path(self.directory.name) / "metadata-link"
+        try:
+            redirected_dir.symlink_to(private_dir, target_is_directory=True)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"directory symlinks unavailable: {error}")
+        args = self.args_for(source)
+        args.environment = str(redirected_dir / "environment.json")
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_record(args)
+        self.assertIn("redirected", str(caught.exception))
+        self.assertEqual(m5.read_ledger(self.root), [])
+        self.assertEqual(list((self.root / "raw").iterdir()), [])
+
+    def test_unredirected_environment_metadata_still_records(self):
+        source = Path(self.directory.name) / "observation.json"
+        source.write_bytes(b"raw observation")
+        environment = Path(self.directory.name) / "environment.json"
+        environment.write_text('{"os_build": "test"}', encoding="utf-8")
+        args = self.args_for(source)
+        args.environment = str(environment)
+        m5.command_record(args)
+        entries = m5.read_ledger(self.root)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["environment"], {"os_build": "test"})
+
     def test_regular_unshared_source_is_copied_and_hashed(self):
         source = Path(self.directory.name) / "observation.json"
         source.write_bytes(b'{"observed": true}\n')
