@@ -177,7 +177,9 @@ $winY = 100
 $winW = 1296
 $winH = 759
 [WinUserClickApi]::ShowWindow($hwnd, 9) | Out-Null # SW_RESTORE
-[WinUserClickApi]::MoveWindow($hwnd, $winX, $winY, $winW, $winH, $true) | Out-Null
+if (-not [WinUserClickApi]::MoveWindow($hwnd, $winX, $winY, $winW, $winH, $true)) {
+    throw "Cannot position QA window; refusing coordinate-based mouse input"
+}
 if (-not [WinUserClickApi]::SetForegroundWindow($hwnd)) {
     throw "Cannot bring QA window to foreground; refusing to send clicks to another application"
 }
@@ -193,7 +195,9 @@ if (-not [WinUserClickApi]::GetClientRect($hwnd, [ref]$clientRect)) {
 }
 $clientW = $clientRect.Right - $clientRect.Left
 $clientH = $clientRect.Bottom - $clientRect.Top
-if ($clientW -lt 800 -or $clientH -lt 500 -or
+# These coordinates only target the four-column locked dashboard. A compact
+# fallback may still be a valid application UI, but cannot validate this test.
+if ($clientW -lt 1180 -or $clientH -lt 600 -or
     $clientW -gt 8192 -or $clientH -gt 8192 -or
     ([long]$clientW * [long]$clientH) -gt 16000000) {
     throw "Unexpected client dimensions; fixed click coordinates are unsafe"
