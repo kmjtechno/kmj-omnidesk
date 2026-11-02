@@ -7,9 +7,24 @@ $ErrorActionPreference = 'Stop'
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $worktreeRoot = (Resolve-Path (Join-Path $scriptDir "..")).Path
+# Refuse output paths outside the project, including existing junctions/symlinks.
+# The mouse QA collector enforces the same project-contained evidence policy.
 $resolvedOutputDir = [System.IO.Path]::GetFullPath((Join-Path $worktreeRoot $OutputDir))
-
-if (-not (Test-Path $resolvedOutputDir)) {
+$rootPrefix = $worktreeRoot.TrimEnd([char]92, [char]47) + [System.IO.Path]::DirectorySeparatorChar
+if (-not $resolvedOutputDir.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Foreground QA output must remain under the project root"
+}
+$walk = $resolvedOutputDir
+while ($walk.Length -ge $worktreeRoot.Length) {
+    if (Test-Path -LiteralPath $walk) {
+        $item = Get-Item -LiteralPath $walk -Force
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            throw "Foreground QA output directory traverses a symlink/junction"
+        }
+    }
+    $walk = Split-Path -Parent $walk
+}
+if (-not (Test-Path -LiteralPath $resolvedOutputDir)) {
     [System.IO.Directory]::CreateDirectory($resolvedOutputDir) | Out-Null
 }
 
@@ -32,8 +47,21 @@ public class WinUserForegroundApi {
 '@
 }
 
-$resolvedBin = (Resolve-Path $BinaryPath).Path
-$binHash = (Get-FileHash $resolvedBin -Algorithm SHA256).Hash
+# Only execute a project-contained, non-redirected QA executable.
+$resolvedBin = (Resolve-Path -LiteralPath (Join-Path $worktreeRoot $BinaryPath)).Path
+if (-not $resolvedBin.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+    -not $resolvedBin.EndsWith(".exe", [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Foreground QA binary must be a project-contained .exe"
+}
+$walk = $resolvedBin
+while ($walk.Length -ge $worktreeRoot.Length) {
+    $item = Get-Item -LiteralPath $walk -Force
+    if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        throw "Foreground QA binary path traverses a symlink/junction"
+    }
+    $walk = Split-Path -Parent $walk
+}
+$binHash = (Get-FileHash -LiteralPath $resolvedBin -Algorithm SHA256).Hash
 
 Write-Host "Target executable: $resolvedBin"
 Write-Host "Executable SHA-256: $binHash"
@@ -81,9 +109,15 @@ $runDir = Join-Path $resolvedOutputDir ("run-" + [Guid]::NewGuid().ToString("N")
 $screenshotPath = Join-Path $runDir "foreground-live.png"
 
 $rect = [WinUserForegroundApi+RECT]::new()
-[WinUserForegroundApi]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
-$w = [Math]::Max(10, $rect.Right - $rect.Left)
-$h = [Math]::Max(10, $rect.Bottom - $rect.Top)
+if (-not [WinUserForegroundApi]::GetWindowRect($hwnd, [ref]$rect)) {
+    throw "GetWindowRect failed; refusing an unbounded screenshot"
+}
+$w = $rect.Right - $rect.Left
+$h = $rect.Bottom - $rect.Top
+if ($w -lt 10 -or $h -lt 10 -or $w -gt 8192 -or $h -gt 8192 -or
+    ([long]$w * [long]$h) -gt 16000000) {
+    throw "Foreground QA window dimensions outside bounded screenshot policy"
+}
 
 $bmp = [System.Drawing.Bitmap]::new($w, $h)
 try {
