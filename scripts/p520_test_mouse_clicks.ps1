@@ -10,7 +10,7 @@ $worktreeRoot = (Resolve-Path (Join-Path $scriptDir "..")).Path
 # Each QA invocation gets a new evidence directory. Never overwrite a
 # previous screenshot or owner-authored receipt in the checkout.
 $baseOutputDir = [System.IO.Path]::GetFullPath((Join-Path $worktreeRoot $OutputDir))
-$rootPrefix = $worktreeRoot.TrimEnd('\\', '/') + [System.IO.Path]::DirectorySeparatorChar
+$rootPrefix = $worktreeRoot.TrimEnd([char]92, [char]47) + [System.IO.Path]::DirectorySeparatorChar
 if (-not $baseOutputDir.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "QA output must remain under the project root"
 }
