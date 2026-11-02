@@ -534,11 +534,16 @@ pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
         };
 
     if let Some(control) = control_match {
-        if !control.enabled {
+        if control.enabled {
+            apply_action(shell, control.action);
+            return true;
+        }
+        // The disabled empty-directory placeholder uses 'd', which is also
+        // the global Devices navigation shortcut. Let that one key fall
+        // through to navigation; disabled device rows must stay inert.
+        if control.action != DesktopAction::FocusDevices {
             return false;
         }
-        apply_action(shell, control.action);
-        return true;
     }
 
     // Nav and help shortcuts in Devices / Disconnected view
@@ -1063,6 +1068,37 @@ mod tests {
         assert_eq!(offline.len(), 1);
         assert_eq!(offline[0].action, DesktopAction::ConnectDevice(0));
         assert!(!offline[0].enabled);
+    }
+
+    #[test]
+    fn devices_shortcut_is_not_shadowed_by_disabled_empty_directory() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary};
+
+        let mut shell = ProductShell::new();
+        // Empty directory creates a disabled FocusDevices control on 'd'.
+        assert!(apply_key(&mut shell, 'd'));
+        assert_eq!(shell.nav_tab(), NavTab::Devices);
+        assert!(apply_key(&mut shell, 'c'));
+        assert_eq!(shell.nav_tab(), NavTab::Connections);
+        assert!(apply_key(&mut shell, 'd'));
+        assert_eq!(shell.nav_tab(), NavTab::Devices);
+
+        // An empty *filtered* directory must behave identically.
+        shell.replace_devices(vec![DeviceSummary {
+            id: "offline-only".into(),
+            display_name: "Offline only".into(),
+            status: DeviceStatus::Offline,
+        }]);
+        shell.set_device_filter(DeviceFilter::Online);
+        assert!(apply_key(&mut shell, 'd'));
+        assert_eq!(shell.nav_tab(), NavTab::Devices);
+        assert!(!apply_key(&mut shell, '1'));
+        assert_eq!(shell.selected_device(), None);
+
+        // A disabled real device row must not become actionable.
+        shell.set_device_filter(DeviceFilter::All);
+        assert!(!apply_key(&mut shell, '1'));
+        assert_eq!(shell.selected_device(), None);
     }
 
     #[test]
