@@ -903,6 +903,72 @@ m5.read_ledger(ledger.parent)
         self.assertTrue(ledger.exists())
         self.assertEqual(os.stat(ledger).st_mode & 0o170000, 0o010000)  # POSIX FIFO
 
+    def test_ledger_ctime_only_change_during_read_is_refused(self) -> None:
+        """Even an unchanged size/mtime cannot excuse changed ledger metadata."""
+        import os
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        self.append(self.code_run())
+        original_fstat = os.fstat
+        calls = 0
+
+        def changed_ctime(descriptor):
+            nonlocal calls
+            metadata = original_fstat(descriptor)
+            calls += 1
+            if calls != 2:
+                return metadata
+            return SimpleNamespace(
+                st_mode=metadata.st_mode, st_nlink=metadata.st_nlink,
+                st_dev=metadata.st_dev, st_ino=metadata.st_ino,
+                st_size=metadata.st_size, st_mtime_ns=metadata.st_mtime_ns,
+                st_ctime_ns=metadata.st_ctime_ns + 1,
+                st_file_attributes=getattr(metadata, "st_file_attributes", 0),
+            )
+
+        with patch.object(m5.os, "fstat", side_effect=changed_ctime):
+            with self.assertRaises(SystemExit) as refusal:
+                m5.read_ledger(self.root)
+        self.assertEqual(calls, 2)
+        self.assertIn("changed while reading", str(refusal.exception))
+
+    def test_ledger_short_descriptor_read_is_refused(self) -> None:
+        """A short read must not silently accept a complete-looking JSON line."""
+        import os
+        from unittest.mock import patch
+
+        entry = self.code_run()
+        self.append(entry)
+        original_bytes = (self.root / "ledger.jsonl").read_bytes()
+        self.assertTrue(original_bytes.endswith(b"\\n"))
+        real_fdopen = os.fdopen
+
+        class ShortRead:
+            def __init__(self, handle):
+                self.handle = handle
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.handle.close()
+
+            def fileno(self):
+                return self.handle.fileno()
+
+            def read(self):
+                return self.handle.read()[:-1]
+
+        def truncate_descriptor_read(descriptor, mode):
+            return ShortRead(real_fdopen(descriptor, mode))
+
+        with patch.object(m5.os, "fdopen", side_effect=truncate_descriptor_read):
+            with self.assertRaises(SystemExit) as refusal:
+                m5.read_ledger(self.root)
+        self.assertIn("changed while reading", str(refusal.exception))
+        self.assertEqual((self.root / "ledger.jsonl").read_bytes(), original_bytes)
+
     def test_read_ledger_refuses_external_hardlink(self) -> None:
         ledger = self.root / "ledger.jsonl"
         external = Path(self.directory.name) / "external-ledger.jsonl"
