@@ -399,7 +399,8 @@ pub fn action_at_point(
             }
         }
 
-        // Filter buttons (ALL, ONLINE, OFFLINE)
+        // Filter buttons are visible only on the Devices tab.
+        if shell.nav_tab() == NavTab::Devices {
         let all_rect = locked.filter_all_rect();
         if x >= all_rect.x
             && y >= all_rect.y
@@ -423,6 +424,8 @@ pub fn action_at_point(
             && y < offline_rect.y.saturating_add(offline_rect.height)
         {
             return Some(DesktopAction::SelectFilter(DeviceFilter::Offline));
+        }
+
         }
 
         // Top bar buttons (SETTINGS, HELP)
