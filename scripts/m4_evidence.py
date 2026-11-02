@@ -90,7 +90,14 @@ def sha256_file(path: Path) -> tuple[str, int]:
     This defends against a file swap between safe_relative()/lstat() and
     hashing. It is not a fully race-proof Windows filesystem sandbox.
     """
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    # O_NONBLOCK prevents a FIFO substituted after preflight from hanging the
+    # evidence collector before fstat() can reject its non-regular descriptor.
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
     try:
         descriptor = os.open(path, flags)
     except OSError:
