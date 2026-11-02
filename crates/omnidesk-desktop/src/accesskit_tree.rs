@@ -68,6 +68,8 @@ pub fn build_accesskit_tree_with_focus(
         node.add_action(Action::Focus);
         if control.enabled {
             node.add_action(Action::Click);
+        } else {
+            node.set_disabled();
         }
         nodes.push((id, node));
     }
@@ -112,6 +114,7 @@ mod tests {
         assert!(update.tree.is_some());
         assert_eq!(desktop_action_for_node(&shell, NodeId(1)), None);
         assert_eq!(desktop_action_for_node(&shell, NodeId(2)), None);
+        assert!(update.nodes[1].1.is_disabled());
     }
 
     #[test]
@@ -139,6 +142,7 @@ mod tests {
             desktop_action_for_node(&shell, NodeId(1)),
             Some(DesktopAction::ConnectDevice(0))
         );
+        assert!(!update.nodes[1].1.is_disabled());
     }
 
     #[test]
