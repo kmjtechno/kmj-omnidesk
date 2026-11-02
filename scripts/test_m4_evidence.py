@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import m4_evidence as m4
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).with_name("m4_evidence.py")
 
@@ -420,6 +424,74 @@ class EvidenceToolTests(unittest.TestCase):
         if not exercised:
             self.skipTest("host filesystem disallows ambiguous checksum filenames")
 
+
+
+    def test_descriptor_hash_rejects_retargeted_open(self):
+        """A Windows-style path substitution cannot import external bytes."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            artifact = root / "inside.jsonl"
+            external = root / "owner-external.jsonl"
+            artifact.write_bytes(b"approved evidence\\n")
+            external.write_bytes(b"protected owner bytes\\n")
+            expected = external.read_bytes()
+            real_open = os.open
+
+            def retarget(path, flags, *args, **kwargs):
+                if Path(path) == artifact:
+                    return real_open(
+                        external, flags & ~getattr(os, "O_NOFOLLOW", 0),
+                        *args, **kwargs,
+                    )
+                return real_open(path, flags, *args, **kwargs)
+
+            with patch.object(m4.os, "open", side_effect=retarget):
+                with self.assertRaises(SystemExit) as caught:
+                    m4.sha256_file(artifact)
+            self.assertIn("expected unshared regular file", str(caught.exception))
+            self.assertEqual(external.read_bytes(), expected)
+            self.assertEqual(artifact.read_bytes(), b"approved evidence\\n")
+
+    def test_descriptor_hash_rejects_hardlink_swap(self):
+        """A newly linked external file must not be accepted as run evidence."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            artifact = root / "inside.jsonl"
+            external = root / "external.jsonl"
+            artifact.write_bytes(b"approved\\n")
+            external.write_bytes(b"outside\\n")
+            try:
+                probe = root / "probe"
+                os.link(external, probe)
+                probe.unlink()
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"hardlinks unavailable: {error}")
+            real_open = os.open
+            swapped = False
+
+            def replace_before_open(path, flags, *args, **kwargs):
+                nonlocal swapped
+                if Path(path) == artifact and not swapped:
+                    swapped = True
+                    artifact.unlink()
+                    os.link(external, artifact)
+                return real_open(path, flags, *args, **kwargs)
+
+            with patch.object(m4.os, "open", side_effect=replace_before_open):
+                with self.assertRaises(SystemExit) as caught:
+                    m4.sha256_file(artifact)
+            self.assertIn("expected unshared regular file", str(caught.exception))
+            self.assertEqual(external.read_bytes(), b"outside\\n")
+
+    def test_descriptor_hash_preserves_normal_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            artifact = Path(temp) / "normal.jsonl"
+            data = b"real observations\\n"
+            artifact.write_bytes(data)
+            self.assertEqual(
+                m4.sha256_file(artifact),
+                (hashlib.sha256(data).hexdigest(), len(data)),
+            )
 
 if __name__ == "__main__":
     unittest.main()
