@@ -130,6 +130,12 @@ GATE_EVIDENCE = {
 # label a hand-written file `code_observed` and the class would carry no claim.
 CODE_EVIDENCE_REQUIRED_PROBE = "relay::tests"
 
+# A malformed or attacker-controlled evidence package must not allocate
+# unbounded memory when a release gate reads JSONL/metadata. These caps are
+# intentionally generous for 60 real observations but fail closed on abuse.
+MAX_LEDGER_BYTES = 8 * 1024 * 1024
+MAX_METADATA_BYTES = 1 * 1024 * 1024
+
 
 def fail(message: str) -> NoReturn:
     raise SystemExit(message)
@@ -381,7 +387,11 @@ def read_ledger(root: Path) -> list[dict]:
 
         if not matches_open_file(before):
             fail(f"evidence ledger changed or is not an unshared regular file: {path}")
-        content = handle.read()
+        if before.st_size > MAX_LEDGER_BYTES:
+            fail(f"evidence ledger exceeds {MAX_LEDGER_BYTES} byte limit: {path}")
+        content = handle.read(MAX_LEDGER_BYTES + 1)
+        if len(content) > MAX_LEDGER_BYTES:
+            fail(f"evidence ledger exceeds {MAX_LEDGER_BYTES} byte limit: {path}")
         after = os.fstat(handle.fileno())
         if (
             not matches_open_file(after)
@@ -439,7 +449,11 @@ def load_json(path: Path, label: str) -> dict | None:
                 or (getattr(linked, "st_file_attributes", 0) & reparse)
             ):
                 return None
-            content = handle.read()
+            if before.st_size > MAX_METADATA_BYTES:
+                return None
+            content = handle.read(MAX_METADATA_BYTES + 1)
+            if len(content) > MAX_METADATA_BYTES:
+                return None
             after = os.fstat(handle.fileno())
             linked_after = path.lstat()
             if (
