@@ -47,6 +47,27 @@ def validate_run_id(value: str) -> str:
     return value
 
 
+def redirected_path(path: Path) -> bool:
+    """Reject all Windows reparse points, not just symlinks and junctions.
+
+    Some reparse-tagged filesystem objects are neither recognized by
+    Path.is_symlink() nor Path.is_junction(). They must not become evidence
+    roots, run directories, or artifact ancestors.
+    """
+    if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+        return True
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        fail(f"cannot inspect evidence path: {path}")
+    return bool(
+        getattr(metadata, "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    )
+
+
 def safe_relative(root: Path, file_path: Path) -> tuple[Path, Path]:
     root = root.resolve()
     if ".." in file_path.parts:
@@ -55,7 +76,7 @@ def safe_relative(root: Path, file_path: Path) -> tuple[Path, Path]:
     # location even if the final resolved path remains under the same run.
     absolute = file_path.absolute()
     for component in (absolute, *absolute.parents):
-        if component.is_symlink() or getattr(component, "is_junction", lambda: False)():
+        if redirected_path(component):
             fail(f"redirected artifact path forbidden: {component}")
     resolved = file_path.resolve(strict=True)
     try:
@@ -178,8 +199,7 @@ def checked_evidence_root(value: str) -> Path:
         fail("parent traversal in evidence root forbidden")
     absolute = supplied.absolute()
     for component in (absolute, *absolute.parents):
-        is_junction = getattr(component, "is_junction", lambda: False)
-        if component.is_symlink() or is_junction():
+        if redirected_path(component):
             fail(f"symlinked evidence root path forbidden: {component}")
     return absolute.resolve()
 
@@ -191,8 +211,7 @@ def command_prepare_run(args: argparse.Namespace) -> None:
     # this check, a pre-existing runs/ symlink or Windows junction sends
     # prepare-run's mkdir outside the evidence package.
     runs_root = root / "runs"
-    is_junction = getattr(runs_root, "is_junction", lambda: False)
-    if runs_root.is_symlink() or is_junction():
+    if redirected_path(runs_root):
         fail(f"redirected runs directory forbidden: {runs_root}")
     if runs_root.exists() and not runs_root.is_dir():
         fail(f"runs path is not a directory: {runs_root}")
