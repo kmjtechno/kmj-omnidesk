@@ -401,31 +401,30 @@ pub fn action_at_point(
 
         // Filter buttons are visible only on the Devices tab.
         if shell.nav_tab() == NavTab::Devices {
-        let all_rect = locked.filter_all_rect();
-        if x >= all_rect.x
-            && y >= all_rect.y
-            && x < all_rect.x.saturating_add(all_rect.width)
-            && y < all_rect.y.saturating_add(all_rect.height)
-        {
-            return Some(DesktopAction::SelectFilter(DeviceFilter::All));
-        }
-        let online_rect = locked.filter_online_rect();
-        if x >= online_rect.x
-            && y >= online_rect.y
-            && x < online_rect.x.saturating_add(online_rect.width)
-            && y < online_rect.y.saturating_add(online_rect.height)
-        {
-            return Some(DesktopAction::SelectFilter(DeviceFilter::Online));
-        }
-        let offline_rect = locked.filter_offline_rect();
-        if x >= offline_rect.x
-            && y >= offline_rect.y
-            && x < offline_rect.x.saturating_add(offline_rect.width)
-            && y < offline_rect.y.saturating_add(offline_rect.height)
-        {
-            return Some(DesktopAction::SelectFilter(DeviceFilter::Offline));
-        }
-
+            let all_rect = locked.filter_all_rect();
+            if x >= all_rect.x
+                && y >= all_rect.y
+                && x < all_rect.x.saturating_add(all_rect.width)
+                && y < all_rect.y.saturating_add(all_rect.height)
+            {
+                return Some(DesktopAction::SelectFilter(DeviceFilter::All));
+            }
+            let online_rect = locked.filter_online_rect();
+            if x >= online_rect.x
+                && y >= online_rect.y
+                && x < online_rect.x.saturating_add(online_rect.width)
+                && y < online_rect.y.saturating_add(online_rect.height)
+            {
+                return Some(DesktopAction::SelectFilter(DeviceFilter::Online));
+            }
+            let offline_rect = locked.filter_offline_rect();
+            if x >= offline_rect.x
+                && y >= offline_rect.y
+                && x < offline_rect.x.saturating_add(offline_rect.width)
+                && y < offline_rect.y.saturating_add(offline_rect.height)
+            {
+                return Some(DesktopAction::SelectFilter(DeviceFilter::Offline));
+            }
         }
 
         // Top bar buttons (SETTINGS, HELP)
