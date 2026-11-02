@@ -79,7 +79,17 @@ def checksum_relative_name(relative: Path) -> str:
     Reject control characters too, rather than producing non-portable evidence.
     """
     name = relative.as_posix()
-    if any(ord(char) < 32 or ord(char) == 127 or char == "\\" for char in name):
+    # Unicode format controls, C1 controls and non-ASCII whitespace can
+    # conceal path components or render differently across evidence viewers.
+    # Keep visible Unicode names (and NFC collision checking) supported.
+    if any(
+        ord(char) < 32
+        or ord(char) == 127
+        or char == "\\"
+        or unicodedata.category(char).startswith("C")
+        or (char.isspace() and char != " ")
+        for char in name
+    ):
         fail("non-portable checksum path forbidden")
     return name
 
@@ -234,6 +244,10 @@ def command_artifact(args: argparse.Namespace) -> None:
 
 def command_checksums(args: argparse.Namespace) -> None:
     root = checked_evidence_root(args.root)
+    # An absent or non-directory root must not produce an apparently valid
+    # empty checksum manifest. Never create a root during verification.
+    if not root.is_dir():
+        fail("evidence package root must be an existing directory")
     rows: list[str] = []
     seen_portable_names: dict[str, str] = {}
     for path in sorted(root.rglob("*")):
@@ -268,6 +282,8 @@ def command_checksums(args: argparse.Namespace) -> None:
             continue
         digest, _ = sha256_file(path)
         rows.append(f"{digest}  {name}")
+    if not rows:
+        fail("evidence package contains no checksum-eligible files")
     print("\n".join(rows))
 
 

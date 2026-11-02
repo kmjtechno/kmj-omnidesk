@@ -130,6 +130,12 @@ GATE_EVIDENCE = {
 # label a hand-written file `code_observed` and the class would carry no claim.
 CODE_EVIDENCE_REQUIRED_PROBE = "relay::tests"
 
+# A malformed or attacker-controlled evidence package must not allocate
+# unbounded memory when a release gate reads JSONL/metadata. These caps are
+# intentionally generous for 60 real observations but fail closed on abuse.
+MAX_LEDGER_BYTES = 8 * 1024 * 1024
+MAX_METADATA_BYTES = 1 * 1024 * 1024
+
 
 def fail(message: str) -> NoReturn:
     raise SystemExit(message)
@@ -152,6 +158,76 @@ def sha256_file(path: Path) -> tuple[str, int]:
         while chunk := handle.read(1024 * 1024):
             digest.update(chunk)
             size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def unshared_regular_evidence_file(path: Path) -> bool:
+    """Refuse hardlinks importing external bytes and Windows reparse files."""
+    if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+        return False
+    try:
+        metadata = path.lstat()
+    except OSError:
+        return False
+    return (
+        stat.S_ISREG(metadata.st_mode)
+        and metadata.st_nlink == 1
+        and not (
+            getattr(metadata, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        )
+    )
+
+
+def sha256_unshared_evidence_file(path: Path) -> tuple[str, int]:
+    """Hash the opened raw observation, refusing substituted or shared files.
+
+    A path-only preflight followed by sha256_file(path) can be raced by
+    replacing a regular file with a symlink/hardlink of identical bytes.
+    Identity and metadata are checked on the open descriptor before and
+    after streaming. This is defense in depth, not a Windows race-proof
+    filesystem sandbox.
+    """
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError("raw observation cannot be safely opened") from error
+
+    with os.fdopen(descriptor, "rb") as handle:
+        def matches_path(metadata: os.stat_result) -> bool:
+            try:
+                linked = path.lstat()
+            except OSError:
+                return False
+            reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            return (
+                stat.S_ISREG(metadata.st_mode)
+                and metadata.st_nlink == 1
+                and stat.S_ISREG(linked.st_mode)
+                and linked.st_nlink == 1
+                and (metadata.st_dev, metadata.st_ino)
+                == (linked.st_dev, linked.st_ino)
+                and not (getattr(metadata, "st_file_attributes", 0) & reparse)
+                and not (getattr(linked, "st_file_attributes", 0) & reparse)
+            )
+
+        before = os.fstat(handle.fileno())
+        if not matches_path(before):
+            raise ValueError("raw observation is not an unshared opened regular file")
+        digest = hashlib.sha256()
+        size = 0
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+            size += len(chunk)
+        after = os.fstat(handle.fileno())
+        if (
+            not matches_path(after)
+            or (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+            != (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            or size != after.st_size
+        ):
+            raise ValueError("raw observation changed while hashing")
     return digest.hexdigest(), size
 
 
@@ -262,9 +338,14 @@ def strict_json_loads(content: str):
                 check_finite(child)
         return value
 
-    return check_finite(json.loads(
-        content, object_pairs_hook=unique_keys, parse_constant=reject_constant
-    ))
+    try:
+        return check_finite(json.loads(
+            content, object_pairs_hook=unique_keys, parse_constant=reject_constant
+        ))
+    except RecursionError as error:
+        # A deeply nested, otherwise bounded JSON document must be a
+        # rejected observation, not an uncaught release-gate traceback.
+        raise ValueError("JSON nesting exceeds parser limit") from error
 
 
 def read_ledger(root: Path) -> list[dict]:
@@ -275,10 +356,61 @@ def read_ledger(root: Path) -> list[dict]:
         fail(f"symlinked evidence ledger forbidden: {path}")
     if not path.exists():
         return []
-    if not path.is_file():
-        fail(f"evidence ledger is not a regular file: {path}")
+    if not unshared_regular_evidence_file(path):
+        fail(f"evidence ledger is not an unshared regular file: {path}")
+    # Open the ledger by descriptor, not by path after the preflight: a
+    # replacement symlink/hardlink must not import unrelated evidence.
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        fail(f"cannot safely open evidence ledger: {path}")
+    with os.fdopen(descriptor, "rb") as handle:
+        before = os.fstat(handle.fileno())
+
+        def matches_open_file(metadata: os.stat_result) -> bool:
+            try:
+                linked = path.lstat()
+            except OSError:
+                return False
+            return (
+                stat.S_ISREG(metadata.st_mode)
+                and metadata.st_nlink == 1
+                and stat.S_ISREG(linked.st_mode)
+                and linked.st_nlink == 1
+                and (metadata.st_dev, metadata.st_ino)
+                == (linked.st_dev, linked.st_ino)
+                and not (
+                    getattr(metadata, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                )
+                and not (
+                    getattr(linked, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                )
+            )
+
+        if not matches_open_file(before):
+            fail(f"evidence ledger changed or is not an unshared regular file: {path}")
+        if before.st_size > MAX_LEDGER_BYTES:
+            fail(f"evidence ledger exceeds {MAX_LEDGER_BYTES} byte limit: {path}")
+        content = handle.read(MAX_LEDGER_BYTES + 1)
+        if len(content) > MAX_LEDGER_BYTES:
+            fail(f"evidence ledger exceeds {MAX_LEDGER_BYTES} byte limit: {path}")
+        after = os.fstat(handle.fileno())
+        if (
+            not matches_open_file(after)
+            or (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+            != (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            or len(content) != after.st_size
+        ):
+            fail(f"evidence ledger changed while reading: {path}")
+    try:
+        lines = content.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        fail(f"evidence ledger is not valid UTF-8: {path}")
     entries = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for number, line in enumerate(lines, start=1):
         if not line.strip():
             fail(f"{path}:{number}: blank ledger line forbidden")
         try:
@@ -301,8 +433,46 @@ def load_json(path: Path, label: str) -> dict | None:
     The same reasoning is recorded in `release_gate.py`; both tools learned it
     from the same failure.
     """
+    # Metadata files are operator-provided but still release evidence. A FIFO
+    # substituted for an ordinary JSON file must not hang the recorder, and a
+    # retargeted path must not silently import another file's metadata.
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
     try:
-        parsed = strict_json_loads(path.read_text(encoding="utf-8"))
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as handle:
+            before = os.fstat(handle.fileno())
+            linked = path.lstat()
+            reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_nlink != 1
+                or not stat.S_ISREG(linked.st_mode)
+                or linked.st_nlink != 1
+                or (before.st_dev, before.st_ino) != (linked.st_dev, linked.st_ino)
+                or (getattr(before, "st_file_attributes", 0) & reparse)
+                or (getattr(linked, "st_file_attributes", 0) & reparse)
+            ):
+                return None
+            if before.st_size > MAX_METADATA_BYTES:
+                return None
+            content = handle.read(MAX_METADATA_BYTES + 1)
+            if len(content) > MAX_METADATA_BYTES:
+                return None
+            after = os.fstat(handle.fileno())
+            linked_after = path.lstat()
+            if (
+                (after.st_dev, after.st_ino) != (linked_after.st_dev, linked_after.st_ino)
+                or (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+                != (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+                or after.st_nlink != 1
+                or linked_after.st_nlink != 1
+                or (getattr(after, "st_file_attributes", 0) & reparse)
+                or (getattr(linked_after, "st_file_attributes", 0) & reparse)
+                or len(content) != after.st_size
+            ):
+                return None
+        parsed = strict_json_loads(content.decode("utf-8"))
     except (OSError, ValueError, UnicodeError):
         return None
     if not isinstance(parsed, dict):
@@ -476,16 +646,21 @@ def entry_problems(entry: dict, run_id: str, raw_root: Path) -> list[str]:
         or name != f"{run_id}{Path(name).suffix}"
     ):
         return [f"{run_id}: invalid or cross-run raw observation path"]
-    if raw_root.is_symlink():
+    if raw_root.is_symlink() or getattr(raw_root, "is_junction", lambda: False)():
         return [f"{run_id}: symlinked raw observation directory forbidden"]
     path = raw_root / name
     if path.is_symlink():
         return [f"{run_id}: symlinked raw observation forbidden"]
-    if not path.is_file():
+    if not path.exists():
         problems.append(f"{run_id}: raw observation {name} is gone")
         return problems
+    if not unshared_regular_evidence_file(path):
+        return [f"{run_id}: raw observation {name} is not an unshared regular file"]
 
-    actual, size = sha256_file(path)
+    try:
+        actual, size = sha256_unshared_evidence_file(path)
+    except (OSError, ValueError):
+        return [f"{run_id}: raw observation {name} changed or cannot be safely hashed"]
     if actual != digest:
         problems.append(f"{run_id}: raw observation {name} no longer hashes to what was recorded")
     expected_size = entry.get("raw_bytes")
@@ -684,7 +859,7 @@ def command_init(args: argparse.Namespace) -> None:
     if path.exists() or path.is_symlink():
         fail(f"{path} already exists; refusing to overwrite a run ledger")
     raw_directory = root / "raw"
-    if raw_directory.is_symlink():
+    if raw_directory.is_symlink() or getattr(raw_directory, "is_junction", lambda: False)():
         fail(f"refusing symlinked raw observation directory: {raw_directory}")
     raw_directory.mkdir(parents=True, exist_ok=True)
     if not raw_directory.is_dir():
@@ -707,7 +882,7 @@ def command_record(args: argparse.Namespace) -> None:
     root = checked_evidence_root(args.root)
     root.mkdir(parents=True, exist_ok=True)
     raw_directory = root / "raw"
-    if raw_directory.is_symlink():
+    if raw_directory.is_symlink() or getattr(raw_directory, "is_junction", lambda: False)():
         fail(f"refusing symlinked raw observation directory: {raw_directory}")
     raw_directory.mkdir(parents=True, exist_ok=True)
     run_id = validate_run_id(args.run_id)
@@ -728,7 +903,7 @@ def command_record(args: argparse.Namespace) -> None:
     # Without this preflight, append mode silently creates a new ledger or
     # follows a symlink to another package after the raw file was copied.
     ledger = ledger_path(root)
-    if ledger.is_symlink() or not ledger.is_file():
+    if not unshared_regular_evidence_file(ledger):
         fail(f"missing or unsafe evidence ledger (run init first): {ledger}")
 
     # Validate the complete record before touching any existing evidence.
@@ -792,8 +967,26 @@ def command_record(args: argparse.Namespace) -> None:
     except OSError:
         fail(f"cannot safely append to evidence ledger: {ledger}")
     with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
-        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
-            fail(f"evidence ledger is not a regular file: {ledger}")
+        metadata = os.fstat(handle.fileno())
+        # O_NOFOLLOW is unavailable on some platforms (notably Windows).
+        # Verify the opened handle still names the expected unshared file
+        # before appending; the earlier pathname preflight is insufficient.
+        try:
+            linked = ledger.lstat()
+        except OSError:
+            fail(f"evidence ledger changed before append: {ledger}")
+        reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or not stat.S_ISREG(linked.st_mode)
+            or linked.st_nlink != 1
+            or (metadata.st_dev, metadata.st_ino)
+            != (linked.st_dev, linked.st_ino)
+            or (getattr(metadata, "st_file_attributes", 0) & reparse)
+            or (getattr(linked, "st_file_attributes", 0) & reparse)
+        ):
+            fail(f"evidence ledger is not the expected unshared regular file: {ledger}")
         handle.write(json.dumps(entry, sort_keys=True) + "\n")
     print(json.dumps({"run_id": run_id, "recorded": True}, sort_keys=True))
 

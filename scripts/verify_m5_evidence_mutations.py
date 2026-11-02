@@ -76,8 +76,18 @@ MUTATIONS: list[tuple[str, str, str]] = [
     # --- observation integrity --------------------------------------------
     (
         "a deleted raw observation is skipped",
-        "if not path.is_file():\n        problems.append(",
+        "if not path.exists():\n        problems.append(",
         "if False:\n        problems.append(",
+    ),
+    (
+        "raw digest reopens path after identity preflight",
+        "actual, size = sha256_unshared_evidence_file(path)",
+        "actual, size = sha256_file(path)",
+    ),
+    (
+        "ledger opened descriptor identity is not verified",
+        "def matches_open_file(metadata: os.stat_result) -> bool:\n            try:",
+        "def matches_open_file(metadata: os.stat_result) -> bool:\n            return True\n            try:",
     ),
     (
         "digest comparison is truncated",

@@ -111,6 +111,47 @@ class EvidenceToolTests(unittest.TestCase):
                 "2026-11-01T18:00:00+05:30",
             )
 
+    def test_checksums_rejects_missing_and_non_directory_roots(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            missing = base / "missing"
+            missing_result = self.run_tool(
+                "checksums", "--root", str(missing), ok=False
+            )
+            self.assertNotEqual(missing_result.returncode, 0)
+            self.assertIn("existing directory", missing_result.stderr)
+            self.assertEqual(missing_result.stdout, "")
+            self.assertFalse(missing.exists())
+
+            regular_file = base / "owner-data.txt"
+            regular_file.write_bytes(b"owner bytes\\n")
+            before = regular_file.read_bytes()
+            file_result = self.run_tool(
+                "checksums", "--root", str(regular_file), ok=False
+            )
+            self.assertNotEqual(file_result.returncode, 0)
+            self.assertIn("existing directory", file_result.stderr)
+            self.assertEqual(file_result.stdout, "")
+            self.assertEqual(regular_file.read_bytes(), before)
+
+    def test_checksums_rejects_empty_or_checksum_only_packages(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "runs" / "M4-T1-R01").mkdir(parents=True)
+            empty = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertNotEqual(empty.returncode, 0)
+            self.assertIn("no checksum-eligible files", empty.stderr)
+            self.assertEqual(empty.stdout, "")
+
+            checksum = root / "checksums.sha256"
+            checksum.write_bytes(b"old manifest\\n")
+            before = checksum.read_bytes()
+            checksum_only = self.run_tool("checksums", "--root", temp, ok=False)
+            self.assertNotEqual(checksum_only.returncode, 0)
+            self.assertIn("no checksum-eligible files", checksum_only.stderr)
+            self.assertEqual(checksum_only.stdout, "")
+            self.assertEqual(checksum.read_bytes(), before)
+
     def test_checksums_are_sorted_and_exclude_checksum_file(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -398,7 +439,12 @@ class EvidenceToolTests(unittest.TestCase):
         # Windows does not permit several of these characters; Linux does.
         # A raw checksum row must never embed a newline or a backslash.
         exercised = 0
-        for bad_name in ("events\ninjected.jsonl", "events\\backslash.jsonl", "events\tcontrol.jsonl"):
+        for bad_name in (
+            "events\ninjected.jsonl", "events\\backslash.jsonl", "events\tcontrol.jsonl",
+            "events\u0085c1.jsonl", "events\u200bzero-width.jsonl",
+            "events\u202ebidi.jsonl", "events\u00a0nbsp.jsonl",
+            "events\u2028separator.jsonl",
+        ):
             with self.subTest(name=repr(bad_name)), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 run = root / "runs" / "M4-T1-R01"
@@ -423,6 +469,21 @@ class EvidenceToolTests(unittest.TestCase):
                 self.assertEqual(artifact.read_bytes(), b"real-observation\n")
         if not exercised:
             self.skipTest("host filesystem disallows ambiguous checksum filenames")
+
+
+    def test_checksums_preserve_visible_unicode_filenames(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run = root / "runs" / "M4-T1-R01"
+            run.mkdir(parents=True)
+            artifact = run / "évents.jsonl"
+            artifact.write_bytes(b"real-observation\\n")
+            result = self.run_tool("checksums", "--root", temp)
+            self.assertEqual(
+                result.stdout.split("  ", 1)[1].strip(),
+                "runs/M4-T1-R01/évents.jsonl",
+            )
+            self.assertEqual(artifact.read_bytes(), b"real-observation\\n")
 
 
 
