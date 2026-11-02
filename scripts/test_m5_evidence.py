@@ -1665,5 +1665,136 @@ class TestEvidenceRootSafety(Fixture):
         self.assertEqual((self.root / "ledger.jsonl").read_bytes(), b"")
 
 
+class TestRecordRawSourceSafety(Fixture):
+    """Recording must not import a redirected, shared, or swapped source file."""
+
+    def args_for(self, source: Path):
+        import argparse
+        return argparse.Namespace(
+            root=str(self.root), run_id="M5-IMPORT-R001",
+            evidence_class="code_observed", raw=str(source),
+            gate=[DECRYPT], environment=None,
+            test_binary=m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            relay_endpoint=None, client_endpoint=None, server_endpoint=None,
+            impairment=None, unauthorized_attempted=None,
+            unauthorized_outcome=None,
+        )
+
+    def test_regular_unshared_source_is_copied_and_hashed(self):
+        source = Path(self.directory.name) / "observation.json"
+        source.write_bytes(b'{"observed": true}\n')
+        m5.command_record(self.args_for(source))
+        destination = self.root / "raw" / "M5-IMPORT-R001.json"
+        self.assertEqual(destination.read_bytes(), source.read_bytes())
+        entries = m5.read_ledger(self.root)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["raw_bytes"], len(source.read_bytes()))
+        self.assertEqual(entries[0]["raw_sha256"], m5.sha256_file(source)[0])
+
+    def test_symlinked_source_does_not_import_external_bytes(self):
+        external = Path(self.directory.name) / "external-private.json"
+        external.write_bytes(b"private external data")
+        linked = Path(self.directory.name) / "linked-observation.json"
+        try:
+            linked.symlink_to(external)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_record(self.args_for(linked))
+        self.assertIn("redirected raw observation source", str(caught.exception))
+        self.assertEqual(external.read_bytes(), b"private external data")
+        self.assertEqual(m5.read_ledger(self.root), [])
+        self.assertFalse((self.root / "raw" / "M5-IMPORT-R001.json").exists())
+
+    def test_hardlinked_source_is_refused_before_copy(self):
+        import os
+        external = Path(self.directory.name) / "external-private.json"
+        external.write_bytes(b"private external data")
+        linked = Path(self.directory.name) / "linked-observation.json"
+        try:
+            os.link(external, linked)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"hardlinks unavailable: {error}")
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_record(self.args_for(linked))
+        self.assertIn("unshared regular file", str(caught.exception))
+        self.assertEqual(external.read_bytes(), b"private external data")
+        self.assertEqual(m5.read_ledger(self.root), [])
+        self.assertFalse((self.root / "raw" / "M5-IMPORT-R001.json").exists())
+
+    def test_symlinked_source_parent_is_refused(self):
+        outside = Path(self.directory.name) / "outside"
+        outside.mkdir()
+        source = outside / "observation.json"
+        source.write_bytes(b"external")
+        linked_parent = Path(self.directory.name) / "redirected"
+        try:
+            linked_parent.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"directory symlinks unavailable: {error}")
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_record(self.args_for(linked_parent / "observation.json"))
+        self.assertIn("redirected raw observation source", str(caught.exception))
+        self.assertEqual(m5.read_ledger(self.root), [])
+
+    @unittest.skipUnless(
+        hasattr(__import__("os"), "mkfifo")
+        and hasattr(__import__("os"), "O_NONBLOCK"),
+        "POSIX FIFO and nonblocking open required",
+    )
+    def test_fifo_source_does_not_block_recording(self):
+        import os
+        import subprocess
+        import sys
+        fifo = Path(self.directory.name) / "source.fifo"
+        try:
+            os.mkfifo(fifo)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"FIFO unavailable: {error}")
+        result = subprocess.run(
+            [
+                sys.executable, str(ROOT / "scripts" / "m5_evidence.py"),
+                "record", "--root", str(self.root),
+                "--run-id", "M5-IMPORT-R001",
+                "--evidence-class", "code_observed",
+                "--raw", str(fifo), "--gate", DECRYPT,
+                "--test-binary", m5.CODE_EVIDENCE_REQUIRED_PROBE,
+            ],
+            text=True, capture_output=True, check=False, timeout=5,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unshared regular file", result.stderr)
+        self.assertEqual(m5.read_ledger(self.root), [])
+        self.assertFalse((self.root / "raw" / "M5-IMPORT-R001.fifo").exists())
+
+    def test_symlink_substituted_at_source_open_is_refused(self):
+        import os
+        from unittest.mock import patch
+        source = Path(self.directory.name) / "observation.json"
+        source.write_bytes(b"original observation")
+        external = Path(self.directory.name) / "external-private.json"
+        external.write_bytes(b"private external data")
+        probe = Path(self.directory.name) / "symlink-probe"
+        try:
+            probe.symlink_to(external)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"symlinks unavailable: {error}")
+        probe.unlink()
+        original_open = os.open
+
+        def swap_at_open(path, flags, *args, **kwargs):
+            if Path(path) == source:
+                source.unlink()
+                source.symlink_to(external)
+            return original_open(path, flags, *args, **kwargs)
+
+        with patch.object(m5.os, "open", side_effect=swap_at_open):
+            with self.assertRaises(SystemExit):
+                m5.command_record(self.args_for(source))
+        self.assertEqual(external.read_bytes(), b"private external data")
+        self.assertEqual(m5.read_ledger(self.root), [])
+        self.assertFalse((self.root / "raw" / "M5-IMPORT-R001.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
