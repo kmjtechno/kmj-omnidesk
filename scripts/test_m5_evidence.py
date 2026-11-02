@@ -1415,6 +1415,54 @@ class TestUnreadableOptionalDocument(Fixture):
                     self.assertEqual(m5.read_ledger(self.root), [])
                     self.assertFalse((self.root / "raw" / "M5-LINK-R001.json").exists())
 
+    @unittest.skipUnless(
+        hasattr(__import__("os"), "mkfifo")
+        and hasattr(__import__("os"), "O_NONBLOCK"),
+        "POSIX FIFO and nonblocking open required",
+    )
+    def test_optional_json_fifo_refused_without_hanging(self) -> None:
+        """A named metadata FIFO must not block before its type is checked."""
+        import os
+        import subprocess
+        import sys
+
+        fifo = self.root / "environment.fifo"
+        try:
+            os.mkfifo(fifo)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"FIFO unavailable: {error}")
+        code = (
+            "import sys; sys.path.insert(0, sys.argv[1]); "
+            "import m5_evidence as m5; "
+            "m5.load_json_or_empty(sys.argv[2], 'environment metadata')"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(ROOT / "scripts"), str(fifo)],
+            text=True, capture_output=True, check=False, timeout=5,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not read environment metadata", result.stderr)
+        self.assertEqual(m5.read_ledger(self.root), [])
+
+    def test_optional_json_hardlink_refused_without_recording(self) -> None:
+        """An externally shared JSON file must not supply release metadata."""
+        import os
+
+        external = Path(self.directory.name) / "outside-environment.json"
+        external.write_text('{"network":"external"}', encoding="utf-8")
+        linked = self.root / "environment.json"
+        try:
+            os.link(external, linked)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"hardlinks unavailable: {error}")
+        before = external.read_bytes()
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_record(self.args_for(environment=str(linked)))
+        self.assertIn("could not read environment metadata", str(caught.exception))
+        self.assertEqual(external.read_bytes(), before)
+        self.assertEqual(m5.read_ledger(self.root), [])
+        self.assertFalse((self.root / "raw" / "M5-LINK-R001.json").exists())
+
     def test_a_readable_impairment_description_is_recorded_verbatim(self) -> None:
         """The complement of the refusal above.
 
