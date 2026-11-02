@@ -1110,8 +1110,17 @@ mod tests {
         let action = action_at_point(&shell, 1419, 611, sec_rect.x + 10, sec_rect.y + 10);
         assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::Security)));
 
-        // 2. Filter buttons hit testing
+        // Filters are intentionally inactive while the Connections tab is open.
+        // Exercise that guard before switching back to Devices for positive tests.
         let all_rect = layout.filter_all_rect();
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, all_rect.x + 5, all_rect.y + 5),
+            None
+        );
+        apply_action(&mut shell, DesktopAction::SelectNav(NavTab::Devices));
+        assert_eq!(shell.nav_tab(), NavTab::Devices);
+
+        // 2. Filter buttons hit testing on the Devices tab
         let action = action_at_point(&shell, 1419, 611, all_rect.x + 5, all_rect.y + 5);
         assert_eq!(action, Some(DesktopAction::SelectFilter(DeviceFilter::All)));
 
