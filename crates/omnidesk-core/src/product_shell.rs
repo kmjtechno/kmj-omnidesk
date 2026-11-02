@@ -106,6 +106,12 @@ impl ProductShell {
         }
     }
 
+    /// Replace the current device directory, invalidating queued connect actions
+    /// only when the snapshot changes.
+    ///
+    /// # Panics
+    /// Panics if the revision counter is exhausted after `u64::MAX` changes;
+    /// stale actions must never become valid again through counter wraparound.
     pub fn replace_devices(&mut self, devices: Vec<DeviceSummary>) {
         if self.devices != devices {
             // Fail closed on exhaustion rather than allowing an old revision to recur.
