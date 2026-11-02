@@ -86,6 +86,19 @@ if ($proc.MainWindowHandle -eq [IntPtr]::Zero) {
 }
 
 $hwnd = $proc.MainWindowHandle
+# Re-attest the process executable after launch. The pre-launch file hash
+# alone cannot bind a later process to the selected path if files are swapped.
+# This remains file/process evidence, not a signed-build or image attestation.
+$proc.Refresh()
+$launchedPath = [System.IO.Path]::GetFullPath($proc.MainModule.FileName)
+if (-not [string]::Equals($launchedPath, $resolvedBin, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Launched foreground process executable path differs from the selected binary"
+}
+$launchedHash = (Get-FileHash -LiteralPath $launchedPath -Algorithm SHA256).Hash
+if ($launchedHash -ne $binHash) {
+    throw "Foreground QA executable changed between pre-launch hash and process verification"
+}
+Write-Host "Process path and post-launch executable hash: PASS"
 Write-Host "Window Handle acquired: $hwnd"
 
 # Position window prominently and bring to foreground
