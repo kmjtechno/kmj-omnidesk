@@ -385,8 +385,9 @@ def read_ledger(root: Path) -> list[dict]:
         after = os.fstat(handle.fileno())
         if (
             not matches_open_file(after)
-            or (before.st_size, before.st_mtime_ns)
-            != (after.st_size, after.st_mtime_ns)
+            or (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+            != (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            or len(content) != after.st_size
         ):
             fail(f"evidence ledger changed while reading: {path}")
     try:
