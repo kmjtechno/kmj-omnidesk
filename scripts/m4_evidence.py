@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import stat
 import unicodedata
@@ -84,12 +85,51 @@ def checksum_relative_name(relative: Path) -> str:
 
 
 def sha256_file(path: Path) -> tuple[str, int]:
-    digest = hashlib.sha256()
-    size = 0
-    with path.open("rb") as handle:
+    """Hash the opened, unshared regular file, not a substituted pathname.
+
+    This defends against a file swap between safe_relative()/lstat() and
+    hashing. It is not a fully race-proof Windows filesystem sandbox.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        fail("cannot safely open evidence file")
+
+    with os.fdopen(descriptor, "rb") as handle:
+        def matches_path(metadata: os.stat_result) -> bool:
+            try:
+                linked = path.lstat()
+            except OSError:
+                return False
+            reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            return (
+                stat.S_ISREG(metadata.st_mode)
+                and metadata.st_nlink == 1
+                and stat.S_ISREG(linked.st_mode)
+                and linked.st_nlink == 1
+                and (metadata.st_dev, metadata.st_ino)
+                == (linked.st_dev, linked.st_ino)
+                and not (getattr(metadata, "st_file_attributes", 0) & reparse)
+                and not (getattr(linked, "st_file_attributes", 0) & reparse)
+            )
+
+        before = os.fstat(handle.fileno())
+        if not matches_path(before):
+            fail("evidence file is not the expected unshared regular file")
+        digest = hashlib.sha256()
+        size = 0
         while chunk := handle.read(1024 * 1024):
             digest.update(chunk)
             size += len(chunk)
+        after = os.fstat(handle.fileno())
+        if (
+            not matches_path(after)
+            or (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+            != (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            or size != after.st_size
+        ):
+            fail("evidence file changed while hashing")
     return digest.hexdigest(), size
 
 
