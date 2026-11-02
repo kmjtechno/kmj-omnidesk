@@ -29,34 +29,25 @@ public class WinUserClickApi {
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref POINT pt);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
-    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP   = 0x0004;
-    public const uint WM_MOUSEMOVE         = 0x0200;
-    public const uint WM_LBUTTONDOWN       = 0x0201;
-    public const uint WM_LBUTTONUP         = 0x0202;
-    public const int  MK_LBUTTON           = 0x0001;
 
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
 
     public static void ClickAtClient(IntPtr hWnd, int clientX, int clientY) {
         POINT pt = new POINT { X = clientX, Y = clientY };
-        ClientToScreen(hWnd, ref pt);
+        if (!ClientToScreen(hWnd, ref pt)) throw new InvalidOperationException("ClientToScreen failed");
 
-        // Hardware mouse cursor reposition and click
-        SetCursorPos(pt.X, pt.Y);
+        // Deliver exactly one mouse down/up pair; duplicate PostMessage clicks
+        // can toggle a control twice and invalidate the observation.
+        if (!SetCursorPos(pt.X, pt.Y)) throw new InvalidOperationException("SetCursorPos failed");
         System.Threading.Thread.Sleep(80);
         mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)pt.X, (uint)pt.Y, 0, UIntPtr.Zero);
         System.Threading.Thread.Sleep(40);
         mouse_event(MOUSEEVENTF_LEFTUP, (uint)pt.X, (uint)pt.Y, 0, UIntPtr.Zero);
 
-        // Also post explicit window messages to ensure winit receives exact client coordinates
-        IntPtr lParam = (IntPtr)((clientY << 16) | (clientX & 0xFFFF));
-        PostMessage(hWnd, WM_MOUSEMOVE, IntPtr.Zero, lParam);
-        PostMessage(hWnd, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, lParam);
-        PostMessage(hWnd, WM_LBUTTONUP, IntPtr.Zero, lParam);
     }
 }
 '@
@@ -74,7 +65,9 @@ function Capture-WindowScreenshot([IntPtr]$hwnd, [string]$outPath) {
         try {
             $dc = $g.GetHdc()
             try {
-                [void][WinUserClickApi]::PrintWindow($hwnd, $dc, 0)
+                if (-not [WinUserClickApi]::PrintWindow($hwnd, $dc, 0)) {
+                    throw "PrintWindow failed; refusing to treat a blank screenshot as QA evidence"
+                }
             } finally {
                 $g.ReleaseHdc($dc)
             }
@@ -94,11 +87,9 @@ $binHash = (Get-FileHash $resolvedBin -Algorithm SHA256).Hash
 Write-Host "Target: $resolvedBin"
 Write-Host "Binary SHA256: $binHash"
 
-# Check for existing process or launch fresh
-Get-Process -Name "omnidesk-desktop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 500
-
-Write-Host "Launching fresh omnidesk-desktop process..."
+# Never stop or replace a user-owned OmniDesk process. Launch a separate
+# QA instance of the exact selected binary; leave existing sessions alone.
+Write-Host "Launching separate OmniDesk QA process without stopping existing instances..."
 $proc = Start-Process -FilePath $resolvedBin -PassThru
 
 $deadline = (Get-Date).AddSeconds(15)
@@ -109,6 +100,7 @@ do {
 } while ($proc.MainWindowHandle -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline)
 
 $hwnd = $proc.MainWindowHandle
+if ($hwnd -eq [IntPtr]::Zero) { throw "No interactive main window acquired" }
 Write-Host "Window handle: $hwnd"
 
 # Position window at (100, 100), size (1296, 759)
@@ -118,14 +110,20 @@ $winW = 1296
 $winH = 759
 [WinUserClickApi]::ShowWindow($hwnd, 9) | Out-Null # SW_RESTORE
 [WinUserClickApi]::MoveWindow($hwnd, $winX, $winY, $winW, $winH, $true) | Out-Null
-[WinUserClickApi]::SetForegroundWindow($hwnd) | Out-Null
+if (-not [WinUserClickApi]::SetForegroundWindow($hwnd)) {
+    throw "Cannot bring QA window to foreground; refusing to send clicks to another application"
+}
 Start-Sleep -Milliseconds 800
+if ([WinUserClickApi]::GetForegroundWindow() -ne $hwnd) {
+    throw "QA window is not foreground; refusing to move/click the mouse"
+}
 
 # Get exact client rect
 $clientRect = [WinUserClickApi+RECT]::new()
 [WinUserClickApi]::GetClientRect($hwnd, [ref]$clientRect) | Out-Null
 $clientW = $clientRect.Right - $clientRect.Left
 $clientH = $clientRect.Bottom - $clientRect.Top
+if ($clientW -lt 800 -or $clientH -lt 500) { throw "Unexpected client dimensions; fixed click coordinates are unsafe" }
 Write-Host "Client dimensions: ${clientW}x${clientH}"
 
 # Capture initial screenshot
@@ -179,6 +177,9 @@ $stepIndex = 1
 
 foreach ($s in $steps) {
     Write-Host "Executing actual mouse click on '$($s.name)' at client ($($s.cx), $($s.cy))..."
+    if ([WinUserClickApi]::GetForegroundWindow() -ne $hwnd) {
+        throw "Foreground focus changed during QA; refusing to click another window"
+    }
     [WinUserClickApi]::ClickAtClient($hwnd, $s.cx, $s.cy)
     Start-Sleep -Milliseconds 600
 
@@ -200,8 +201,10 @@ foreach ($s in $steps) {
     $stepIndex++
 }
 
+$allChanged = @($results | Where-Object { $_.step -gt 0 -and $_.visual_state_changed -ne $true }).Count -eq 0
 $summary = [ordered]@{
-    status = "VERIFIED_RESPONSIVE_MOUSE_CLICKS"
+    status = if ($allChanged) { "VISUAL_CHANGES_OBSERVED_FUNCTIONAL_QA_PENDING" } else { "FAIL_VISUAL_CHANGE_MISSING" }
+    all_steps_changed = $allChanged
     process_id = $proc.Id
     window_handle = $hwnd.ToInt64()
     binary_sha256 = $binHash
@@ -213,5 +216,7 @@ $jsonPath = Join-Path $resolvedOutputDir "mouse-click-results.json"
 $summary | ConvertTo-Json -Depth 5 | Set-Content -Path $jsonPath -Encoding utf8
 Write-Output ($summary | ConvertTo-Json -Depth 5)
 
-Write-Host "Entering daemon persistent foreground wait loop. Process PID $($proc.Id) will remain active indefinitely."
-Wait-Process -Id $proc.Id
+if (-not $allChanged) {
+    throw "One or more clicks did not produce a changed screenshot; see the QA report"
+}
+Write-Host "Visual changes observed; screenshots alone do not prove functional navigation. QA process PID $($proc.Id) left running; script exits."
