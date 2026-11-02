@@ -104,7 +104,9 @@ Write-Host "Window Handle acquired: $hwnd"
 # Position window prominently and bring to foreground
 # SW_RESTORE = 9, SW_SHOW = 5
 [WinUserForegroundApi]::ShowWindow($hwnd, 9) | Out-Null
-[WinUserForegroundApi]::MoveWindow($hwnd, 100, 100, 1296, 759, $true) | Out-Null
+if (-not [WinUserForegroundApi]::MoveWindow($hwnd, 100, 100, 1296, 759, $true)) {
+    throw "Cannot position selected foreground QA window; no layout receipt will be issued"
+}
 if (-not [WinUserForegroundApi]::SetForegroundWindow($hwnd)) {
     throw "Cannot bring the selected QA process to foreground; no foreground receipt will be issued."
 }
