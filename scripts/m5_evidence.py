@@ -151,6 +151,20 @@ def validate_run_id(value: str) -> str:
     return value
 
 
+def portable_raw_suffix(suffix: str) -> str:
+    """Keep operator-supplied raw filenames from creating ambiguous package paths.
+
+    POSIX permits colons, backslashes and newlines that Windows interprets as
+    alternate streams, separators or invalid names. The ledger's raw_path is
+    meant to remain one portable basename across evidence reviewers.
+    """
+    if not suffix:
+        return ".json"
+    if not re.fullmatch(r"\.[A-Za-z0-9]{1,16}", suffix):
+        fail("non-portable raw observation suffix forbidden")
+    return suffix
+
+
 def sha256_file(path: Path) -> tuple[str, int]:
     digest = hashlib.sha256()
     size = 0
@@ -998,7 +1012,7 @@ def command_record(args: argparse.Namespace) -> None:
     )
 
     raw = Path(args.raw)
-    raw_name = f"{run_id}{raw.suffix or '.json'}"
+    raw_name = f"{run_id}{portable_raw_suffix(raw.suffix)}"
     destination = root / "raw" / raw_name
     if destination.is_symlink():
         fail(f"refusing symlinked raw observation destination: {destination}")
