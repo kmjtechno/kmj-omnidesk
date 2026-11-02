@@ -961,7 +961,12 @@ def command_record(args: argparse.Namespace) -> None:
     # Do not create a missing ledger. O_NOFOLLOW protects the final path on
     # POSIX even if a symlink is substituted after the preflight; Windows
     # still has the explicit symlink check above.
-    flags = os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    # A FIFO substituted after the regular-file preflight must not block
+    # O_WRONLY open indefinitely. O_NONBLOCK fails promptly with ENXIO when
+    # there is no reader; fstat below still rejects a FIFO with a reader.
+    # On regular files this flag does not change append semantics.
+    flags = (os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_NONBLOCK", 0))
     try:
         descriptor = os.open(ledger, flags)
     except OSError:
