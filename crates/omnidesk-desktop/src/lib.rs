@@ -160,9 +160,28 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
 pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
     match shell.primary_view() {
         PrimaryView::Devices => {
-            if shell.devices().is_empty() {
+            // Keep original device indices when filtering: the visible row
+            // position must never select a different, hidden device.
+            let visible: Vec<_> = shell
+                .devices()
+                .iter()
+                .enumerate()
+                .filter(|(_, device)| match shell.device_filter() {
+                    DeviceFilter::All => true,
+                    DeviceFilter::Online => device.status == DeviceStatus::Online,
+                    DeviceFilter::Offline => device.status != DeviceStatus::Online,
+                })
+                .take(9)
+                .collect();
+
+            if visible.is_empty() {
+                let label = match shell.device_filter() {
+                    DeviceFilter::All => "No devices available",
+                    DeviceFilter::Online => "No online devices available",
+                    DeviceFilter::Offline => "No offline devices available",
+                };
                 return vec![ShellControl {
-                    label: "No devices available".to_owned(),
+                    label: label.to_owned(),
                     action: DesktopAction::FocusDevices,
                     keyboard_key: 'd',
                     role: AccessibleRole::Navigation,
@@ -170,14 +189,12 @@ pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
                 }];
             }
 
-            shell
-                .devices()
-                .iter()
-                .take(9)
+            visible
+                .into_iter()
                 .enumerate()
-                .map(|(index, device)| {
+                .map(|(display_index, (source_index, device))| {
                     const DEVICE_KEYS: [char; 9] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-                    let key = DEVICE_KEYS.get(index).copied().unwrap_or('9');
+                    let key = DEVICE_KEYS[display_index];
                     let online = device.status == DeviceStatus::Online;
                     ShellControl {
                         label: format!(
@@ -185,7 +202,7 @@ pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
                             device.display_name,
                             if online { "Online" } else { "Offline" }
                         ),
-                        action: DesktopAction::ConnectDevice(index),
+                        action: DesktopAction::ConnectDevice(source_index),
                         keyboard_key: key,
                         role: AccessibleRole::Button,
                         enabled: online,
@@ -425,6 +442,11 @@ pub fn action_at_point(
         {
             return Some(DesktopAction::ToggleHelp);
         }
+        // Secondary tabs do not draw device rows. Never leave invisible
+        // connect targets active under their empty-state panels.
+        if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() != NavTab::Devices {
+            return None;
+        }
     }
 
     let presentation = presentation_for(shell);
@@ -500,9 +522,15 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
 
 pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
     let key = key.to_ascii_lowercase();
-    let control_match = controls_for_shell(shell)
-        .into_iter()
-        .find(|control| control.keyboard_key == key);
+    let control_match = if shell.primary_view() == PrimaryView::Devices
+        && shell.nav_tab() != NavTab::Devices
+    {
+        None // Do not activate hidden device rows via numeric shortcuts.
+    } else {
+        controls_for_shell(shell)
+            .into_iter()
+            .find(|control| control.keyboard_key == key)
+    };
 
     if let Some(control) = control_match {
         if !control.enabled {
@@ -515,6 +543,7 @@ pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
     // Nav and help shortcuts in Devices / Disconnected view
     if shell.primary_view() == PrimaryView::Devices {
         let nav_action = match key {
+            'd' => Some(DesktopAction::SelectNav(NavTab::Devices)),
             'c' => Some(DesktopAction::SelectNav(NavTab::Connections)),
             'f' => Some(DesktopAction::SelectNav(NavTab::FileTransfer)),
             'm' => Some(DesktopAction::SelectNav(NavTab::Automation)),
@@ -996,6 +1025,65 @@ mod tests {
                 .iter()
                 .any(|c| c.action == DesktopAction::DenyPermission)
         );
+    }
+
+    #[test]
+    fn device_filter_hides_rows_but_preserves_original_connection_indices() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "offline-first".into(),
+                display_name: "Offline first".into(),
+                status: DeviceStatus::Offline,
+            },
+            DeviceSummary {
+                id: "online-second".into(),
+                display_name: "Online second".into(),
+                status: DeviceStatus::Online,
+            },
+        ]);
+        shell.set_device_filter(DeviceFilter::Online);
+        let online = controls_for_shell(&shell);
+        assert_eq!(online.len(), 1);
+        assert_eq!(online[0].action, DesktopAction::ConnectDevice(1));
+        assert!(online[0].enabled);
+
+        let rect = control_rects_for(&presentation_for(&shell), 1419, 611)[0];
+        let action = action_at_point(&shell, 1419, 611, rect.x + 12, rect.y + 12);
+        assert_eq!(action, Some(DesktopAction::ConnectDevice(1)));
+        apply_action(&mut shell, action.unwrap());
+        assert_eq!(shell.selected_device(), Some("online-second"));
+
+        shell.disconnect();
+        shell.set_device_filter(DeviceFilter::Offline);
+        let offline = controls_for_shell(&shell);
+        assert_eq!(offline.len(), 1);
+        assert_eq!(offline[0].action, DesktopAction::ConnectDevice(0));
+        assert!(!offline[0].enabled);
+    }
+
+    #[test]
+    fn hidden_device_rows_cannot_be_clicked_or_keyboard_activated() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "online".into(),
+            display_name: "Online".into(),
+            status: DeviceStatus::Online,
+        }]);
+        let row = control_rects_for(&presentation_for(&shell), 1419, 611)[0];
+        shell.set_nav_tab(NavTab::Security);
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, row.x + 12, row.y + 12),
+            None
+        );
+        assert!(!apply_key(&mut shell, '1'));
+        assert_eq!(shell.selected_device(), None);
+        assert!(apply_key(&mut shell, 'd'));
+        assert_eq!(shell.nav_tab(), NavTab::Devices);
     }
 
     #[test]
