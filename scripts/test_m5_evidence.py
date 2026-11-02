@@ -837,6 +837,72 @@ class TestUnsharedEvidenceFiles(Fixture):
         except (OSError, NotImplementedError) as error:
             self.skipTest(f"hardlinks unavailable: {error}")
 
+    @unittest.skipUnless(
+        hasattr(__import__("os"), "mkfifo")
+        and hasattr(__import__("os"), "O_NONBLOCK"),
+        "POSIX FIFO and nonblocking open required",
+    )
+    def test_raw_fifo_substitution_does_not_hang(self) -> None:
+        """A swapped FIFO must be refused before a blocking read."""
+        import os
+        import subprocess
+        import sys
+
+        fifo = Path(self.directory.name) / "substituted-raw.fifo"
+        try:
+            os.mkfifo(fifo)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"FIFO unavailable: {error}")
+        code = (
+            "import sys; from pathlib import Path; "
+            "sys.path.insert(0, sys.argv[1]); import m5_evidence as m5; "
+            "m5.sha256_unshared_evidence_file(Path(sys.argv[2]))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(ROOT / "scripts"), str(fifo)],
+            text=True, capture_output=True, check=False, timeout=5,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unshared opened regular file", result.stderr)
+
+    @unittest.skipUnless(
+        hasattr(__import__("os"), "mkfifo")
+        and hasattr(__import__("os"), "O_NONBLOCK"),
+        "POSIX FIFO and nonblocking open required",
+    )
+    def test_ledger_fifo_swap_after_preflight_does_not_hang(self) -> None:
+        """An attacker-swapped ledger FIFO must not stall verification."""
+        import os
+        import subprocess
+        import sys
+
+        ledger = self.root / "ledger.jsonl"
+        code = """
+import os
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import m5_evidence as m5
+ledger = Path(sys.argv[2])
+original = m5.unshared_regular_evidence_file
+def swap(path):
+    accepted = original(path)
+    if accepted:
+        path.unlink()
+        os.mkfifo(path)
+    return accepted
+m5.unshared_regular_evidence_file = swap
+m5.read_ledger(ledger.parent)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(ROOT / "scripts"), str(ledger)],
+            text=True, capture_output=True, check=False, timeout=5,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not an unshared regular file", result.stderr)
+        self.assertTrue(ledger.exists())
+        self.assertTrue(os.stat(ledger).st_mode)
+
     def test_read_ledger_refuses_external_hardlink(self) -> None:
         ledger = self.root / "ledger.jsonl"
         external = Path(self.directory.name) / "external-ledger.jsonl"
