@@ -524,15 +524,14 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
 
 pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
     let key = key.to_ascii_lowercase();
-    let control_match = if shell.primary_view() == PrimaryView::Devices
-        && shell.nav_tab() != NavTab::Devices
-    {
-        None // Do not activate hidden device rows via numeric shortcuts.
-    } else {
-        controls_for_shell(shell)
-            .into_iter()
-            .find(|control| control.keyboard_key == key)
-    };
+    let control_match =
+        if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() != NavTab::Devices {
+            None // Do not activate hidden device rows via numeric shortcuts.
+        } else {
+            controls_for_shell(shell)
+                .into_iter()
+                .find(|control| control.keyboard_key == key)
+        };
 
     if let Some(control) = control_match {
         if !control.enabled {
