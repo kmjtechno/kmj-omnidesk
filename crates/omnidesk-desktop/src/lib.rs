@@ -498,6 +498,17 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             shell.set_nav_tab(NavTab::Devices);
         }
         DesktopAction::ConnectDevice(index) => {
+            // A pointer event can be queued before the user changes tabs or
+            // filters. Revalidate the target at dispatch time, not only when
+            // hit-testing it, so stale actions cannot select hidden rows.
+            if shell.primary_view() != PrimaryView::Devices
+                || shell.nav_tab() != NavTab::Devices
+                || !controls_for_shell(shell).iter().any(|control| {
+                    control.enabled && control.action == DesktopAction::ConnectDevice(index)
+                })
+            {
+                return;
+            }
             let device_id = shell.devices().get(index).map(|device| device.id.clone());
             if let Some(device_id) = device_id {
                 let _ = shell.begin_connect(&device_id);
@@ -1121,6 +1132,73 @@ mod tests {
         assert_eq!(shell.selected_device(), None);
         assert!(apply_key(&mut shell, 'd'));
         assert_eq!(shell.nav_tab(), NavTab::Devices);
+    }
+
+    #[test]
+    fn stale_connect_actions_cannot_activate_hidden_or_offline_rows() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "online-first".into(),
+                display_name: "Online first".into(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "online-second".into(),
+                display_name: "Online second".into(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "offline-third".into(),
+                display_name: "Offline third".into(),
+                status: DeviceStatus::Offline,
+            },
+        ]);
+
+        // Simulate a click queued before the filter changed. The index is
+        // valid and online, but the row is now hidden.
+        let stale_action = DesktopAction::ConnectDevice(1);
+        shell.set_device_filter(DeviceFilter::Offline);
+        apply_action(&mut shell, stale_action);
+        assert_eq!(shell.selected_device(), None);
+
+        // A stale click must not connect from a secondary tab either.
+        shell.set_device_filter(DeviceFilter::All);
+        shell.set_nav_tab(NavTab::Security);
+        apply_action(&mut shell, stale_action);
+        assert_eq!(shell.selected_device(), None);
+
+        shell.set_nav_tab(NavTab::Devices);
+        apply_action(&mut shell, DesktopAction::ConnectDevice(2));
+        assert_eq!(shell.selected_device(), None);
+
+        // A currently visible online target still reaches the permission
+        // prompt, preserving the normal device-connection flow.
+        apply_action(&mut shell, stale_action);
+        assert_eq!(shell.selected_device(), Some("online-second"));
+        assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+    }
+
+    #[test]
+    fn direct_dispatch_rejects_device_rows_beyond_visible_limit() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(
+            (0..10)
+                .map(|i| DeviceSummary {
+                    id: format!("desk-{i}"),
+                    display_name: format!("Desk {i}"),
+                    status: DeviceStatus::Online,
+                })
+                .collect(),
+        );
+        apply_action(&mut shell, DesktopAction::ConnectDevice(9));
+        assert_eq!(shell.selected_device(), None);
+        apply_action(&mut shell, DesktopAction::ConnectDevice(8));
+        assert_eq!(shell.selected_device(), Some("desk-8"));
     }
 
     #[test]
