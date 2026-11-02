@@ -79,6 +79,8 @@ pub enum DeviceFilter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductShell {
     devices: Vec<DeviceSummary>,
+    // Binds queued connect actions to the exact directory snapshot.
+    device_revision: u64,
     selected_device: Option<String>,
     security_state: SecurityState,
     quality_preset: QualityPreset,
@@ -93,6 +95,7 @@ impl ProductShell {
     pub const fn new() -> Self {
         Self {
             devices: Vec::new(),
+            device_revision: 0,
             selected_device: None,
             security_state: SecurityState::Disconnected,
             quality_preset: QualityPreset::Balanced,
@@ -104,6 +107,13 @@ impl ProductShell {
     }
 
     pub fn replace_devices(&mut self, devices: Vec<DeviceSummary>) {
+        if self.devices != devices {
+            // Fail closed on exhaustion rather than allowing an old revision to recur.
+            self.device_revision = self
+                .device_revision
+                .checked_add(1)
+                .expect("device directory revision exhausted");
+        }
         self.devices = devices;
         if self
             .selected_device
@@ -117,6 +127,11 @@ impl ProductShell {
     #[must_use]
     pub fn devices(&self) -> &[DeviceSummary] {
         &self.devices
+    }
+
+    #[must_use]
+    pub const fn device_revision(&self) -> u64 {
+        self.device_revision
     }
 
     #[must_use]
