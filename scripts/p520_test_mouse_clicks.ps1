@@ -89,9 +89,15 @@ public class WinUserClickApi {
 
 function Capture-WindowScreenshot([IntPtr]$hwnd, [string]$outPath) {
     $rect = [WinUserClickApi+RECT]::new()
-    [WinUserClickApi]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
-    $w = [Math]::Max(10, $rect.Right - $rect.Left)
-    $h = [Math]::Max(10, $rect.Bottom - $rect.Top)
+    if (-not [WinUserClickApi]::GetWindowRect($hwnd, [ref]$rect)) {
+        throw "GetWindowRect failed; refusing to create screenshot evidence"
+    }
+    $w = $rect.Right - $rect.Left
+    $h = $rect.Bottom - $rect.Top
+    if ($w -lt 10 -or $h -lt 10 -or $w -gt 8192 -or $h -gt 8192 -or
+        ([long]$w * [long]$h) -gt 16000000) {
+        throw "QA window dimensions outside bounded screenshot policy"
+    }
 
     $bmp = [System.Drawing.Bitmap]::new($w, $h)
     try {
@@ -115,8 +121,22 @@ function Capture-WindowScreenshot([IntPtr]$hwnd, [string]$outPath) {
     return (Get-FileHash $outPath -Algorithm SHA256).Hash
 }
 
-$resolvedBin = (Resolve-Path (Join-Path $worktreeRoot $BinaryPath)).Path
-$binHash = (Get-FileHash $resolvedBin -Algorithm SHA256).Hash
+# Reject arbitrary binaries and redirected paths before starting any process
+# or injecting desktop input. Keep the QA binary inside this exact worktree.
+$resolvedBin = (Resolve-Path -LiteralPath (Join-Path $worktreeRoot $BinaryPath)).Path
+if (-not $resolvedBin.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+    -not $resolvedBin.EndsWith(".exe", [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Mouse QA binary must be a project-contained .exe"
+}
+$walk = $resolvedBin
+while ($walk.Length -ge $worktreeRoot.Length) {
+    $item = Get-Item -LiteralPath $walk -Force
+    if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        throw "Mouse QA binary path traverses a symlink/junction"
+    }
+    $walk = Split-Path -Parent $walk
+}
+$binHash = (Get-FileHash -LiteralPath $resolvedBin -Algorithm SHA256).Hash
 
 Write-Host "Target: $resolvedBin"
 Write-Host "Binary SHA256: $binHash"
@@ -154,10 +174,16 @@ if ([WinUserClickApi]::GetForegroundWindow() -ne $hwnd) {
 
 # Get exact client rect
 $clientRect = [WinUserClickApi+RECT]::new()
-[WinUserClickApi]::GetClientRect($hwnd, [ref]$clientRect) | Out-Null
+if (-not [WinUserClickApi]::GetClientRect($hwnd, [ref]$clientRect)) {
+    throw "GetClientRect failed; fixed click coordinates are unsafe"
+}
 $clientW = $clientRect.Right - $clientRect.Left
 $clientH = $clientRect.Bottom - $clientRect.Top
-if ($clientW -lt 800 -or $clientH -lt 500) { throw "Unexpected client dimensions; fixed click coordinates are unsafe" }
+if ($clientW -lt 800 -or $clientH -lt 500 -or
+    $clientW -gt 8192 -or $clientH -gt 8192 -or
+    ([long]$clientW * [long]$clientH) -gt 16000000) {
+    throw "Unexpected client dimensions; fixed click coordinates are unsafe"
+}
 Write-Host "Client dimensions: ${clientW}x${clientH}"
 
 # Capture initial screenshot
