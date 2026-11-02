@@ -1668,6 +1668,32 @@ class TestEvidenceRootSafety(Fixture):
 class TestRecordRawSourceSafety(Fixture):
     """Recording must not import a redirected, shared, or swapped source file."""
 
+    def test_portable_raw_suffix_accepts_bounded_ascii_extensions(self):
+        for suffix in ("", ".json", ".jsonl", ".pcapng", ".BIN"):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(m5.portable_raw_suffix(suffix), suffix or ".json")
+
+    def test_portable_raw_suffix_rejects_nonportable_extensions(self):
+        for suffix in (
+            ".json:stream", ".json\\evil", ".json\\nrow",
+            ".json ", ".ümlaut", "." + "a" * 17, ".",
+        ):
+            with self.subTest(suffix=suffix):
+                with self.assertRaises(SystemExit) as caught:
+                    m5.portable_raw_suffix(suffix)
+                self.assertIn("non-portable raw observation suffix", str(caught.exception))
+
+    @unittest.skipIf(os.name == "nt", "Windows cannot create alternate-stream filenames")
+    def test_raw_source_with_ads_like_suffix_never_creates_evidence(self):
+        source = Path(self.directory.name) / "observation.json:stream"
+        source.write_bytes(b"operator supplied raw bytes")
+        with self.assertRaises(SystemExit) as caught:
+            m5.command_record(self.args_for(source))
+        self.assertIn("non-portable raw observation suffix", str(caught.exception))
+        self.assertEqual(m5.read_ledger(self.root), [])
+        self.assertEqual(list((self.root / "raw").iterdir()), [])
+        self.assertEqual(source.read_bytes(), b"operator supplied raw bytes")
+
     def args_for(self, source: Path):
         import argparse
         return argparse.Namespace(
