@@ -483,6 +483,36 @@ class EvidenceToolTests(unittest.TestCase):
             self.assertIn("expected unshared regular file", str(caught.exception))
             self.assertEqual(external.read_bytes(), b"outside\\n")
 
+    @unittest.skipUnless(
+        hasattr(os, "mkfifo") and hasattr(os, "O_NONBLOCK"),
+        "POSIX FIFO and nonblocking open required",
+    )
+    def test_descriptor_hash_rejects_fifo_without_hanging(self):
+        """A swapped named pipe must fail, not block before descriptor validation."""
+        with tempfile.TemporaryDirectory() as temp:
+            fifo = Path(temp) / "swapped-evidence.jsonl"
+            try:
+                os.mkfifo(fifo)
+            except (OSError, NotImplementedError) as error:
+                self.skipTest(f"FIFO creation unavailable: {error}")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; from pathlib import Path; "
+                    "sys.path.insert(0, sys.argv[1]); import m4_evidence; "
+                    "m4_evidence.sha256_file(Path(sys.argv[2]))",
+                    str(SCRIPT.parent),
+                    str(fifo),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=5,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("expected unshared regular file", result.stderr)
+
     def test_descriptor_hash_preserves_normal_file(self):
         with tempfile.TemporaryDirectory() as temp:
             artifact = Path(temp) / "normal.jsonl"
