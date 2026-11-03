@@ -698,7 +698,7 @@ mod tests {
     fn enrollment_without_verified_peer_never_creates_a_trusted_device() {
         let mut shell = ProductShell::new();
         apply_action(&mut shell, DesktopAction::EnrollDevice);
-        assert!(shell.devices().is_empty());
+        assert_eq!(shell.devices(), []);
         assert!(shell.last_error().is_some());
         assert_eq!(shell.primary_view(), PrimaryView::Devices);
     }
