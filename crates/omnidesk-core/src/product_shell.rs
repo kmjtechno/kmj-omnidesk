@@ -40,6 +40,8 @@ pub enum PrimaryView {
 pub enum ConnectError {
     UnknownDevice,
     DeviceOffline,
+    AuthenticationFailed(String),
+    PeerUnreachable(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +84,9 @@ pub struct ProductShell {
     // Binds queued connect actions to the exact directory snapshot.
     device_revision: u64,
     selected_device: Option<String>,
+    last_attempted_device: Option<String>,
+    last_error: Option<String>,
+    discovery_active: bool,
     security_state: SecurityState,
     quality_preset: QualityPreset,
     connection_stats: Option<ConnectionStats>,
@@ -97,6 +102,9 @@ impl ProductShell {
             devices: Vec::new(),
             device_revision: 0,
             selected_device: None,
+            last_attempted_device: None,
+            last_error: None,
+            discovery_active: false,
             security_state: SecurityState::Disconnected,
             quality_preset: QualityPreset::Balanced,
             connection_stats: None,
@@ -177,6 +185,47 @@ impl ProductShell {
         self.connection_stats = Some(stats);
     }
 
+    #[must_use]
+    pub fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
+    pub fn set_error(&mut self, err: impl Into<String>) {
+        self.last_error = Some(err.into());
+    }
+
+    pub fn clear_error(&mut self) {
+        self.last_error = None;
+    }
+
+    #[must_use]
+    pub const fn is_discovering(&self) -> bool {
+        self.discovery_active
+    }
+
+    pub fn start_discovery(&mut self) {
+        self.discovery_active = true;
+        self.last_error = None;
+    }
+
+    pub const fn stop_discovery(&mut self) {
+        self.discovery_active = false;
+    }
+
+    /// Retries the most recent connection attempt.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectError::UnknownDevice`] if no prior device was attempted,
+    /// or the error returned by [`ProductShell::begin_connect`].
+    pub fn retry_connect(&mut self) -> Result<(), ConnectError> {
+        self.last_attempted_device
+            .clone()
+            .map_or(Err(ConnectError::UnknownDevice), |id| {
+                self.begin_connect(&id)
+            })
+    }
+
     /// Starts a connection attempt for an online known device.
     ///
     /// # Errors
@@ -184,16 +233,26 @@ impl ProductShell {
     /// Returns [`ConnectError::UnknownDevice`] when the identifier is absent, or
     /// [`ConnectError::DeviceOffline`] when the device is not currently online.
     pub fn begin_connect(&mut self, device_id: &str) -> Result<(), ConnectError> {
+        self.last_attempted_device = Some(device_id.to_owned());
         let device = self
             .devices
             .iter()
             .find(|device| device.id == device_id)
-            .ok_or(ConnectError::UnknownDevice)?;
+            .ok_or_else(|| {
+                let err = ConnectError::UnknownDevice;
+                self.last_error = Some(format!("Unknown device '{device_id}'"));
+                err
+            })?;
 
         if device.status != DeviceStatus::Online {
+            self.last_error = Some(format!(
+                "Device '{}' is offline - verify power and network",
+                device.display_name
+            ));
             return Err(ConnectError::DeviceOffline);
         }
 
+        self.last_error = None;
         self.selected_device = Some(device.id.clone());
         self.security_state = SecurityState::AuthorizationRequired;
         Ok(())
@@ -387,5 +446,34 @@ mod tests {
 
         assert_eq!(shell.selected_device(), None);
         assert_eq!(shell.security_state(), SecurityState::Disconnected);
+    }
+
+    #[test]
+    fn offline_connect_records_explicit_error_and_supports_retry() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![device("desk-1", DeviceStatus::Offline)]);
+
+        let err = shell.begin_connect("desk-1");
+        assert_eq!(err, Err(ConnectError::DeviceOffline));
+        assert!(shell.last_error().unwrap().contains("offline"));
+
+        // Update to online and retry
+        shell.replace_devices(vec![device("desk-1", DeviceStatus::Online)]);
+        assert!(shell.retry_connect().is_ok());
+        assert_eq!(shell.last_error(), None);
+        assert_eq!(shell.selected_device(), Some("desk-1"));
+        assert_eq!(shell.security_state(), SecurityState::AuthorizationRequired);
+    }
+
+    #[test]
+    fn discovery_lifecycle_toggles_state_cleanly() {
+        let mut shell = ProductShell::new();
+        assert!(!shell.is_discovering());
+
+        shell.start_discovery();
+        assert!(shell.is_discovering());
+
+        shell.stop_discovery();
+        assert!(!shell.is_discovering());
     }
 }
