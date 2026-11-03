@@ -40,6 +40,10 @@ pub enum PrimaryView {
 pub enum ConnectError {
     UnknownDevice,
     DeviceOffline,
+    UntrustedPeer(String),
+    DeviceRevoked(String),
+    TrustExpired(String),
+    CrossTenantRejected(String),
     AuthenticationFailed(String),
     PeerUnreachable(String),
 }
@@ -250,6 +254,72 @@ impl ProductShell {
                 device.display_name
             ));
             return Err(ConnectError::DeviceOffline);
+        }
+
+        self.last_error = None;
+        self.selected_device = Some(device.id.clone());
+        self.security_state = SecurityState::AuthorizationRequired;
+        Ok(())
+    }
+
+    /// Starts a connection attempt against an enrolled trusted device record.
+    ///
+    /// Validates device presence in the directory, online status, enrollment in
+    /// the trusted device store, non-revocation, and valid time bounds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectError::UnknownDevice`] if absent from directory,
+    /// [`ConnectError::DeviceOffline`] if offline,
+    /// [`ConnectError::UntrustedPeer`] if not enrolled in the trusted store,
+    /// [`ConnectError::DeviceRevoked`] if trust was revoked, or
+    /// [`ConnectError::TrustExpired`] if the trust expiration timestamp has elapsed.
+    pub fn begin_connect_trusted(
+        &mut self,
+        device_id: &str,
+        store: &crate::trusted_device_store::TrustedDeviceStore,
+        current_epoch_secs: u64,
+    ) -> Result<(), ConnectError> {
+        self.last_attempted_device = Some(device_id.to_owned());
+        let device = self
+            .devices
+            .iter()
+            .find(|d| d.id == device_id)
+            .ok_or_else(|| {
+                let err = ConnectError::UnknownDevice;
+                self.last_error = Some(format!("Unknown device '{device_id}'"));
+                err
+            })?;
+
+        if device.status != DeviceStatus::Online {
+            self.last_error = Some(format!(
+                "Device '{}' is offline - verify power and network",
+                device.display_name
+            ));
+            return Err(ConnectError::DeviceOffline);
+        }
+
+        let record = store.get(device_id).ok_or_else(|| {
+            let err = ConnectError::UntrustedPeer(device_id.to_owned());
+            self.last_error = Some(format!(
+                "Device '{device_id}' is not enrolled in the trusted device store"
+            ));
+            err
+        })?;
+
+        if record.revoked {
+            let err = ConnectError::DeviceRevoked(device_id.to_owned());
+            self.last_error = Some(format!("Device '{device_id}' trust has been revoked"));
+            return Err(err);
+        }
+
+        if current_epoch_secs > record.trust_expires_at_epoch_secs {
+            let err = ConnectError::TrustExpired(device_id.to_owned());
+            self.last_error = Some(format!(
+                "Device '{device_id}' trust expired at {}",
+                record.trust_expires_at_epoch_secs
+            ));
+            return Err(err);
         }
 
         self.last_error = None;
@@ -475,5 +545,114 @@ mod tests {
 
         shell.stop_discovery();
         assert!(!shell.is_discovering());
+    }
+
+    #[test]
+    fn trusted_connect_validates_store_revocation_and_expiration() {
+        use crate::trusted_device_store::{
+            PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
+        };
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![
+            device("desk-trusted", DeviceStatus::Online),
+            device("desk-revoked", DeviceStatus::Online),
+            device("desk-expired", DeviceStatus::Online),
+            device("desk-offline", DeviceStatus::Offline),
+            device("desk-untrusted", DeviceStatus::Online),
+        ]);
+
+        let mut store = TrustedDeviceStore::new();
+        let valid_pk = [0x55_u8; 32];
+        store
+            .add(TrustedDeviceRecord {
+                device_id: "desk-trusted".to_owned(),
+                display_name: "Desk Trusted".to_owned(),
+                public_key: valid_pk,
+                enrolled_at_epoch_secs: 1000,
+                trust_expires_at_epoch_secs: 2000,
+                managed: true,
+                revoked: false,
+                status: PersistedDeviceStatus::Online,
+            })
+            .unwrap();
+
+        store
+            .add(TrustedDeviceRecord {
+                device_id: "desk-revoked".to_owned(),
+                display_name: "Desk Revoked".to_owned(),
+                public_key: valid_pk,
+                enrolled_at_epoch_secs: 1000,
+                trust_expires_at_epoch_secs: 2000,
+                managed: true,
+                revoked: true,
+                status: PersistedDeviceStatus::Online,
+            })
+            .unwrap();
+
+        store
+            .add(TrustedDeviceRecord {
+                device_id: "desk-expired".to_owned(),
+                display_name: "Desk Expired".to_owned(),
+                public_key: valid_pk,
+                enrolled_at_epoch_secs: 1000,
+                trust_expires_at_epoch_secs: 1500,
+                managed: true,
+                revoked: false,
+                status: PersistedDeviceStatus::Online,
+            })
+            .unwrap();
+
+        store
+            .add(TrustedDeviceRecord {
+                device_id: "desk-offline".to_owned(),
+                display_name: "Desk Offline".to_owned(),
+                public_key: valid_pk,
+                enrolled_at_epoch_secs: 1000,
+                trust_expires_at_epoch_secs: 2000,
+                managed: true,
+                revoked: false,
+                status: PersistedDeviceStatus::Offline,
+            })
+            .unwrap();
+
+        let now = 1600;
+
+        // 1. Success on valid trusted device
+        assert_eq!(
+            shell.begin_connect_trusted("desk-trusted", &store, now),
+            Ok(())
+        );
+        assert_eq!(shell.selected_device(), Some("desk-trusted"));
+        assert_eq!(shell.security_state(), SecurityState::AuthorizationRequired);
+        assert_eq!(shell.last_error(), None);
+
+        // 2. Reject untrusted device not in store
+        assert_eq!(
+            shell.begin_connect_trusted("desk-untrusted", &store, now),
+            Err(ConnectError::UntrustedPeer("desk-untrusted".to_owned()))
+        );
+        assert!(shell.last_error().unwrap().contains("not enrolled"));
+
+        // 3. Reject revoked device
+        assert_eq!(
+            shell.begin_connect_trusted("desk-revoked", &store, now),
+            Err(ConnectError::DeviceRevoked("desk-revoked".to_owned()))
+        );
+        assert!(shell.last_error().unwrap().contains("revoked"));
+
+        // 4. Reject expired device
+        assert_eq!(
+            shell.begin_connect_trusted("desk-expired", &store, now),
+            Err(ConnectError::TrustExpired("desk-expired".to_owned()))
+        );
+        assert!(shell.last_error().unwrap().contains("expired"));
+
+        // 5. Reject offline device
+        assert_eq!(
+            shell.begin_connect_trusted("desk-offline", &store, now),
+            Err(ConnectError::DeviceOffline)
+        );
+        assert!(shell.last_error().unwrap().contains("offline"));
     }
 }
