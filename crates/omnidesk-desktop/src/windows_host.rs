@@ -17,7 +17,7 @@ use winit::{
 };
 
 use crate::{
-    AccessibilityNode, DesktopAction, accessibility_snapshot,
+    AccessibilityNode, accessibility_snapshot,
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
