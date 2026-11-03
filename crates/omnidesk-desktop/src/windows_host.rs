@@ -5,8 +5,7 @@ use std::{num::NonZeroU32, path::PathBuf, sync::Arc};
 use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
-    product_shell::ProductShell,
-    product_shell::DeviceStatus,
+    product_shell::DeviceStatus, product_shell::ProductShell,
     trusted_device_store::TrustedDeviceStore,
 };
 use softbuffer::{Context, Surface};
