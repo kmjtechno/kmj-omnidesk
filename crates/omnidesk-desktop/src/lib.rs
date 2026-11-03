@@ -18,7 +18,8 @@ pub mod windows_host;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DesktopAction {
     FocusDevices,
-    ConnectDevice(usize),
+    // (original directory index, directory revision at hit-test time)
+    ConnectDevice(usize, u64),
     AllowPermission,
     DenyPermission,
     SetQuality(QualityPreset),
@@ -202,7 +203,7 @@ pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
                             device.display_name,
                             if online { "Online" } else { "Offline" }
                         ),
-                        action: DesktopAction::ConnectDevice(source_index),
+                        action: DesktopAction::ConnectDevice(source_index, shell.device_revision()),
                         keyboard_key: key,
                         role: AccessibleRole::Button,
                         enabled: online,
@@ -497,14 +498,16 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
         DesktopAction::FocusDevices => {
             shell.set_nav_tab(NavTab::Devices);
         }
-        DesktopAction::ConnectDevice(index) => {
+        DesktopAction::ConnectDevice(index, revision) => {
             // A pointer event can be queued before the user changes tabs or
             // filters. Revalidate the target at dispatch time, not only when
             // hit-testing it, so stale actions cannot select hidden rows.
-            if shell.primary_view() != PrimaryView::Devices
+            if shell.device_revision() != revision
+                || shell.primary_view() != PrimaryView::Devices
                 || shell.nav_tab() != NavTab::Devices
                 || !controls_for_shell(shell).iter().any(|control| {
-                    control.enabled && control.action == DesktopAction::ConnectDevice(index)
+                    control.enabled
+                        && control.action == DesktopAction::ConnectDevice(index, revision)
                 })
             {
                 return;
@@ -679,7 +682,7 @@ mod tests {
         assert!(rect.x > 180, "device control must not overlap nav rail");
         assert_eq!(
             action_at_point(&shell, 1419, 611, rect.x + 12, rect.y + 12),
-            Some(DesktopAction::ConnectDevice(0))
+            Some(DesktopAction::ConnectDevice(0, shell.device_revision()))
         );
         assert_eq!(
             action_at_point(&shell, 1419, 611, 30, rect.y + 12),
@@ -900,7 +903,10 @@ mod tests {
         ]);
 
         let controls = controls_for_shell(&shell);
-        assert_eq!(controls[0].action, DesktopAction::ConnectDevice(0));
+        assert_eq!(
+            controls[0].action,
+            DesktopAction::ConnectDevice(0, shell.device_revision())
+        );
         assert!(controls[0].enabled);
         assert!(!controls[1].enabled);
 
@@ -1014,7 +1020,10 @@ mod tests {
             first.x + first.width / 2,
             first.y + first.height / 2,
         );
-        assert_eq!(connect, Some(DesktopAction::ConnectDevice(0)));
+        assert_eq!(
+            connect,
+            Some(DesktopAction::ConnectDevice(0, shell.device_revision()))
+        );
         apply_action(&mut shell, connect.unwrap());
         assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
 
@@ -1064,12 +1073,18 @@ mod tests {
         shell.set_device_filter(DeviceFilter::Online);
         let online = controls_for_shell(&shell);
         assert_eq!(online.len(), 1);
-        assert_eq!(online[0].action, DesktopAction::ConnectDevice(1));
+        assert_eq!(
+            online[0].action,
+            DesktopAction::ConnectDevice(1, shell.device_revision())
+        );
         assert!(online[0].enabled);
 
         let rect = control_rects_for(&presentation_for(&shell), 1419, 611)[0];
         let action = action_at_point(&shell, 1419, 611, rect.x + 12, rect.y + 12);
-        assert_eq!(action, Some(DesktopAction::ConnectDevice(1)));
+        assert_eq!(
+            action,
+            Some(DesktopAction::ConnectDevice(1, shell.device_revision()))
+        );
         apply_action(&mut shell, action.unwrap());
         assert_eq!(shell.selected_device(), Some("online-second"));
 
@@ -1077,7 +1092,10 @@ mod tests {
         shell.set_device_filter(DeviceFilter::Offline);
         let offline = controls_for_shell(&shell);
         assert_eq!(offline.len(), 1);
-        assert_eq!(offline[0].action, DesktopAction::ConnectDevice(0));
+        assert_eq!(
+            offline[0].action,
+            DesktopAction::ConnectDevice(0, shell.device_revision())
+        );
         assert!(!offline[0].enabled);
     }
 
@@ -1159,7 +1177,7 @@ mod tests {
 
         // Simulate a click queued before the filter changed. The index is
         // valid and online, but the row is now hidden.
-        let stale_action = DesktopAction::ConnectDevice(1);
+        let stale_action = DesktopAction::ConnectDevice(1, shell.device_revision());
         shell.set_device_filter(DeviceFilter::Offline);
         apply_action(&mut shell, stale_action);
         assert_eq!(shell.selected_device(), None);
@@ -1171,7 +1189,8 @@ mod tests {
         assert_eq!(shell.selected_device(), None);
 
         shell.set_nav_tab(NavTab::Devices);
-        apply_action(&mut shell, DesktopAction::ConnectDevice(2));
+        let revision = shell.device_revision();
+        apply_action(&mut shell, DesktopAction::ConnectDevice(2, revision));
         assert_eq!(shell.selected_device(), None);
 
         // A currently visible online target still reaches the permission
@@ -1195,10 +1214,60 @@ mod tests {
                 })
                 .collect(),
         );
-        apply_action(&mut shell, DesktopAction::ConnectDevice(9));
+        let revision = shell.device_revision();
+        apply_action(&mut shell, DesktopAction::ConnectDevice(9, revision));
         assert_eq!(shell.selected_device(), None);
-        apply_action(&mut shell, DesktopAction::ConnectDevice(8));
+        apply_action(&mut shell, DesktopAction::ConnectDevice(8, revision));
         assert_eq!(shell.selected_device(), Some("desk-8"));
+    }
+
+    #[test]
+    fn queued_connect_action_cannot_retarget_after_device_directory_refresh() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary};
+
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "first".into(),
+                display_name: "First".into(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "second".into(),
+                display_name: "Second".into(),
+                status: DeviceStatus::Online,
+            },
+        ]);
+        let stale = controls_for_shell(&shell)[0].action;
+        let old_revision = shell.device_revision();
+
+        // Reordering must invalidate the queued index even when both rows
+        // remain online and visible. Otherwise index 0 connects the wrong peer.
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "second".into(),
+                display_name: "Second".into(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "first".into(),
+                display_name: "First".into(),
+                status: DeviceStatus::Online,
+            },
+        ]);
+        assert_ne!(shell.device_revision(), old_revision);
+        apply_action(&mut shell, stale);
+        assert_eq!(shell.selected_device(), None);
+
+        // Identical refreshes preserve the current revision and do not
+        // invalidate a freshly generated action unnecessarily.
+        let current = controls_for_shell(&shell)[0].action;
+        let revision = shell.device_revision();
+        let same_snapshot = shell.devices().to_vec();
+        shell.replace_devices(same_snapshot);
+        assert_eq!(shell.device_revision(), revision);
+        apply_action(&mut shell, current);
+        assert_eq!(shell.selected_device(), Some("second"));
     }
 
     #[test]

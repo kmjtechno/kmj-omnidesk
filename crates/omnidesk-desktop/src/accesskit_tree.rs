@@ -140,7 +140,7 @@ mod tests {
         assert_eq!(update.nodes.len(), 2);
         assert_eq!(
             desktop_action_for_node(&shell, NodeId(1)),
-            Some(DesktopAction::ConnectDevice(0))
+            Some(DesktopAction::ConnectDevice(0, shell.device_revision()))
         );
         assert!(!update.nodes[1].1.is_disabled());
     }
