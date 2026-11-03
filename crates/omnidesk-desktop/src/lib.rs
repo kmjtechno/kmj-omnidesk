@@ -568,7 +568,9 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
         DesktopAction::EnrollDevice => {
             // An enrollment click is not cryptographic proof of a remote peer.
             // Keep the directory unchanged until a real signed peer flow exists.
-            shell.set_error("Secure enrollment requires a verified remote peer; pairing is not available yet");
+            shell.set_error(
+                "Secure enrollment requires a verified remote peer; pairing is not available yet",
+            );
         }
         DesktopAction::RefreshDiscovery => {
             if shell.is_discovering() {
@@ -691,7 +693,6 @@ pub const fn controls_for(view: PrimaryView) -> &'static [AccessibleControl] {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn enrollment_without_verified_peer_never_creates_a_trusted_device() {
