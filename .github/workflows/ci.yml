@@ -310,6 +310,22 @@ jobs:
       - name: M9 protected signer path refusal gate (unsigned negative tests)
         shell: pwsh
         run: pwsh -NoProfile -File scripts/test_windows_release_signing_gate.ps1
+      # These scripts are intentionally NOT executed in CI: they launch a
+      # real GUI and inject physical mouse events. Parse both scripts on a
+      # Windows runner so malformed safety guards cannot silently ship.
+      - name: Parse P520 foreground and mouse QA scripts (no GUI execution)
+        shell: pwsh
+        run: |
+          foreach ($path in @('scripts/launch_persistent_foreground_app.ps1', 'scripts/p520_test_mouse_clicks.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $path).Path, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Host $_.Message }
+              throw "PowerShell QA script syntax failed: $path"
+            }
+            Write-Host "Syntax PASS: $path"
+          }
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
