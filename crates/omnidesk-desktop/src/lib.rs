@@ -28,6 +28,9 @@ pub enum DesktopAction {
     SelectFilter(DeviceFilter),
     ToggleHelp,
     OpenSettings,
+    EnrollDevice,
+    RefreshDiscovery,
+    RetryConnect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,60 +160,82 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
     }
 }
 
+fn controls_for_devices_view(shell: &ProductShell) -> Vec<ShellControl> {
+    // Keep original device indices when filtering: the visible row
+    // position must never select a different, hidden device.
+    let visible: Vec<_> = shell
+        .devices()
+        .iter()
+        .enumerate()
+        .filter(|(_, device)| match shell.device_filter() {
+            DeviceFilter::All => true,
+            DeviceFilter::Online => device.status == DeviceStatus::Online,
+            DeviceFilter::Offline => device.status != DeviceStatus::Online,
+        })
+        .take(9)
+        .collect();
+
+    if visible.is_empty() {
+        let label = match shell.device_filter() {
+            DeviceFilter::All => "No devices available",
+            DeviceFilter::Online => "No online devices available",
+            DeviceFilter::Offline => "No offline devices available",
+        };
+        let mut controls = vec![ShellControl {
+            label: label.to_owned(),
+            action: DesktopAction::FocusDevices,
+            keyboard_key: 'd',
+            role: AccessibleRole::Navigation,
+            enabled: false,
+        }];
+
+        if shell.last_error().is_some() {
+            controls.push(ShellControl {
+                label: "Retry Connection".to_owned(),
+                action: DesktopAction::RetryConnect,
+                keyboard_key: 't',
+                role: AccessibleRole::Button,
+                enabled: true,
+            });
+        } else if shell.is_discovering() {
+            controls.push(ShellControl {
+                label: "Stop Device Discovery".to_owned(),
+                action: DesktopAction::RefreshDiscovery,
+                keyboard_key: 'r',
+                role: AccessibleRole::Button,
+                enabled: true,
+            });
+        }
+
+        return controls;
+    }
+
+    visible
+        .into_iter()
+        .enumerate()
+        .map(|(display_index, (source_index, device))| {
+            const DEVICE_KEYS: [char; 9] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+            let key = DEVICE_KEYS[display_index];
+            let online = device.status == DeviceStatus::Online;
+            ShellControl {
+                label: format!(
+                    "{} — {}",
+                    device.display_name,
+                    if online { "Online" } else { "Offline" }
+                ),
+                action: DesktopAction::ConnectDevice(source_index, shell.device_revision()),
+                keyboard_key: key,
+                role: AccessibleRole::Button,
+                enabled: online,
+            }
+        })
+        .collect()
+}
+
 #[must_use]
 pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
     match shell.primary_view() {
-        PrimaryView::Devices => {
-            // Keep original device indices when filtering: the visible row
-            // position must never select a different, hidden device.
-            let visible: Vec<_> = shell
-                .devices()
-                .iter()
-                .enumerate()
-                .filter(|(_, device)| match shell.device_filter() {
-                    DeviceFilter::All => true,
-                    DeviceFilter::Online => device.status == DeviceStatus::Online,
-                    DeviceFilter::Offline => device.status != DeviceStatus::Online,
-                })
-                .take(9)
-                .collect();
-
-            if visible.is_empty() {
-                let label = match shell.device_filter() {
-                    DeviceFilter::All => "No devices available",
-                    DeviceFilter::Online => "No online devices available",
-                    DeviceFilter::Offline => "No offline devices available",
-                };
-                return vec![ShellControl {
-                    label: label.to_owned(),
-                    action: DesktopAction::FocusDevices,
-                    keyboard_key: 'd',
-                    role: AccessibleRole::Navigation,
-                    enabled: false,
-                }];
-            }
-
-            visible
-                .into_iter()
-                .enumerate()
-                .map(|(display_index, (source_index, device))| {
-                    const DEVICE_KEYS: [char; 9] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-                    let key = DEVICE_KEYS[display_index];
-                    let online = device.status == DeviceStatus::Online;
-                    ShellControl {
-                        label: format!(
-                            "{} — {}",
-                            device.display_name,
-                            if online { "Online" } else { "Offline" }
-                        ),
-                        action: DesktopAction::ConnectDevice(source_index, shell.device_revision()),
-                        keyboard_key: key,
-                        role: AccessibleRole::Button,
-                        enabled: online,
-                    }
-                })
-                .collect()
-        }
+        PrimaryView::Devices => controls_for_devices_view(shell),
         PrimaryView::PermissionPrompt => vec![
             ShellControl {
                 label: "Allow remote session".to_owned(),
@@ -264,11 +289,18 @@ pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
 pub fn presentation_details(shell: &ProductShell) -> Vec<String> {
     match shell.primary_view() {
         PrimaryView::Devices => {
-            if shell.devices().is_empty() {
+            let mut list = if shell.devices().is_empty() {
                 vec!["Waiting for registered devices".to_owned()]
             } else {
                 vec![format!("{} registered device(s)", shell.devices().len())]
+            };
+            if let Some(err) = shell.last_error() {
+                list.push(format!("Notice: {err}"));
             }
+            if shell.is_discovering() {
+                list.push("Discovery: active scanning...".to_owned());
+            }
+            list
         }
         PrimaryView::PermissionPrompt => vec![
             format!(
@@ -532,6 +564,19 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
         }
         DesktopAction::OpenSettings => {
             shell.set_nav_tab(NavTab::Settings);
+        }
+        DesktopAction::EnrollDevice => {
+            shell.clear_error();
+        }
+        DesktopAction::RefreshDiscovery => {
+            if shell.is_discovering() {
+                shell.stop_discovery();
+            } else {
+                shell.start_discovery();
+            }
+        }
+        DesktopAction::RetryConnect => {
+            let _ = shell.retry_connect();
         }
     }
 }
