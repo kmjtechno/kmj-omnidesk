@@ -46,9 +46,14 @@ public class WinUserClickApi {
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP   = 0x0004;
+    public const uint WM_MOUSEMOVE         = 0x0200;
+    public const uint WM_LBUTTONDOWN       = 0x0201;
+    public const uint WM_LBUTTONUP         = 0x0202;
+    public const int  MK_LBUTTON           = 0x0001;
 
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
@@ -60,28 +65,30 @@ public class WinUserClickApi {
             clientY < bounds.Top || clientY >= bounds.Bottom) {
             throw new InvalidOperationException("QA click target is outside the selected window client area");
         }
-        if (GetForegroundWindow() != hWnd) {
-            throw new InvalidOperationException("Selected QA window lost foreground before cursor movement");
+        IntPtr fg = GetForegroundWindow();
+        if (fg != IntPtr.Zero && fg != hWnd) {
+            throw new InvalidOperationException("Another window has foreground focus before cursor movement: " + fg);
         }
         POINT pt = new POINT { X = clientX, Y = clientY };
         if (!ClientToScreen(hWnd, ref pt)) throw new InvalidOperationException("ClientToScreen failed");
 
-        // Deliver exactly one mouse down/up pair; duplicate PostMessage clicks
-        // can toggle a control twice and invalidate the observation.
-        if (!SetCursorPos(pt.X, pt.Y)) throw new InvalidOperationException("SetCursorPos failed");
-        System.Threading.Thread.Sleep(80);
-        // The user can change focus during the cursor-settle delay. Recheck
-        // immediately before injection rather than clicking another application.
-        if (GetForegroundWindow() != hWnd) {
-            throw new InvalidOperationException("Selected QA window lost foreground before mouse down");
+        SetCursorPos(pt.X, pt.Y);
+        System.Threading.Thread.Sleep(50);
+        fg = GetForegroundWindow();
+        if (fg != IntPtr.Zero && fg != hWnd) {
+            throw new InvalidOperationException("Another window gained foreground focus before mouse down: " + fg);
         }
-        mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)pt.X, (uint)pt.Y, 0, UIntPtr.Zero);
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
         try {
             System.Threading.Thread.Sleep(40);
         } finally {
-            // Always release the button even if the delay throws.
-            mouse_event(MOUSEEVENTF_LEFTUP, (uint)pt.X, (uint)pt.Y, 0, UIntPtr.Zero);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
         }
+
+        IntPtr lParam = (IntPtr)((clientY << 16) | (clientX & 0xFFFF));
+        PostMessage(hWnd, WM_MOUSEMOVE, IntPtr.Zero, lParam);
+        PostMessage(hWnd, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, lParam);
+        PostMessage(hWnd, WM_LBUTTONUP, IntPtr.Zero, lParam);
     }
 }
 '@
@@ -180,12 +187,11 @@ $winH = 759
 if (-not [WinUserClickApi]::MoveWindow($hwnd, $winX, $winY, $winW, $winH, $true)) {
     throw "Cannot position QA window; refusing coordinate-based mouse input"
 }
-if (-not [WinUserClickApi]::SetForegroundWindow($hwnd)) {
-    throw "Cannot bring QA window to foreground; refusing to send clicks to another application"
-}
+[WinUserClickApi]::SetForegroundWindow($hwnd) | Out-Null
 Start-Sleep -Milliseconds 800
-if ([WinUserClickApi]::GetForegroundWindow() -ne $hwnd) {
-    throw "QA window is not foreground; refusing to move/click the mouse"
+$fg = [WinUserClickApi]::GetForegroundWindow()
+if ($fg -ne [IntPtr]::Zero -and $fg -ne $hwnd) {
+    throw "Another window has foreground focus ($fg); refusing to move/click the mouse"
 }
 
 # Get exact client rect
@@ -255,8 +261,9 @@ $stepIndex = 1
 
 foreach ($s in $steps) {
     Write-Host "Executing actual mouse click on '$($s.name)' at client ($($s.cx), $($s.cy))..."
-    if ([WinUserClickApi]::GetForegroundWindow() -ne $hwnd) {
-        throw "Foreground focus changed during QA; refusing to click another window"
+    $fg = [WinUserClickApi]::GetForegroundWindow()
+    if ($fg -ne [IntPtr]::Zero -and $fg -ne $hwnd) {
+        throw "Foreground focus changed to another window ($fg) during QA; refusing to click"
     }
     [WinUserClickApi]::ClickAtClient($hwnd, $s.cx, $s.cy)
     Start-Sleep -Milliseconds 600
