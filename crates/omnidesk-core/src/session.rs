@@ -27,6 +27,13 @@ pub enum SessionError {
     PeerIdentityNotAscii,
     PeerIdentityHasControlCharacter,
     ControlNotAuthorized,
+    UntrustedPublicKey,
+    PeerRevoked,
+    TrustExpired,
+    CrossTenantMismatch {
+        expected: String,
+        received: String,
+    },
     Closed,
 }
 
@@ -184,6 +191,60 @@ impl Session {
         self.authenticated_public_key = Some(*proof.public_key());
         self.authentication_nonce = Some(*proof.nonce());
         self.state = SessionState::AwaitingAuthorization;
+        Ok(())
+    }
+
+    /// Verifies peer authentication proof against a trusted device store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the public key is not enrolled, if the trust record
+    /// is marked revoked, if trust has expired, or if the session is not negotiating.
+    pub fn authenticate_with_trusted_store(
+        &mut self,
+        proof: &PeerAuthenticationProof,
+        store: &crate::trusted_device_store::TrustedDeviceStore,
+        current_epoch_secs: u64,
+    ) -> Result<(), SessionError> {
+        self.require_state(SessionState::Negotiating, "authenticate_with_trusted_store")?;
+
+        let record = store
+            .find_by_public_key(proof.public_key())
+            .ok_or(SessionError::UntrustedPublicKey)?;
+
+        if record.revoked {
+            return Err(SessionError::PeerRevoked);
+        }
+
+        if current_epoch_secs > record.trust_expires_at_epoch_secs {
+            return Err(SessionError::TrustExpired);
+        }
+
+        self.authenticated_public_key = Some(*proof.public_key());
+        self.authentication_nonce = Some(*proof.nonce());
+        self.state = SessionState::AwaitingAuthorization;
+        Ok(())
+    }
+
+    /// Verifies that both peers belong to the exact same organization tenant.
+    ///
+    /// Cross-tenant connections are strictly rejected fail-closed; no media
+    /// or control transport is ever permitted across tenant boundaries.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::CrossTenantMismatch`] if `expected_tenant` != `peer_tenant`.
+    pub fn enforce_tenant_boundary(
+        &self,
+        expected_tenant: &str,
+        peer_tenant: &str,
+    ) -> Result<(), SessionError> {
+        if expected_tenant != peer_tenant {
+            return Err(SessionError::CrossTenantMismatch {
+                expected: expected_tenant.to_owned(),
+                received: peer_tenant.to_owned(),
+            });
+        }
         Ok(())
     }
 
@@ -463,5 +524,92 @@ mod tests {
         // rendering leaves the oversized value resident in the process.
         let huge = "x".repeat(100_000);
         assert!(PeerIdentity::new(huge).is_err());
+    }
+
+    #[test]
+    fn authenticate_with_trusted_store_enforces_enrollment_revocation_and_expiry() {
+        use crate::{
+            authentication::verify_peer_authentication,
+            trusted_device_store::{
+                PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
+            },
+        };
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[0x42_u8; 32]);
+        let pk = signing_key.verifying_key().to_bytes();
+        let nonce = [0x99_u8; 32];
+        let msg = crate::authentication::peer_auth_message(&pk, &nonce);
+        let sig = signing_key.sign(&msg).to_bytes();
+        let proof = verify_peer_authentication(pk, nonce, sig).unwrap();
+
+        let mut store = TrustedDeviceStore::new();
+        store
+            .add(TrustedDeviceRecord {
+                device_id: "desk-trusted".to_owned(),
+                display_name: "Desk Trusted".to_owned(),
+                public_key: pk,
+                enrolled_at_epoch_secs: 1000,
+                trust_expires_at_epoch_secs: 2000,
+                managed: true,
+                revoked: false,
+                status: PersistedDeviceStatus::Online,
+            })
+            .unwrap();
+
+        let mut session = Session::default();
+        session
+            .begin(PeerIdentity::new("desk-trusted").unwrap(), PROTOCOL_VERSION)
+            .unwrap();
+
+        // 1. Success on valid proof and valid record
+        session
+            .authenticate_with_trusted_store(&proof, &store, 1500)
+            .unwrap();
+        assert_eq!(session.state(), SessionState::AwaitingAuthorization);
+
+        // 2. Reject if public key is not enrolled
+        let other_key = SigningKey::from_bytes(&[0x77_u8; 32]);
+        let other_pk = other_key.verifying_key().to_bytes();
+        let other_sig = other_key
+            .sign(&crate::authentication::peer_auth_message(&other_pk, &nonce))
+            .to_bytes();
+        let other_proof = verify_peer_authentication(other_pk, nonce, other_sig).unwrap();
+
+        let mut session2 = Session::default();
+        session2
+            .begin(PeerIdentity::new("unknown").unwrap(), PROTOCOL_VERSION)
+            .unwrap();
+        assert_eq!(
+            session2.authenticate_with_trusted_store(&other_proof, &store, 1500),
+            Err(SessionError::UntrustedPublicKey)
+        );
+
+        // 3. Reject if revoked
+        store.revoke("desk-trusted");
+        let mut session3 = Session::default();
+        session3
+            .begin(PeerIdentity::new("desk-trusted").unwrap(), PROTOCOL_VERSION)
+            .unwrap();
+        assert_eq!(
+            session3.authenticate_with_trusted_store(&proof, &store, 1500),
+            Err(SessionError::PeerRevoked)
+        );
+    }
+
+    #[test]
+    fn cross_tenant_boundaries_are_strictly_rejected() {
+        let session = Session::default();
+        assert_eq!(
+            session.enforce_tenant_boundary("tenant-alpha", "tenant-alpha"),
+            Ok(())
+        );
+        assert_eq!(
+            session.enforce_tenant_boundary("tenant-alpha", "tenant-bravo"),
+            Err(SessionError::CrossTenantMismatch {
+                expected: "tenant-alpha".to_owned(),
+                received: "tenant-bravo".to_owned(),
+            })
+        );
     }
 }

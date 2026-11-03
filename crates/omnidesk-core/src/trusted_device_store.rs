@@ -214,6 +214,12 @@ impl TrustedDeviceStore {
         self.devices.iter().find(|d| d.device_id == device_id)
     }
 
+    /// Looks up an enrolled device record matching the specified public key curve point.
+    #[must_use]
+    pub fn find_by_public_key(&self, public_key: &[u8; 32]) -> Option<&TrustedDeviceRecord> {
+        self.devices.iter().find(|d| &d.public_key == public_key)
+    }
+
     /// Adds or replaces a trusted device record after strict validation.
     ///
     /// # Errors
