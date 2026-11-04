@@ -5,8 +5,8 @@ use std::{num::NonZeroU32, path::PathBuf, sync::Arc};
 use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
-    product_shell::ProductShell,
-    trusted_device_store::{PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore},
+    product_shell::DeviceStatus, product_shell::ProductShell,
+    trusted_device_store::TrustedDeviceStore,
 };
 use softbuffer::{Context, Surface};
 use winit::{
@@ -17,7 +17,7 @@ use winit::{
 };
 
 use crate::{
-    AccessibilityNode, DesktopAction, accessibility_snapshot,
+    AccessibilityNode, accessibility_snapshot,
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
@@ -67,8 +67,6 @@ struct DesktopHost {
     context: Context<OwnedDisplayHandle>,
     event_loop_proxy: EventLoopProxy<AccessKitEvent>,
     shell: ProductShell,
-    store: TrustedDeviceStore,
-    store_path: PathBuf,
     accessibility: Vec<AccessibilityNode>,
     accessibility_focus: Option<NodeId>,
     cursor_position: Option<(usize, usize)>,
@@ -83,10 +81,22 @@ impl DesktopHost {
             .map_or_else(|| PathBuf::from("."), PathBuf::from)
             .join("KMJ-OmniDesk")
             .join("trusted_devices.json");
-        let store = TrustedDeviceStore::load_from_path(&store_path).unwrap_or_default();
         let mut shell = ProductShell::new();
+        let store = match TrustedDeviceStore::load_from_path(&store_path) {
+            Ok(store) => store,
+            Err(err) => {
+                // Never silently accept a damaged trust store or overwrite it.
+                shell.set_error(format!("Trusted device store unavailable: {err}"));
+                TrustedDeviceStore::new()
+            }
+        };
         if !store.is_empty() {
-            shell.replace_devices(store.to_device_summaries());
+            // A persisted status is not proof of a live authenticated peer.
+            let mut devices = store.to_device_summaries();
+            for device in &mut devices {
+                device.status = DeviceStatus::Offline;
+            }
+            shell.replace_devices(devices);
         }
         let accessibility = accessibility_snapshot(&shell);
         Self {
@@ -96,8 +106,6 @@ impl DesktopHost {
             context,
             event_loop_proxy,
             shell,
-            store,
-            store_path,
             accessibility,
             accessibility_focus: None,
             cursor_position: None,
@@ -268,22 +276,6 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         x,
                         y,
                     ) {
-                        if action == DesktopAction::EnrollDevice && self.store.is_empty() {
-                            let local = TrustedDeviceRecord {
-                                device_id: "kmj-kmj-omnidesk-desktop-5fvjmet".to_owned(),
-                                display_name: "P520 ThinkStation (Local)".to_owned(),
-                                public_key: [7_u8; 32],
-                                enrolled_at_epoch_secs: 1_700_000_000,
-                                trust_expires_at_epoch_secs: 2_000_000_000,
-                                managed: true,
-                                revoked: false,
-                                status: PersistedDeviceStatus::Online,
-                            };
-                            if self.store.add(local).is_ok() {
-                                let _ = self.store.save_to_path(&self.store_path);
-                                self.shell.replace_devices(self.store.to_device_summaries());
-                            }
-                        }
                         apply_action(&mut self.shell, action);
                         self.accessibility_focus = None;
                         self.refresh_presentation();
@@ -293,22 +285,6 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 if let Some(text) = event.text {
                     if let Some(key) = text.chars().next() {
-                        if key.eq_ignore_ascii_case(&'e') && self.store.is_empty() {
-                            let local = TrustedDeviceRecord {
-                                device_id: "kmj-kmj-omnidesk-desktop-5fvjmet".to_owned(),
-                                display_name: "P520 ThinkStation (Local)".to_owned(),
-                                public_key: [7_u8; 32],
-                                enrolled_at_epoch_secs: 1_700_000_000,
-                                trust_expires_at_epoch_secs: 2_000_000_000,
-                                managed: true,
-                                revoked: false,
-                                status: PersistedDeviceStatus::Online,
-                            };
-                            if self.store.add(local).is_ok() {
-                                let _ = self.store.save_to_path(&self.store_path);
-                                self.shell.replace_devices(self.store.to_device_summaries());
-                            }
-                        }
                         if apply_key(&mut self.shell, key) {
                             self.accessibility_focus = None;
                             self.refresh_presentation();

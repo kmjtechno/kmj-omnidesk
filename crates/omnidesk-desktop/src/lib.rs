@@ -566,7 +566,11 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             shell.set_nav_tab(NavTab::Settings);
         }
         DesktopAction::EnrollDevice => {
-            shell.clear_error();
+            // An enrollment click is not cryptographic proof of a remote peer.
+            // Keep the directory unchanged until a real signed peer flow exists.
+            shell.set_error(
+                "Secure enrollment requires a verified remote peer; pairing is not available yet",
+            );
         }
         DesktopAction::RefreshDiscovery => {
             if shell.is_discovering() {
@@ -689,6 +693,15 @@ pub const fn controls_for(view: PrimaryView) -> &'static [AccessibleControl] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enrollment_without_verified_peer_never_creates_a_trusted_device() {
+        let mut shell = ProductShell::new();
+        apply_action(&mut shell, DesktopAction::EnrollDevice);
+        assert_eq!(shell.devices(), []);
+        assert!(shell.last_error().is_some());
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
+    }
 
     #[test]
     fn every_primary_view_has_keyboard_operable_labeled_controls() {
