@@ -143,7 +143,9 @@ class ReleaseCandidatePackagingTests(unittest.TestCase):
         self.assertIn('!define APP_VERSION "0.0.1"', installer)
         self.assertIn('"DisplayVersion" "${APP_VERSION}"', installer)
         self.assertIn('CreateShortCut "$SMPROGRAMS\\KMJ OmniDesk.lnk"', installer)
+        self.assertIn('CreateShortCut "$DESKTOP\\KMJ OmniDesk.lnk"', installer)
         self.assertIn('Delete "$SMPROGRAMS\\KMJ OmniDesk.lnk"', installer)
+        self.assertIn('Delete "$DESKTOP\\KMJ OmniDesk.lnk"', installer)
         # Current Windows CI deliberately exercises /S install *and* uninstall.
         workflow = (
             Path(__file__).resolve().parents[1]
