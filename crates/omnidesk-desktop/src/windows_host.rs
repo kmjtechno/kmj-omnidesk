@@ -19,8 +19,9 @@ use winit::{
 use crate::{
     AccessibilityNode, DesktopAction, accessibility_snapshot,
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
-    action_at_point, apply_action, apply_key, controls_for_shell,
+    action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
+    controls_for_shell,
     layout::{initial_window_inner_size, initial_window_origin},
     presentation_for,
     render::render_shell,
@@ -70,7 +71,9 @@ fn refuse_unverified_session_action(shell: &mut ProductShell, action: DesktopAct
             | DesktopAction::AllowPermission
     ) {
         shell.disconnect();
-        shell.set_error("Remote connection unavailable: authenticated peer transport is not established");
+        shell.set_error(
+            "Remote connection unavailable: authenticated peer transport is not established",
+        );
         return true;
     }
     false
@@ -308,10 +311,13 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                     if let Some(key) = text.chars().next() {
                         let selected_action = controls_for_shell(&self.shell)
                             .into_iter()
-                            .find(|control| control.enabled && control.keyboard_key == key.to_ascii_lowercase())
+                            .find(|control| {
+                                control.enabled && control.keyboard_key == key.to_ascii_lowercase()
+                            })
                             .map(|control| control.action);
-                        if selected_action.is_some_and(|action| refuse_unverified_session_action(&mut self.shell, action))
-                            || apply_key(&mut self.shell, key)
+                        if selected_action.is_some_and(|action| {
+                            refuse_unverified_session_action(&mut self.shell, action)
+                        }) || apply_key(&mut self.shell, key)
                         {
                             self.accessibility_focus = None;
                             self.refresh_presentation();
@@ -386,7 +392,10 @@ mod tests {
     #[test]
     fn non_session_navigation_is_not_blocked() {
         let mut shell = ProductShell::new();
-        assert!(!refuse_unverified_session_action(&mut shell, DesktopAction::ToggleHelp));
+        assert!(!refuse_unverified_session_action(
+            &mut shell,
+            DesktopAction::ToggleHelp
+        ));
         assert!(shell.last_error().is_none());
     }
 
