@@ -1,7 +1,9 @@
 use std::{
     fs,
+    net::TcpListener,
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use ed25519_dalek::{Signer, SigningKey};
@@ -10,12 +12,13 @@ use omnidesk_core::{
     authentication::{peer_auth_message, verify_peer_authentication},
     device_enrollment::{
         ChallengeTracker, DEFAULT_CHALLENGE_LIFETIME_SECS, EnrollmentChallenge,
-        EnrollmentCoordinator, EnrollmentError, EnrollmentRequest, EnrollmentStage,
-        build_enrollment_message, verify_and_consume_enrollment, verify_enrollment,
+        EnrollmentCoordinator, EnrollmentError, EnrollmentRequest, EnrollmentStage, PairingMessage,
+        build_enrollment_message, host_process_pairing_exchange, peer_execute_pairing_handshake,
+        verify_and_consume_enrollment, verify_enrollment,
     },
     product_shell::{ConnectError, DeviceStatus, DeviceSummary, ProductShell, SecurityState},
     session::{PeerIdentity, Session, SessionError, SessionState},
-    transport::LoopbackTransport,
+    transport::{HostTransport, LoopbackTransport, TcpLanTransport, Transport},
     transport_adapter::{TransportSessionAdapter, TransportSessionError},
     trusted_device_store::{
         DeviceStoreError, PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
@@ -692,5 +695,211 @@ fn transport_session_adapter_expired_trust_rejected() {
     assert_eq!(
         adapter.authenticate_peer(pk, nonce, sig, "tenant-main", &store, now),
         Err(TransportSessionError::TrustExpired)
+    );
+}
+
+#[test]
+fn tcp_lan_pairing_exchange_e2e() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+
+    let path = temp_store_path("tcp-pairing");
+    let path_clone = path.clone();
+    let now = 4_000_000_u64;
+
+    // Server thread (Host)
+    let server_handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept connection");
+        let mut transport = TcpLanTransport::from_stream(stream).expect("from stream");
+        let mut coordinator = EnrollmentCoordinator::new();
+        let mut store = TrustedDeviceStore::new();
+
+        // 1. Process RequestChallenge -> sends Challenge
+        let res1 = host_process_pairing_exchange(
+            &mut coordinator,
+            &mut store,
+            Some(&path_clone),
+            &mut transport,
+            now,
+        );
+        assert_eq!(res1, Ok(None));
+
+        // 2. Process SubmitEnrollment -> verifies and persists
+        let res2 = host_process_pairing_exchange(
+            &mut coordinator,
+            &mut store,
+            Some(&path_clone),
+            &mut transport,
+            now,
+        );
+        let record = res2.expect("enrollment should succeed").expect("record");
+        assert_eq!(record.device_id, "peer-tcp-520");
+        assert_eq!(record.status, PersistedDeviceStatus::Offline);
+    });
+
+    // Client thread (Peer)
+    let peer_signing = SigningKey::from_bytes(&[0xEE_u8; 32]);
+    let mut client_transport =
+        TcpLanTransport::connect(addr, Duration::from_secs(5)).expect("connect");
+
+    let result = peer_execute_pairing_handshake(
+        &mut client_transport,
+        &peer_signing,
+        "peer-tcp-520",
+        "TCP Peer 520",
+        now,
+    )
+    .expect("handshake success");
+
+    assert!(matches!(result, PairingMessage::EnrollmentSuccess { .. }));
+    server_handle.join().expect("server join");
+
+    // Verify atomic disk persistence
+    let reloaded = TrustedDeviceStore::load_from_path(&path).expect("reload");
+    assert_eq!(reloaded.len(), 1);
+    let dev = reloaded.get("peer-tcp-520").expect("get peer");
+    assert_eq!(dev.status, PersistedDeviceStatus::Offline);
+
+    let _ = fs::remove_file(&path);
+}
+
+#[test]
+fn tcp_lan_authenticated_session_e2e() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let now = 5_000_000_u64;
+
+    let peer_key = SigningKey::from_bytes(&[0xEF_u8; 32]);
+    let peer_pk = peer_key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "tcp-session-peer".to_owned(),
+            display_name: "TCP Session Peer".to_owned(),
+            public_key: peer_pk,
+            enrolled_at_epoch_secs: now - 50,
+            trust_expires_at_epoch_secs: now + 5000,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .unwrap();
+
+    let store_arc = store;
+
+    // Server thread (Host)
+    let server_handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept connection");
+        let transport = HostTransport::from_tcp_stream(stream).expect("from stream");
+        let mut adapter = TransportSessionAdapter::new(transport, "kmj-tenant");
+
+        adapter
+            .begin_negotiation(PeerIdentity::new("tcp-session-peer").unwrap())
+            .expect("begin");
+
+        let nonce = [0x5A_u8; 32];
+        let auth_msg = peer_auth_message(&peer_pk, &nonce);
+        let sig = peer_key.sign(&auth_msg).to_bytes();
+
+        let rec = adapter
+            .authenticate_peer(peer_pk, nonce, sig, "kmj-tenant", &store_arc, now)
+            .expect("auth");
+        assert_eq!(rec.device_id, "tcp-session-peer");
+
+        adapter.authorize_session().expect("authorize");
+        assert!(adapter.is_control_authorized());
+
+        // Echo server over TCP
+        let payload = adapter.receive().expect("receive").expect("payload");
+        assert_eq!(payload, b"ping tcp remote desktop");
+        adapter.send(b"pong tcp remote desktop").expect("send");
+
+        adapter.close();
+        assert!(!adapter.is_control_authorized());
+    });
+
+    // Client thread
+    let client_stream = std::net::TcpStream::connect(addr).expect("connect client");
+    let mut client_transport = TcpLanTransport::from_stream(client_stream).expect("from stream");
+
+    // Client sends ping payload and receives pong over TCP
+    client_transport
+        .send(b"ping tcp remote desktop")
+        .expect("client send");
+    let resp = client_transport
+        .receive()
+        .expect("client receive")
+        .expect("resp");
+    assert_eq!(resp, b"pong tcp remote desktop");
+
+    server_handle.join().expect("server join");
+}
+
+#[test]
+fn tcp_lan_wrong_tenant_rejected_fail_closed() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let now = 6_000_000_u64;
+
+    let peer_key = SigningKey::from_bytes(&[0xF1_u8; 32]);
+    let peer_pk = peer_key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "tenant-peer".to_owned(),
+            display_name: "Tenant Peer".to_owned(),
+            public_key: peer_pk,
+            enrolled_at_epoch_secs: now - 50,
+            trust_expires_at_epoch_secs: now + 5000,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .unwrap();
+
+    let server_handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        let transport = HostTransport::from_tcp_stream(stream).expect("transport");
+        let mut adapter = TransportSessionAdapter::new(transport, "tenant-alpha");
+
+        adapter
+            .begin_negotiation(PeerIdentity::new("tenant-peer").unwrap())
+            .expect("begin");
+
+        let nonce = [0x6B_u8; 32];
+        let auth_msg = peer_auth_message(&peer_pk, &nonce);
+        let sig = peer_key.sign(&auth_msg).to_bytes();
+
+        // Cross-tenant attempt fails closed
+        let err = adapter.authenticate_peer(peer_pk, nonce, sig, "tenant-beta", &store, now);
+        assert!(matches!(
+            err,
+            Err(TransportSessionError::TenantMismatch { .. })
+        ));
+        assert!(!adapter.is_control_authorized());
+    });
+
+    let _client = std::net::TcpStream::connect(addr).expect("client connect");
+    server_handle.join().expect("server finish");
+}
+
+#[test]
+fn host_transport_loopback_and_tcp_conformance() {
+    let mut loopback = HostTransport::loopback();
+    assert_eq!(
+        loopback.path_kind(),
+        omnidesk_core::transport::PathKind::Loopback
+    );
+    loopback.send(b"loopback-test").expect("send");
+    assert_eq!(
+        loopback.receive().expect("receive"),
+        Some(b"loopback-test".to_vec())
+    );
+    loopback.close();
+    assert_eq!(
+        loopback.send(b"after-close"),
+        Err(omnidesk_core::transport::TransportError::Closed)
     );
 }

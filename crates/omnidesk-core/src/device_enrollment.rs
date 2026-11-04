@@ -92,8 +92,10 @@ impl From<DeviceStoreError> for EnrollmentError {
     }
 }
 
+use serde::{Deserialize, Serialize};
+
 /// A fresh, single-use enrollment challenge issued to an enrolling peer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnrollmentChallenge {
     pub nonce: [u8; 32],
     pub issued_at_epoch_secs: u64,
@@ -136,14 +138,35 @@ impl EnrollmentChallenge {
 }
 
 /// An enrollment request submitted by a candidate device answering a challenge.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnrollmentRequest {
     pub device_id: String,
     pub display_name: String,
     pub public_key: [u8; 32],
     pub nonce: [u8; 32],
     pub timestamp_epoch_secs: u64,
+    #[serde(with = "serde_bytes_64")]
     pub signature: [u8; 64],
+}
+
+mod serde_bytes_64 {
+    use serde::{Deserializer, Serializer, de::Error};
+
+    pub fn serialize<S>(bytes: &[u8; 64], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serde::Serialize::serialize(bytes.as_slice(), serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 64], D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let vec = <Vec<u8> as serde::Deserialize>::deserialize(deserializer)?;
+        vec.try_into()
+            .map_err(|v: Vec<u8>| D::Error::invalid_length(v.len(), &"a 64-byte array"))
+    }
 }
 
 /// Constructs the exact domain-separated message byte buffer that must be signed.
@@ -548,6 +571,174 @@ impl EnrollmentCoordinator {
         self.stage = EnrollmentStage::Idle;
         self.last_error = None;
     }
+}
+
+/// Wire protocol for pairing challenge-response exchange over any [`Transport`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PairingMessage {
+    /// Peer initiates pairing by requesting an enrollment challenge.
+    RequestChallenge,
+    /// Host responds with a single-use CSPRNG challenge.
+    Challenge(EnrollmentChallenge),
+    /// Peer submits signed enrollment response.
+    SubmitEnrollment(EnrollmentRequest),
+    /// Host confirms enrollment and reports persisted trust record details.
+    EnrollmentSuccess {
+        device_id: String,
+        trust_expires_at_epoch_secs: u64,
+    },
+    /// Host or peer reports failure.
+    EnrollmentFailure { reason: String },
+}
+
+impl PairingMessage {
+    /// Serializes pairing message to JSON bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnrollmentError`] on serialization failure.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, EnrollmentError> {
+        serde_json::to_vec(self)
+            .map_err(|err| EnrollmentError::Store(DeviceStoreError::Json(err.to_string())))
+    }
+
+    /// Deserializes pairing message from JSON bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnrollmentError`] on deserialization failure.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, EnrollmentError> {
+        serde_json::from_slice(bytes)
+            .map_err(|err| EnrollmentError::Store(DeviceStoreError::Json(err.to_string())))
+    }
+}
+
+/// Coordinates a pairing exchange on the host side over an established transport.
+///
+/// Reads incoming pairing messages, handles challenge requests and enrollment submissions,
+/// verifies and single-use consumes challenges, updates the store, and transmits replies.
+///
+/// # Errors
+///
+/// Returns [`EnrollmentError`] on network or verification failures.
+pub fn host_process_pairing_exchange<T: crate::transport::Transport>(
+    coordinator: &mut EnrollmentCoordinator,
+    store: &mut TrustedDeviceStore,
+    store_path: Option<&Path>,
+    transport: &mut T,
+    now_epoch_secs: u64,
+) -> Result<Option<TrustedDeviceRecord>, EnrollmentError> {
+    let payload = match transport.receive() {
+        Ok(Some(p)) => p,
+        Ok(None) => return Ok(None),
+        Err(err) => {
+            return Err(EnrollmentError::Store(DeviceStoreError::Io(format!(
+                "{err:?}"
+            ))));
+        }
+    };
+
+    let msg = PairingMessage::from_bytes(&payload)?;
+    match msg {
+        PairingMessage::RequestChallenge => {
+            let challenge = coordinator.create_challenge(now_epoch_secs)?;
+            let reply = PairingMessage::Challenge(challenge);
+            let reply_bytes = reply.to_bytes()?;
+            transport
+                .send(&reply_bytes)
+                .map_err(|err| EnrollmentError::Store(DeviceStoreError::Io(format!("{err:?}"))))?;
+            Ok(None)
+        }
+        PairingMessage::SubmitEnrollment(request) => {
+            match coordinator.complete_enrollment(&request, store, store_path, now_epoch_secs) {
+                Ok(record) => {
+                    let reply = PairingMessage::EnrollmentSuccess {
+                        device_id: record.device_id.clone(),
+                        trust_expires_at_epoch_secs: record.trust_expires_at_epoch_secs,
+                    };
+                    let reply_bytes = reply.to_bytes()?;
+                    transport.send(&reply_bytes).map_err(|err| {
+                        EnrollmentError::Store(DeviceStoreError::Io(format!("{err:?}")))
+                    })?;
+                    Ok(Some(record))
+                }
+                Err(err) => {
+                    let reply = PairingMessage::EnrollmentFailure {
+                        reason: err.to_string(),
+                    };
+                    if let Ok(reply_bytes) = reply.to_bytes() {
+                        let _ = transport.send(&reply_bytes);
+                    }
+                    Err(err)
+                }
+            }
+        }
+        _ => Err(EnrollmentError::Store(DeviceStoreError::Json(
+            "unexpected pairing message kind for host".to_owned(),
+        ))),
+    }
+}
+
+/// Helper for a candidate peer completing a pairing exchange over a transport.
+///
+/// # Errors
+///
+/// Returns [`EnrollmentError`] on transport or protocol error.
+pub fn peer_execute_pairing_handshake<T: crate::transport::Transport>(
+    transport: &mut T,
+    signing_key: &ed25519_dalek::SigningKey,
+    device_id: &str,
+    display_name: &str,
+    now_epoch_secs: u64,
+) -> Result<PairingMessage, EnrollmentError> {
+    use ed25519_dalek::Signer;
+    let req_bytes = PairingMessage::RequestChallenge.to_bytes()?;
+    transport
+        .send(&req_bytes)
+        .map_err(|e| EnrollmentError::Store(DeviceStoreError::Io(format!("{e:?}"))))?;
+
+    let challenge_payload = transport
+        .receive()
+        .map_err(|e| EnrollmentError::Store(DeviceStoreError::Io(format!("{e:?}"))))?
+        .ok_or_else(|| {
+            EnrollmentError::Store(DeviceStoreError::Io("no challenge received".to_owned()))
+        })?;
+
+    let challenge = match PairingMessage::from_bytes(&challenge_payload)? {
+        PairingMessage::Challenge(c) => c,
+        other => {
+            return Err(EnrollmentError::Store(DeviceStoreError::Json(format!(
+                "expected Challenge, got {other:?}"
+            ))));
+        }
+    };
+
+    let public_key = signing_key.verifying_key().to_bytes();
+    let msg = build_enrollment_message(device_id, &public_key, &challenge.nonce, now_epoch_secs);
+    let signature = signing_key.sign(&msg).to_bytes();
+
+    let request = EnrollmentRequest {
+        device_id: device_id.to_owned(),
+        display_name: display_name.to_owned(),
+        public_key,
+        nonce: challenge.nonce,
+        timestamp_epoch_secs: now_epoch_secs,
+        signature,
+    };
+
+    let sub_bytes = PairingMessage::SubmitEnrollment(request).to_bytes()?;
+    transport
+        .send(&sub_bytes)
+        .map_err(|e| EnrollmentError::Store(DeviceStoreError::Io(format!("{e:?}"))))?;
+
+    let confirm_payload = transport
+        .receive()
+        .map_err(|e| EnrollmentError::Store(DeviceStoreError::Io(format!("{e:?}"))))?
+        .ok_or_else(|| {
+            EnrollmentError::Store(DeviceStoreError::Io("no confirmation received".to_owned()))
+        })?;
+
+    PairingMessage::from_bytes(&confirm_payload)
 }
 
 #[cfg(test)]

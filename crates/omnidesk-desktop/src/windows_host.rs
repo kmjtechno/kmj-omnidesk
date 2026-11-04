@@ -7,7 +7,7 @@ use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKit
 use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
     product_shell::{DeviceStatus, ProductShell},
-    transport::LoopbackTransport,
+    transport::HostTransport,
     transport_adapter::TransportSessionAdapter,
     trusted_device_store::TrustedDeviceStore,
 };
@@ -99,7 +99,7 @@ struct DesktopHost {
     shell: ProductShell,
     enrollment_coordinator: EnrollmentCoordinator,
     _store_path: PathBuf,
-    session_adapter: Option<TransportSessionAdapter<LoopbackTransport>>,
+    session_adapter: Option<TransportSessionAdapter<HostTransport>>,
     accessibility: Vec<AccessibilityNode>,
     accessibility_focus: Option<NodeId>,
     cursor_position: Option<(usize, usize)>,
@@ -165,6 +165,34 @@ impl DesktopHost {
             Err(err) => {
                 self.shell
                     .set_error(format!("Enrollment challenge failed: {err}"));
+            }
+        }
+    }
+
+    fn try_connect_peer(&mut self) {
+        let peer_addr = std::env::var("OMNIDESK_PEER_ADDR")
+            .ok()
+            .and_then(|addr| addr.parse::<std::net::SocketAddr>().ok());
+
+        let Some(addr) = peer_addr else {
+            self.shell.disconnect();
+            self.shell.set_error(
+                "Remote connection unavailable: no approved physical peer endpoint online",
+            );
+            return;
+        };
+
+        match HostTransport::connect_tcp(addr, std::time::Duration::from_secs(2)) {
+            Ok(transport) => {
+                let tenant =
+                    std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
+                let adapter = TransportSessionAdapter::new(transport, tenant);
+                self.session_adapter = Some(adapter);
+            }
+            Err(err) => {
+                self.shell.disconnect();
+                self.shell
+                    .set_error(format!("LAN connection to peer failed: {err:?}"));
             }
         }
     }
@@ -236,14 +264,23 @@ impl DesktopHost {
             }
             Action::Click => {
                 if let Some(action) = desktop_action_for_node(&self.shell, request.target_node) {
-                    let has_auth = self
-                        .session_adapter
-                        .as_ref()
-                        .is_some_and(TransportSessionAdapter::is_control_authorized);
                     if action == DesktopAction::EnrollDevice {
                         self.handle_enroll_device();
-                    } else if !refuse_unverified_session_action(&mut self.shell, has_auth, action) {
-                        apply_action(&mut self.shell, action);
+                    } else {
+                        if matches!(
+                            action,
+                            DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
+                        ) && self.session_adapter.is_none()
+                        {
+                            self.try_connect_peer();
+                        }
+                        let has_auth = self
+                            .session_adapter
+                            .as_ref()
+                            .is_some_and(TransportSessionAdapter::is_control_authorized);
+                        if !refuse_unverified_session_action(&mut self.shell, has_auth, action) {
+                            apply_action(&mut self.shell, action);
+                        }
                     }
                     self.accessibility_focus = None;
                     self.refresh_presentation();
@@ -341,18 +378,24 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         x,
                         y,
                     ) {
-                        let has_auth = self
-                            .session_adapter
-                            .as_ref()
-                            .is_some_and(TransportSessionAdapter::is_control_authorized);
                         if action == DesktopAction::EnrollDevice {
                             self.handle_enroll_device();
-                        } else if !refuse_unverified_session_action(
-                            &mut self.shell,
-                            has_auth,
-                            action,
-                        ) {
-                            apply_action(&mut self.shell, action);
+                        } else {
+                            if matches!(
+                                action,
+                                DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
+                            ) && self.session_adapter.is_none()
+                            {
+                                self.try_connect_peer();
+                            }
+                            let has_auth = self
+                                .session_adapter
+                                .as_ref()
+                                .is_some_and(TransportSessionAdapter::is_control_authorized);
+                            if !refuse_unverified_session_action(&mut self.shell, has_auth, action)
+                            {
+                                apply_action(&mut self.shell, action);
+                            }
                         }
                         self.accessibility_focus = None;
                         self.refresh_presentation();
@@ -368,20 +411,31 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                                 control.enabled && control.keyboard_key == key.to_ascii_lowercase()
                             })
                             .map(|control| control.action);
-                        let has_auth = self
-                            .session_adapter
-                            .as_ref()
-                            .is_some_and(TransportSessionAdapter::is_control_authorized);
                         if selected_action == Some(DesktopAction::EnrollDevice) {
                             self.handle_enroll_device();
                             self.accessibility_focus = None;
                             self.refresh_presentation();
-                        } else if selected_action.is_some_and(|action| {
-                            refuse_unverified_session_action(&mut self.shell, has_auth, action)
-                        }) || apply_key(&mut self.shell, key)
-                        {
-                            self.accessibility_focus = None;
-                            self.refresh_presentation();
+                        } else {
+                            if matches!(
+                                selected_action,
+                                Some(
+                                    DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
+                                )
+                            ) && self.session_adapter.is_none()
+                            {
+                                self.try_connect_peer();
+                            }
+                            let has_auth = self
+                                .session_adapter
+                                .as_ref()
+                                .is_some_and(TransportSessionAdapter::is_control_authorized);
+                            if selected_action.is_some_and(|action| {
+                                refuse_unverified_session_action(&mut self.shell, has_auth, action)
+                            }) || apply_key(&mut self.shell, key)
+                            {
+                                self.accessibility_focus = None;
+                                self.refresh_presentation();
+                            }
                         }
                     }
                 }

@@ -248,12 +248,16 @@ $results += [PSCustomObject]@{
 
 $steps = @(
     @{ name = "Connections Tab"; cx = 84; cy = 145 },
-    @{ name = "HELP Button"; cx = ($clientW - 60); cy = 35 },
-    @{ name = "Settings Tab"; cx = 84; cy = 365 },
+    @{ name = "File Transfer Tab"; cx = 84; cy = 189 },
+    @{ name = "Remote Actions Tab"; cx = 84; cy = 233 },
+    @{ name = "Automation Tab"; cx = 84; cy = 277 },
     @{ name = "Security Tab"; cx = 84; cy = 321 },
     @{ name = "Devices Tab"; cx = 84; cy = 101 },
     @{ name = "Online Filter"; cx = 270; cy = 155 },
-    @{ name = "All Filter"; cx = 207; cy = 155 }
+    @{ name = "Offline Filter"; cx = 345; cy = 155 },
+    @{ name = "All Filter"; cx = 207; cy = 155 },
+    @{ name = "Top Settings Button"; cx = ($clientW - 149); cy = 35 },
+    @{ name = "HELP Button"; cx = ($clientW - 60); cy = 35 }
 )
 
 $prevHash = $initialHash
