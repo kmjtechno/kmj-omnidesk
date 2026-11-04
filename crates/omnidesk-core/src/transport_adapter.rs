@@ -9,9 +9,12 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     PROTOCOL_VERSION,
-    authentication::{AuthenticationError, verify_peer_authentication},
+    authentication::{AuthenticationError, peer_auth_message, verify_peer_authentication},
+    device_enrollment::generate_csprng_nonce,
     session::{PeerIdentity, Session, SessionError, SessionState},
     transport::{Transport, TransportError},
     trusted_device_store::{TrustedDeviceRecord, TrustedDeviceStore},
@@ -28,6 +31,7 @@ pub enum TransportSessionError {
     TrustExpired,
     TenantMismatch { expected: String, received: String },
     UnverifiedControlBlocked,
+    Protocol(String),
 }
 
 impl fmt::Display for TransportSessionError {
@@ -51,6 +55,7 @@ impl fmt::Display for TransportSessionError {
                     "action blocked: peer transport is not authenticated or authorized"
                 )
             }
+            Self::Protocol(err) => write!(f, "session auth protocol error: {err}"),
         }
     }
 }
@@ -246,5 +251,212 @@ impl<T: Transport> TransportSessionAdapter<T> {
         self.authenticated_device_id = None;
         self.session.disconnect();
         self.transport.close();
+    }
+}
+
+/// Wire protocol messages for in-band peer session authentication.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SessionAuthWireMessage {
+    /// Peer begins authentication negotiation
+    Hello {
+        device_id: String,
+        peer_tenant: String,
+    },
+    /// Host responds with a fresh CSPRNG nonce challenge for session auth
+    Challenge { nonce: [u8; 32] },
+    /// Peer returns cryptographic proof
+    Proof {
+        public_key: [u8; 32],
+        #[serde(with = "crate::device_enrollment::serde_bytes_64")]
+        signature: [u8; 64],
+    },
+    /// Host confirms session is authenticated
+    Success { device_id: String },
+    /// Host or peer rejects
+    Reject { reason: String },
+}
+
+impl SessionAuthWireMessage {
+    /// Serializes auth wire message to JSON bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportSessionError::Protocol`] on serialization failure.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, TransportSessionError> {
+        serde_json::to_vec(self).map_err(|e| TransportSessionError::Protocol(e.to_string()))
+    }
+
+    /// Deserializes auth wire message from JSON bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportSessionError::Protocol`] on deserialization failure.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, TransportSessionError> {
+        serde_json::from_slice(bytes).map_err(|e| TransportSessionError::Protocol(e.to_string()))
+    }
+}
+
+/// Executes the host-side authentication handshake over the adapter's transport.
+///
+/// 1. Receives `Hello { device_id, peer_tenant }`.
+/// 2. Begins session negotiation with `PeerIdentity::new(&device_id)`.
+/// 3. Generates a fresh CSPRNG nonce and sends `Challenge { nonce }`.
+/// 4. Receives `Proof { public_key, signature }`.
+/// 5. Strictly authenticates via `adapter.authenticate_peer(public_key, nonce, signature, &peer_tenant, store, now_epoch_secs)`.
+/// 6. Sends `Success { device_id }` and returns the verified [`TrustedDeviceRecord`].
+///
+/// On any failure, transmits `Reject { reason }`, closes the session, and fails closed.
+///
+/// # Errors
+///
+/// Returns [`TransportSessionError`] if negotiation, authentication, or transport fails.
+pub fn host_negotiate_and_authenticate_session<T: Transport>(
+    adapter: &mut TransportSessionAdapter<T>,
+    store: &TrustedDeviceStore,
+    now_epoch_secs: u64,
+) -> Result<TrustedDeviceRecord, TransportSessionError> {
+    let raw = adapter.transport_mut().receive()?.ok_or_else(|| {
+        TransportSessionError::Protocol("connection closed before hello".to_owned())
+    })?;
+
+    let hello = SessionAuthWireMessage::from_bytes(&raw)?;
+    let (device_id, peer_tenant) = match hello {
+        SessionAuthWireMessage::Hello {
+            device_id,
+            peer_tenant,
+        } => (device_id, peer_tenant),
+        SessionAuthWireMessage::Reject { reason } => {
+            return Err(TransportSessionError::Protocol(format!(
+                "peer rejected: {reason}"
+            )));
+        }
+        _ => {
+            return Err(TransportSessionError::Protocol(
+                "expected Hello message".to_owned(),
+            ));
+        }
+    };
+
+    let peer_id = PeerIdentity::new(&device_id).map_err(TransportSessionError::Session)?;
+    adapter.begin_negotiation(peer_id)?;
+
+    let nonce = generate_csprng_nonce(now_epoch_secs);
+    let challenge_msg = SessionAuthWireMessage::Challenge { nonce };
+    adapter.transport_mut().send(&challenge_msg.to_bytes()?)?;
+
+    let raw_proof = adapter.transport_mut().receive()?.ok_or_else(|| {
+        TransportSessionError::Protocol("connection closed before proof".to_owned())
+    })?;
+
+    let proof_msg = SessionAuthWireMessage::from_bytes(&raw_proof)?;
+    let (public_key, signature) = match proof_msg {
+        SessionAuthWireMessage::Proof {
+            public_key,
+            signature,
+        } => (public_key, signature),
+        SessionAuthWireMessage::Reject { reason } => {
+            return Err(TransportSessionError::Protocol(format!(
+                "peer rejected: {reason}"
+            )));
+        }
+        _ => {
+            return Err(TransportSessionError::Protocol(
+                "expected Proof message".to_owned(),
+            ));
+        }
+    };
+
+    match adapter.authenticate_peer(
+        public_key,
+        nonce,
+        signature,
+        &peer_tenant,
+        store,
+        now_epoch_secs,
+    ) {
+        Ok(record) => {
+            let success_msg = SessionAuthWireMessage::Success {
+                device_id: record.device_id.clone(),
+            };
+            adapter.transport_mut().send(&success_msg.to_bytes()?)?;
+            Ok(record)
+        }
+        Err(err) => {
+            let reject_msg = SessionAuthWireMessage::Reject {
+                reason: err.to_string(),
+            };
+            if let Ok(bytes) = reject_msg.to_bytes() {
+                let _ = adapter.transport_mut().send(&bytes);
+            }
+            adapter.close();
+            Err(err)
+        }
+    }
+}
+
+/// Executes the client/peer side authentication handshake over any transport.
+///
+/// 1. Sends `Hello { device_id, peer_tenant }`.
+/// 2. Receives `Challenge { nonce }`.
+/// 3. Signs the challenge using `signing_key`.
+/// 4. Sends `Proof { public_key, signature }`.
+/// 5. Receives `Success { device_id }` from host.
+///
+/// # Errors
+///
+/// Returns [`TransportSessionError`] if rejected or transport error occurs.
+pub fn peer_negotiate_and_authenticate_session<T: Transport>(
+    transport: &mut T,
+    signing_key: &ed25519_dalek::SigningKey,
+    device_id: &str,
+    tenant: &str,
+) -> Result<String, TransportSessionError> {
+    use ed25519_dalek::Signer;
+    let hello = SessionAuthWireMessage::Hello {
+        device_id: device_id.to_owned(),
+        peer_tenant: tenant.to_owned(),
+    };
+    transport.send(&hello.to_bytes()?)?;
+
+    let raw_challenge = transport
+        .receive()?
+        .ok_or_else(|| TransportSessionError::Protocol("no challenge received".to_owned()))?;
+
+    let nonce = match SessionAuthWireMessage::from_bytes(&raw_challenge)? {
+        SessionAuthWireMessage::Challenge { nonce } => nonce,
+        SessionAuthWireMessage::Reject { reason } => {
+            return Err(TransportSessionError::Protocol(format!(
+                "host rejected: {reason}"
+            )));
+        }
+        _ => {
+            return Err(TransportSessionError::Protocol(
+                "expected Challenge".to_owned(),
+            ));
+        }
+    };
+
+    let public_key = signing_key.verifying_key().to_bytes();
+    let auth_msg = peer_auth_message(&public_key, &nonce);
+    let signature = signing_key.sign(&auth_msg).to_bytes();
+
+    let proof = SessionAuthWireMessage::Proof {
+        public_key,
+        signature,
+    };
+    transport.send(&proof.to_bytes()?)?;
+
+    let raw_response = transport
+        .receive()?
+        .ok_or_else(|| TransportSessionError::Protocol("no auth response received".to_owned()))?;
+
+    match SessionAuthWireMessage::from_bytes(&raw_response)? {
+        SessionAuthWireMessage::Success { device_id } => Ok(device_id),
+        SessionAuthWireMessage::Reject { reason } => Err(TransportSessionError::Protocol(format!(
+            "auth rejected by host: {reason}"
+        ))),
+        _ => Err(TransportSessionError::Protocol(
+            "unexpected response".to_owned(),
+        )),
     }
 }

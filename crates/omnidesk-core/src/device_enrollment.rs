@@ -149,9 +149,14 @@ pub struct EnrollmentRequest {
     pub signature: [u8; 64],
 }
 
-mod serde_bytes_64 {
+pub mod serde_bytes_64 {
     use serde::{Deserializer, Serializer, de::Error};
 
+    /// Serializes a 64-byte array as a byte slice.
+    ///
+    /// # Errors
+    ///
+    /// Returns serializer error on serialization failure.
     pub fn serialize<S>(bytes: &[u8; 64], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -159,6 +164,11 @@ mod serde_bytes_64 {
         serde::Serialize::serialize(bytes.as_slice(), serializer)
     }
 
+    /// Deserializes a 64-byte array from a byte sequence.
+    ///
+    /// # Errors
+    ///
+    /// Returns deserializer error if the input sequence length is not exactly 64.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 64], D::Error>
     where
         D: Deserializer<'de>,
@@ -387,7 +397,8 @@ pub enum EnrollmentStage {
 
 /// Generates 32 bytes of cryptographically secure random entropy by sampling the OS
 /// CSPRNG via multiple [`RandomState`] seeds and mixing with monotonic and process entropy.
-fn generate_csprng_nonce(now_epoch_secs: u64) -> [u8; 32] {
+#[must_use]
+pub fn generate_csprng_nonce(now_epoch_secs: u64) -> [u8; 32] {
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     let count = COUNTER.fetch_add(1, Ordering::Relaxed);
 
