@@ -185,6 +185,69 @@ impl Transport for TcpLanTransport {
     }
 }
 
+/// Unified host transport supporting real TCP/LAN and isolated Loopback.
+#[derive(Debug)]
+pub enum HostTransport {
+    Tcp(TcpLanTransport),
+    Loopback(LoopbackTransport),
+}
+
+impl HostTransport {
+    /// Opens a TCP LAN transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError`] if the connection cannot be established.
+    pub fn connect_tcp(address: SocketAddr, timeout: Duration) -> Result<Self, TransportError> {
+        TcpLanTransport::connect(address, timeout).map(Self::Tcp)
+    }
+
+    /// Wraps an established TCP stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError`] on socket configuration error.
+    pub fn from_tcp_stream(stream: TcpStream) -> Result<Self, TransportError> {
+        TcpLanTransport::from_stream(stream).map(Self::Tcp)
+    }
+
+    /// Creates an in-memory loopback transport.
+    #[must_use]
+    pub fn loopback() -> Self {
+        Self::Loopback(LoopbackTransport::default())
+    }
+}
+
+impl Transport for HostTransport {
+    fn path_kind(&self) -> PathKind {
+        match self {
+            Self::Tcp(t) => t.path_kind(),
+            Self::Loopback(t) => t.path_kind(),
+        }
+    }
+
+    fn send(&mut self, payload: &[u8]) -> Result<(), TransportError> {
+        match self {
+            Self::Tcp(t) => t.send(payload),
+            Self::Loopback(t) => t.send(payload),
+        }
+    }
+
+    fn receive(&mut self) -> Result<Option<Vec<u8>>, TransportError> {
+        match self {
+            Self::Tcp(t) => t.receive(),
+            Self::Loopback(t) => t.receive(),
+        }
+    }
+
+    fn close(&mut self) {
+        match self {
+            Self::Tcp(t) => t.close(),
+            Self::Loopback(t) => t.close(),
+        }
+    }
+}
+
 fn io_error(error: &std::io::Error) -> TransportError {
     TransportError::Io(error.kind())
 }
