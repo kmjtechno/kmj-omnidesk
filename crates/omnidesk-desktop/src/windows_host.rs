@@ -74,6 +74,7 @@ fn consent_matches_peer(shell: &ProductShell, authenticated_device_id: Option<&s
         && shell.selected_device() == authenticated_device_id
 }
 
+#[cfg(test)]
 fn refuse_unverified_session_action(
     shell: &mut ProductShell,
     has_authorized_transport: bool,
@@ -381,10 +382,7 @@ impl DesktopHost {
                 .session_adapter
                 .as_ref()
                 .and_then(TransportSessionAdapter::authenticated_device_id);
-            if !consent_matches_peer(&self.shell, peer_id) {
-                self.shell
-                    .set_error("Session approval rejected: peer or permission prompt mismatch");
-            } else {
+            if consent_matches_peer(&self.shell, peer_id) {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs());
@@ -417,6 +415,9 @@ impl DesktopHost {
                         }
                     }
                 }
+            } else {
+                self.shell
+                    .set_error("Session approval rejected: peer or permission prompt mismatch");
             }
         } else if matches!(
             action,
