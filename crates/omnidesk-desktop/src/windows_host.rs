@@ -17,10 +17,11 @@ use winit::{
 };
 
 use crate::{
-    AccessibilityNode, accessibility_snapshot,
+    AccessibilityNode, DesktopAction, accessibility_snapshot,
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
+    controls_for_shell,
     layout::{initial_window_inner_size, initial_window_origin},
     presentation_for,
     render::render_shell,
@@ -58,6 +59,25 @@ const MAX_PIXEL_OFFSET: usize = u32::MAX as usize;
 
 /// Same bound expressed as `f64`, so clamping can happen before conversion.
 const MAX_PIXEL_CEILING: f64 = u32::MAX as f64;
+
+/// A visible local permission prompt must not be confused with an authenticated
+/// network session. Until a real peer transport is wired, reject every path
+/// that could elevate an unverified device to session authorization.
+fn refuse_unverified_session_action(shell: &mut ProductShell, action: DesktopAction) -> bool {
+    if matches!(
+        action,
+        DesktopAction::ConnectDevice(..)
+            | DesktopAction::RetryConnect
+            | DesktopAction::AllowPermission
+    ) {
+        shell.disconnect();
+        shell.set_error(
+            "Remote connection unavailable: authenticated peer transport is not established",
+        );
+        return true;
+    }
+    false
+}
 
 struct DesktopHost {
     // Drop platform adapters/surfaces before the window and context that provide their handles.
@@ -179,7 +199,9 @@ impl DesktopHost {
             }
             Action::Click => {
                 if let Some(action) = desktop_action_for_node(&self.shell, request.target_node) {
-                    apply_action(&mut self.shell, action);
+                    if !refuse_unverified_session_action(&mut self.shell, action) {
+                        apply_action(&mut self.shell, action);
+                    }
                     self.accessibility_focus = None;
                     self.refresh_presentation();
                 }
@@ -276,7 +298,9 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         x,
                         y,
                     ) {
-                        apply_action(&mut self.shell, action);
+                        if !refuse_unverified_session_action(&mut self.shell, action) {
+                            apply_action(&mut self.shell, action);
+                        }
                         self.accessibility_focus = None;
                         self.refresh_presentation();
                     }
@@ -285,7 +309,16 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 if let Some(text) = event.text {
                     if let Some(key) = text.chars().next() {
-                        if apply_key(&mut self.shell, key) {
+                        let selected_action = controls_for_shell(&self.shell)
+                            .into_iter()
+                            .find(|control| {
+                                control.enabled && control.keyboard_key == key.to_ascii_lowercase()
+                            })
+                            .map(|control| control.action);
+                        if selected_action.is_some_and(|action| {
+                            refuse_unverified_session_action(&mut self.shell, action)
+                        }) || apply_key(&mut self.shell, key)
+                        {
                             self.accessibility_focus = None;
                             self.refresh_presentation();
                         }
@@ -331,7 +364,40 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_PIXEL_OFFSET, to_pixel};
+    use super::{MAX_PIXEL_OFFSET, refuse_unverified_session_action, to_pixel};
+    use crate::DesktopAction;
+    use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn unverified_online_device_cannot_enter_session_by_click_or_retry() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "unverified-peer".to_owned(),
+            display_name: "Unverified peer".to_owned(),
+            status: DeviceStatus::Online,
+        }]);
+        let revision = shell.device_revision();
+        for action in [
+            DesktopAction::ConnectDevice(0, revision),
+            DesktopAction::RetryConnect,
+            DesktopAction::AllowPermission,
+        ] {
+            assert!(refuse_unverified_session_action(&mut shell, action));
+            assert_eq!(shell.primary_view(), PrimaryView::Devices);
+            assert!(shell.selected_device().is_none());
+            assert!(shell.last_error().is_some());
+        }
+    }
+
+    #[test]
+    fn non_session_navigation_is_not_blocked() {
+        let mut shell = ProductShell::new();
+        assert!(!refuse_unverified_session_action(
+            &mut shell,
+            DesktopAction::ToggleHelp
+        ));
+        assert!(shell.last_error().is_none());
+    }
 
     #[test]
     fn whole_pixel_coordinates_pass_through_unchanged() {
