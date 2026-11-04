@@ -277,14 +277,14 @@ impl DesktopHost {
                             };
                         }
                         self.shell.replace_devices(summaries);
-                        if let Err(err) = self.shell.begin_connect_trusted(
-                            &record.device_id,
-                            &store,
-                            now,
-                        ) {
+                        if let Err(err) =
+                            self.shell
+                                .begin_connect_trusted(&record.device_id, &store, now)
+                        {
                             adapter.close();
                             self.shell.disconnect();
-                            self.shell.set_error(format!("Connection preflight failed: {err:?}"));
+                            self.shell
+                                .set_error(format!("Connection preflight failed: {err:?}"));
                             return;
                         }
                         self.session_adapter = Some(adapter);
@@ -366,7 +366,10 @@ impl DesktopHost {
     fn dispatch_action(&mut self, action: DesktopAction) {
         if action == DesktopAction::EnrollDevice {
             self.handle_enroll_device();
-        } else if matches!(action, DesktopAction::Disconnect | DesktopAction::DenyPermission) {
+        } else if matches!(
+            action,
+            DesktopAction::Disconnect | DesktopAction::DenyPermission
+        ) {
             if let Some(mut adapter) = self.session_adapter.take() {
                 adapter.close();
             }
@@ -379,7 +382,8 @@ impl DesktopHost {
                 .as_ref()
                 .and_then(TransportSessionAdapter::authenticated_device_id);
             if !consent_matches_peer(&self.shell, peer_id) {
-                self.shell.set_error("Session approval rejected: peer or permission prompt mismatch");
+                self.shell
+                    .set_error("Session approval rejected: peer or permission prompt mismatch");
             } else {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -408,12 +412,16 @@ impl DesktopHost {
                             adapter.close();
                             self.session_adapter = None;
                             self.shell.disconnect();
-                            self.shell.set_error(format!("Session authorization failed: {err:?}"));
+                            self.shell
+                                .set_error(format!("Session authorization failed: {err:?}"));
                         }
                     }
                 }
             }
-        } else if matches!(action, DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect) {
+        } else if matches!(
+            action,
+            DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
+        ) {
             // Check that the action is still visible and enabled before any
             // network side effect. A stale directory revision is not consent.
             let valid_action = controls_for_shell(&self.shell)
@@ -595,7 +603,9 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_PIXEL_OFFSET, consent_matches_peer, refuse_unverified_session_action, to_pixel};
+    use super::{
+        MAX_PIXEL_OFFSET, consent_matches_peer, refuse_unverified_session_action, to_pixel,
+    };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
 
@@ -647,7 +657,9 @@ mod tests {
             status: DeviceStatus::Online,
         }]);
         assert!(!consent_matches_peer(&shell, Some("verified-peer")));
-        shell.begin_connect("verified-peer").expect("known online peer");
+        shell
+            .begin_connect("verified-peer")
+            .expect("known online peer");
         assert!(consent_matches_peer(&shell, Some("verified-peer")));
         assert!(!consent_matches_peer(&shell, Some("other-peer")));
         assert!(!consent_matches_peer(&shell, None));
