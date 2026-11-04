@@ -3,6 +3,8 @@
 //! Handles single-use challenge creation, signature verification over
 //! domain-separated enrollment payloads, and clock-drift bounded authentication.
 
+use std::collections::HashMap;
+
 use ed25519_dalek::{Signature, VerifyingKey};
 
 use crate::{
@@ -26,6 +28,7 @@ pub enum EnrollmentError {
     ZeroNonce,
     NonceMismatch,
     ChallengeExpired { expired_at: u64, now: u64 },
+    ChallengeAlreadyConsumed,
     TimestampInFuture { request_time: u64, max_allowed: u64 },
     TimestampTooOld { request_time: u64, min_allowed: u64 },
     InvalidPublicKey,
@@ -40,6 +43,12 @@ impl std::fmt::Display for EnrollmentError {
             Self::NonceMismatch => write!(f, "request nonce does not match issued challenge"),
             Self::ChallengeExpired { expired_at, now } => {
                 write!(f, "challenge expired at {expired_at} (current time {now})")
+            }
+            Self::ChallengeAlreadyConsumed => {
+                write!(
+                    f,
+                    "enrollment challenge was already consumed or does not exist"
+                )
             }
             Self::TimestampInFuture {
                 request_time,
@@ -99,9 +108,21 @@ impl EnrollmentChallenge {
 
     #[must_use]
     pub const fn is_valid_at(&self, now_epoch_secs: u64) -> bool {
-        self.nonce[0] != 0
+        !self.is_all_zero_nonce()
             && now_epoch_secs >= self.issued_at_epoch_secs
             && now_epoch_secs <= self.expires_at_epoch_secs
+    }
+
+    #[must_use]
+    pub const fn is_all_zero_nonce(&self) -> bool {
+        let mut i = 0;
+        while i < 32 {
+            if self.nonce[i] != 0 {
+                return false;
+            }
+            i += 1;
+        }
+        true
     }
 }
 
@@ -208,11 +229,113 @@ pub fn verify_enrollment(
         trust_expires_at_epoch_secs: now_epoch_secs.saturating_add(DEFAULT_TRUST_DURATION_SECS),
         managed: false,
         revoked: false,
-        status: PersistedDeviceStatus::Online,
+        status: PersistedDeviceStatus::Offline,
     };
 
     record.validate()?;
     Ok(record)
+}
+
+/// In-memory tracker for active, single-use enrollment challenges.
+///
+/// Ensures each challenge is consumed at most once and unconsumed challenges
+/// expire deterministically.
+#[derive(Debug, Default)]
+pub struct ChallengeTracker {
+    challenges: HashMap<[u8; 32], EnrollmentChallenge>,
+}
+
+impl ChallengeTracker {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            challenges: HashMap::new(),
+        }
+    }
+
+    /// Issues and registers a new challenge for a given nonce.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnrollmentError::ZeroNonce`] if the nonce is all zeros.
+    pub fn issue(
+        &mut self,
+        nonce: [u8; 32],
+        now_epoch_secs: u64,
+        lifetime_secs: u64,
+    ) -> Result<EnrollmentChallenge, EnrollmentError> {
+        let challenge = EnrollmentChallenge::new(
+            nonce,
+            now_epoch_secs,
+            now_epoch_secs.saturating_add(lifetime_secs),
+        );
+        if challenge.is_all_zero_nonce() {
+            return Err(EnrollmentError::ZeroNonce);
+        }
+        self.challenges.insert(nonce, challenge);
+        Ok(challenge)
+    }
+
+    /// Consumes and removes a challenge by nonce if it is valid at `now_epoch_secs`.
+    ///
+    /// Single-use semantics: Once consumed, the challenge is removed and cannot be reused.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnrollmentError::ChallengeAlreadyConsumed`] if the challenge does not exist
+    /// or was already consumed, or [`EnrollmentError::ChallengeExpired`] if the challenge has expired.
+    pub fn consume(
+        &mut self,
+        nonce: &[u8; 32],
+        now_epoch_secs: u64,
+    ) -> Result<EnrollmentChallenge, EnrollmentError> {
+        let challenge = self
+            .challenges
+            .remove(nonce)
+            .ok_or(EnrollmentError::ChallengeAlreadyConsumed)?;
+
+        if now_epoch_secs > challenge.expires_at_epoch_secs {
+            return Err(EnrollmentError::ChallengeExpired {
+                expired_at: challenge.expires_at_epoch_secs,
+                now: now_epoch_secs,
+            });
+        }
+
+        Ok(challenge)
+    }
+
+    /// Purges expired challenges from the tracker.
+    pub fn prune_expired(&mut self, now_epoch_secs: u64) {
+        self.challenges
+            .retain(|_, c| now_epoch_secs <= c.expires_at_epoch_secs);
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.challenges.is_empty()
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.challenges.len()
+    }
+}
+
+/// Strictly verifies an enrollment request and consumes the challenge from the tracker.
+///
+/// Ensures single-use challenge consumption: the challenge is removed upon consumption
+/// so subsequent verification attempts with the same nonce will fail closed.
+///
+/// # Errors
+///
+/// Returns an [`EnrollmentError`] if the challenge is missing, expired, or if verification fails.
+pub fn verify_and_consume_enrollment(
+    tracker: &mut ChallengeTracker,
+    request: &EnrollmentRequest,
+    now_epoch_secs: u64,
+) -> Result<TrustedDeviceRecord, EnrollmentError> {
+    let challenge = tracker.consume(&request.nonce, now_epoch_secs)?;
+    verify_enrollment(&challenge, request, now_epoch_secs)
 }
 
 #[cfg(test)]
@@ -334,5 +457,143 @@ mod tests {
             verify_enrollment(&challenge, &req, now),
             Err(EnrollmentError::TimestampInFuture { .. })
         ));
+    }
+
+    #[test]
+    fn valid_nonce_with_first_byte_zero_succeeds() {
+        let (signing, public_key) = test_keys(17);
+        let now = 1_000_000;
+        let mut nonce = [0x55_u8; 32];
+        nonce[0] = 0x00; // First byte zero, but not all zeros
+        let challenge = EnrollmentChallenge::new(nonce, now, now + DEFAULT_CHALLENGE_LIFETIME_SECS);
+
+        assert!(challenge.is_valid_at(now));
+        assert!(!challenge.is_all_zero_nonce());
+
+        let req = sample_signed_request(&signing, public_key, &challenge, now);
+        let record =
+            verify_enrollment(&challenge, &req, now).expect("valid enrollment with zero byte 0");
+        assert_eq!(record.device_id, "test-device-p520");
+        assert_eq!(record.status, PersistedDeviceStatus::Offline);
+    }
+
+    #[test]
+    fn all_zero_nonce_fails_closed() {
+        let now = 1_000_000;
+        let challenge =
+            EnrollmentChallenge::new([0_u8; 32], now, now + DEFAULT_CHALLENGE_LIFETIME_SECS);
+
+        assert!(!challenge.is_valid_at(now));
+        assert!(challenge.is_all_zero_nonce());
+
+        let (signing, public_key) = test_keys(18);
+        let req = sample_signed_request(&signing, public_key, &challenge, now);
+        assert_eq!(
+            verify_enrollment(&challenge, &req, now),
+            Err(EnrollmentError::ZeroNonce)
+        );
+    }
+
+    #[test]
+    fn enrolled_record_defaults_to_offline_status() {
+        let (signing, public_key) = test_keys(19);
+        let now = 1_000_000;
+        let challenge = sample_challenge(now);
+        let req = sample_signed_request(&signing, public_key, &challenge, now);
+
+        let record = verify_enrollment(&challenge, &req, now).expect("valid enrollment");
+        assert_eq!(record.status, PersistedDeviceStatus::Offline);
+    }
+
+    #[test]
+    fn challenge_tracker_issues_and_consumes_single_use() {
+        let mut tracker = ChallengeTracker::new();
+        let now = 1_000_000;
+        let nonce = [0x77_u8; 32];
+
+        let challenge = tracker
+            .issue(nonce, now, DEFAULT_CHALLENGE_LIFETIME_SECS)
+            .expect("issue challenge");
+        assert_eq!(challenge.nonce, nonce);
+        assert_eq!(tracker.len(), 1);
+
+        // First consumption succeeds
+        let consumed = tracker
+            .consume(&nonce, now + 10)
+            .expect("consume challenge");
+        assert_eq!(consumed.nonce, nonce);
+        assert_eq!(tracker.len(), 0);
+
+        // Replay consumption fails closed
+        assert_eq!(
+            tracker.consume(&nonce, now + 10),
+            Err(EnrollmentError::ChallengeAlreadyConsumed)
+        );
+    }
+
+    #[test]
+    fn challenge_tracker_rejects_zero_nonce_and_expired() {
+        let mut tracker = ChallengeTracker::new();
+        let now = 1_000_000;
+
+        assert_eq!(
+            tracker.issue([0_u8; 32], now, DEFAULT_CHALLENGE_LIFETIME_SECS),
+            Err(EnrollmentError::ZeroNonce)
+        );
+
+        let nonce = [0x88_u8; 32];
+        tracker.issue(nonce, now, 60).unwrap();
+
+        assert!(matches!(
+            tracker.consume(&nonce, now + 61),
+            Err(EnrollmentError::ChallengeExpired { .. })
+        ));
+    }
+
+    #[test]
+    fn challenge_tracker_prunes_only_expired() {
+        let mut tracker = ChallengeTracker::new();
+        let now = 1_000_000;
+
+        let active_nonce = [0x11_u8; 32];
+        let expired_nonce = [0x22_u8; 32];
+
+        tracker.issue(active_nonce, now, 300).unwrap();
+        tracker.issue(expired_nonce, now, 50).unwrap();
+        assert_eq!(tracker.len(), 2);
+
+        tracker.prune_expired(now + 100);
+        assert_eq!(tracker.len(), 1);
+        assert!(tracker.consume(&active_nonce, now + 100).is_ok());
+        assert_eq!(
+            tracker.consume(&expired_nonce, now + 100),
+            Err(EnrollmentError::ChallengeAlreadyConsumed)
+        );
+    }
+
+    #[test]
+    fn verify_and_consume_enrollment_prevents_replay() {
+        let (signing, public_key) = test_keys(20);
+        let mut tracker = ChallengeTracker::new();
+        let now = 1_000_000;
+        let nonce = [0x99_u8; 32];
+
+        tracker
+            .issue(nonce, now, DEFAULT_CHALLENGE_LIFETIME_SECS)
+            .unwrap();
+
+        let challenge = EnrollmentChallenge::new(nonce, now, now + DEFAULT_CHALLENGE_LIFETIME_SECS);
+        let req = sample_signed_request(&signing, public_key, &challenge, now);
+
+        let record =
+            verify_and_consume_enrollment(&mut tracker, &req, now).expect("first enrollment");
+        assert_eq!(record.device_id, "test-device-p520");
+        assert_eq!(record.status, PersistedDeviceStatus::Offline);
+
+        // Replay attempt fails because challenge was consumed
+        assert_eq!(
+            verify_and_consume_enrollment(&mut tracker, &req, now),
+            Err(EnrollmentError::ChallengeAlreadyConsumed)
+        );
     }
 }
