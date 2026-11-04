@@ -9,8 +9,9 @@ use omnidesk_core::{
     PROTOCOL_VERSION,
     authentication::{peer_auth_message, verify_peer_authentication},
     device_enrollment::{
-        DEFAULT_CHALLENGE_LIFETIME_SECS, EnrollmentChallenge, EnrollmentError, EnrollmentRequest,
-        build_enrollment_message, verify_enrollment,
+        ChallengeTracker, DEFAULT_CHALLENGE_LIFETIME_SECS, EnrollmentChallenge, EnrollmentError,
+        EnrollmentRequest, build_enrollment_message, verify_and_consume_enrollment,
+        verify_enrollment,
     },
     product_shell::{ConnectError, DeviceStatus, DeviceSummary, ProductShell, SecurityState},
     session::{PeerIdentity, Session, SessionError, SessionState},
@@ -73,6 +74,7 @@ fn full_enrollment_and_trusted_session_lifecycle_with_disk_persistence() {
     assert_eq!(record.device_id, "P520 Workstation");
     assert_eq!(record.public_key, device_verifying_key);
     assert!(!record.revoked);
+    assert_eq!(record.status, PersistedDeviceStatus::Offline);
 
     // 3. Persist to disk using atomic rename
     let mut store = TrustedDeviceStore::new();
@@ -85,6 +87,7 @@ fn full_enrollment_and_trusted_session_lifecycle_with_disk_persistence() {
     assert_eq!(loaded_store.len(), 1);
     let loaded_rec = loaded_store.get("P520 Workstation").expect("get record");
     assert_eq!(loaded_rec.public_key, device_verifying_key);
+    assert_eq!(loaded_rec.status, PersistedDeviceStatus::Offline);
 
     // 5. ProductShell trusted connection attempt
     let mut shell = ProductShell::new();
@@ -315,4 +318,47 @@ fn negative_session_connect_failure_cases_fail_closed() {
         })
     );
     assert!(session.require_control().is_err());
+}
+
+#[test]
+fn single_use_challenge_consumption_and_zero_byte_nonce_e2e() {
+    let mut tracker = ChallengeTracker::new();
+    let now = 1_000_000_u64;
+
+    // Challenge with first byte zero but not all zeros
+    let mut nonce = [0xAA_u8; 32];
+    nonce[0] = 0x00;
+
+    let challenge = tracker
+        .issue(nonce, now, DEFAULT_CHALLENGE_LIFETIME_SECS)
+        .expect("issue challenge with byte 0 = 0");
+    assert!(challenge.is_valid_at(now));
+    assert_eq!(tracker.len(), 1);
+
+    let signing_key = SigningKey::from_bytes(&[0x44_u8; 32]);
+    let pk = signing_key.verifying_key().to_bytes();
+    let msg = build_enrollment_message("Peer-520", &pk, &nonce, now);
+    let sig = signing_key.sign(&msg).to_bytes();
+
+    let request = EnrollmentRequest {
+        device_id: "Peer-520".to_owned(),
+        display_name: "Peer-520 Display".to_owned(),
+        public_key: pk,
+        nonce,
+        timestamp_epoch_secs: now,
+        signature: sig,
+    };
+
+    // First consumption verifies and removes the challenge
+    let record = verify_and_consume_enrollment(&mut tracker, &request, now)
+        .expect("verify and consume enrollment");
+    assert_eq!(record.device_id, "Peer-520");
+    assert_eq!(record.status, PersistedDeviceStatus::Offline);
+    assert_eq!(tracker.len(), 0);
+
+    // Replay attempt fails closed: challenge already consumed
+    assert_eq!(
+        verify_and_consume_enrollment(&mut tracker, &request, now),
+        Err(EnrollmentError::ChallengeAlreadyConsumed)
+    );
 }
