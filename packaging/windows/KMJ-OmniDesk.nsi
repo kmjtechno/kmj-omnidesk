@@ -45,6 +45,7 @@ Section "KMJ OmniDesk" SEC_MAIN
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   CreateShortCut "$SMPROGRAMS\KMJ OmniDesk.lnk" "$INSTDIR\omnidesk-desktop.exe"
+  CreateShortCut "$DESKTOP\KMJ OmniDesk.lnk" "$INSTDIR\omnidesk-desktop.exe"
 
   WriteRegStr HKLM "Software\KMJ TECHNO\OmniDesk" "InstallDir" "$INSTDIR"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\KMJOmniDesk" "DisplayName" "KMJ OmniDesk"
@@ -56,6 +57,7 @@ SectionEnd
 Section "Uninstall"
   SetShellVarContext all
   Delete "$SMPROGRAMS\KMJ OmniDesk.lnk"
+  Delete "$DESKTOP\KMJ OmniDesk.lnk"
   Delete "$INSTDIR\omnidesk-desktop.exe"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
