@@ -6,7 +6,7 @@ use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
-    product_shell::{DeviceStatus, ProductShell},
+    product_shell::{DeviceStatus, PrimaryView, ProductShell},
     transport::HostTransport,
     transport_adapter::{TransportSessionAdapter, host_negotiate_and_authenticate_session},
     trusted_device_store::TrustedDeviceStore,
@@ -66,6 +66,14 @@ const MAX_PIXEL_CEILING: f64 = u32::MAX as f64;
 /// A visible local permission prompt must not be confused with an authenticated
 /// network session. Until a real peer transport is wired, reject every path
 /// that could elevate an unverified device to session authorization.
+/// Consent is bound to the currently authenticated peer and the visible prompt.
+/// It is deliberately separate from cryptographic authentication.
+fn consent_matches_peer(shell: &ProductShell, authenticated_device_id: Option<&str>) -> bool {
+    shell.primary_view() == PrimaryView::PermissionPrompt
+        && shell.selected_device().is_some()
+        && shell.selected_device() == authenticated_device_id
+}
+
 fn refuse_unverified_session_action(
     shell: &mut ProductShell,
     has_authorized_transport: bool,
@@ -258,13 +266,27 @@ impl DesktopHost {
 
                 match host_negotiate_and_authenticate_session(&mut adapter, &store, now) {
                     Ok(record) => {
-                        if let Err(err) = adapter.authorize_session() {
+                        // Peer key proof is not user permission. Keep the transport
+                        // AwaitingAuthorization until the user clicks Allow.
+                        let mut summaries = store.to_device_summaries();
+                        for device in &mut summaries {
+                            device.status = if device.id == record.device_id {
+                                DeviceStatus::Online
+                            } else {
+                                DeviceStatus::Offline
+                            };
+                        }
+                        self.shell.replace_devices(summaries);
+                        if let Err(err) = self.shell.begin_connect_trusted(
+                            &record.device_id,
+                            &store,
+                            now,
+                        ) {
+                            adapter.close();
                             self.shell.disconnect();
-                            self.shell
-                                .set_error(format!("Session authorization failed: {err:?}"));
+                            self.shell.set_error(format!("Connection preflight failed: {err:?}"));
                             return;
                         }
-                        let _ = self.shell.begin_connect(&record.device_id);
                         self.session_adapter = Some(adapter);
                     }
                     Err(err) => {
@@ -344,26 +366,64 @@ impl DesktopHost {
     fn dispatch_action(&mut self, action: DesktopAction) {
         if action == DesktopAction::EnrollDevice {
             self.handle_enroll_device();
-        } else if action == DesktopAction::Disconnect {
-            if let Some(mut a) = self.session_adapter.take() {
-                a.close();
+        } else if matches!(action, DesktopAction::Disconnect | DesktopAction::DenyPermission) {
+            if let Some(mut adapter) = self.session_adapter.take() {
+                adapter.close();
             }
-            apply_action(&mut self.shell, action);
-        } else {
-            if matches!(
-                action,
-                DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
-            ) && self.session_adapter.is_none()
-            {
-                self.try_connect_peer();
-            }
-            let has_auth = self
+            self.shell.disconnect();
+        } else if action == DesktopAction::AllowPermission {
+            // A signed proof alone must never enable remote input. The consent
+            // must target the exact peer authenticated on this transport.
+            let peer_id = self
                 .session_adapter
                 .as_ref()
-                .is_some_and(TransportSessionAdapter::is_control_authorized);
-            if !refuse_unverified_session_action(&mut self.shell, has_auth, action) {
-                apply_action(&mut self.shell, action);
+                .and_then(TransportSessionAdapter::authenticated_device_id);
+            if !consent_matches_peer(&self.shell, peer_id) {
+                self.shell.set_error("Session approval rejected: peer or permission prompt mismatch");
+            } else {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                let store = TrustedDeviceStore::load_from_path(&self.store_path);
+                let valid = store.as_ref().is_ok_and(|store| {
+                    peer_id.and_then(|id| store.get(id)).is_some_and(|record| {
+                        !record.revoked
+                            && now <= record.trust_expires_at_epoch_secs
+                            && self.session_adapter.as_ref().is_some_and(|adapter| {
+                                adapter.session().authenticated_public_key()
+                                    == Some(&record.public_key)
+                            })
+                    })
+                });
+                if !valid {
+                    if let Some(mut adapter) = self.session_adapter.take() {
+                        adapter.close();
+                    }
+                    self.shell.disconnect();
+                    self.shell.set_error("Session approval rejected: trusted peer was revoked, expired or unavailable");
+                } else if let Some(adapter) = self.session_adapter.as_mut() {
+                    match adapter.authorize_session() {
+                        Ok(()) => apply_action(&mut self.shell, action),
+                        Err(err) => {
+                            adapter.close();
+                            self.session_adapter = None;
+                            self.shell.disconnect();
+                            self.shell.set_error(format!("Session authorization failed: {err:?}"));
+                        }
+                    }
+                }
             }
+        } else if matches!(action, DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect) {
+            // Check that the action is still visible and enabled before any
+            // network side effect. A stale directory revision is not consent.
+            let valid_action = controls_for_shell(&self.shell)
+                .iter()
+                .any(|control| control.enabled && control.action == action);
+            if valid_action && self.session_adapter.is_none() {
+                self.try_connect_peer();
+            }
+        } else {
+            apply_action(&mut self.shell, action);
         }
         self.accessibility_focus = None;
         self.refresh_presentation();
@@ -535,7 +595,7 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_PIXEL_OFFSET, refuse_unverified_session_action, to_pixel};
+    use super::{MAX_PIXEL_OFFSET, consent_matches_peer, refuse_unverified_session_action, to_pixel};
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
 
@@ -576,6 +636,23 @@ mod tests {
         ] {
             assert!(!refuse_unverified_session_action(&mut shell, true, action));
         }
+    }
+
+    #[test]
+    fn consent_requires_visible_prompt_for_exact_authenticated_peer() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "verified-peer".to_owned(),
+            display_name: "Verified peer".to_owned(),
+            status: DeviceStatus::Online,
+        }]);
+        assert!(!consent_matches_peer(&shell, Some("verified-peer")));
+        shell.begin_connect("verified-peer").expect("known online peer");
+        assert!(consent_matches_peer(&shell, Some("verified-peer")));
+        assert!(!consent_matches_peer(&shell, Some("other-peer")));
+        assert!(!consent_matches_peer(&shell, None));
+        shell.disconnect();
+        assert!(!consent_matches_peer(&shell, Some("verified-peer")));
     }
 
     #[test]
