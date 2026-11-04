@@ -19,7 +19,10 @@ use omnidesk_core::{
     product_shell::{ConnectError, DeviceStatus, DeviceSummary, ProductShell, SecurityState},
     session::{PeerIdentity, Session, SessionError, SessionState},
     transport::{HostTransport, LoopbackTransport, TcpLanTransport, Transport},
-    transport_adapter::{TransportSessionAdapter, TransportSessionError},
+    transport_adapter::{
+        TransportSessionAdapter, TransportSessionError, host_negotiate_and_authenticate_session,
+        peer_negotiate_and_authenticate_session,
+    },
     trusted_device_store::{
         DeviceStoreError, PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
     },
@@ -902,4 +905,243 @@ fn host_transport_loopback_and_tcp_conformance() {
         loopback.send(b"after-close"),
         Err(omnidesk_core::transport::TransportError::Closed)
     );
+}
+
+#[test]
+fn tcp_lan_full_handshake_session_auth_success() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let now = 7_000_000_u64;
+
+    let peer_key = SigningKey::from_bytes(&[0x11_u8; 32]);
+    let peer_pk = peer_key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "handshake-peer".to_owned(),
+            display_name: "Handshake Peer".to_owned(),
+            public_key: peer_pk,
+            enrolled_at_epoch_secs: now - 100,
+            trust_expires_at_epoch_secs: now + 10_000,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .unwrap();
+
+    let server_handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        let transport = HostTransport::from_tcp_stream(stream).expect("transport");
+        let mut adapter = TransportSessionAdapter::new(transport, "kmj-tenant");
+
+        let record = host_negotiate_and_authenticate_session(&mut adapter, &store, now)
+            .expect("host handshake must succeed");
+        assert_eq!(record.device_id, "handshake-peer");
+
+        adapter.authorize_session().expect("session must authorize");
+        assert!(adapter.is_control_authorized());
+
+        // Test sending authorized control payload
+        adapter.send(b"authorized payload").expect("send payload");
+        adapter.close();
+        assert!(!adapter.is_control_authorized());
+    });
+
+    let client_stream = std::net::TcpStream::connect(addr).expect("client connect");
+    let mut client_transport = HostTransport::from_tcp_stream(client_stream).expect("transport");
+
+    let device_id = peer_negotiate_and_authenticate_session(
+        &mut client_transport,
+        &peer_key,
+        "handshake-peer",
+        "kmj-tenant",
+    )
+    .expect("peer handshake must succeed");
+    assert_eq!(device_id, "handshake-peer");
+
+    let payload = client_transport
+        .receive()
+        .expect("receive")
+        .expect("payload");
+    assert_eq!(payload, b"authorized payload");
+
+    server_handle.join().expect("server join");
+}
+
+#[test]
+fn tcp_lan_full_handshake_untrusted_peer_rejected() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let now = 7_100_000_u64;
+
+    let peer_key = SigningKey::from_bytes(&[0x22_u8; 32]);
+    let store = TrustedDeviceStore::new(); // Empty store: peer is untrusted
+
+    let server_handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        let transport = HostTransport::from_tcp_stream(stream).expect("transport");
+        let mut adapter = TransportSessionAdapter::new(transport, "kmj-tenant");
+
+        let err = host_negotiate_and_authenticate_session(&mut adapter, &store, now);
+        assert!(matches!(err, Err(TransportSessionError::UntrustedPeer)));
+        assert!(!adapter.is_control_authorized());
+    });
+
+    let client_stream = std::net::TcpStream::connect(addr).expect("client connect");
+    let mut client_transport = HostTransport::from_tcp_stream(client_stream).expect("transport");
+
+    let err = peer_negotiate_and_authenticate_session(
+        &mut client_transport,
+        &peer_key,
+        "untrusted-device",
+        "kmj-tenant",
+    );
+    assert!(err.is_err());
+
+    server_handle.join().expect("server join");
+}
+
+#[test]
+fn tcp_lan_full_handshake_wrong_tenant_rejected() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let now = 7_200_000_u64;
+
+    let peer_key = SigningKey::from_bytes(&[0x33_u8; 32]);
+    let peer_pk = peer_key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "wrong-tenant-peer".to_owned(),
+            display_name: "Wrong Tenant Peer".to_owned(),
+            public_key: peer_pk,
+            enrolled_at_epoch_secs: now - 100,
+            trust_expires_at_epoch_secs: now + 10_000,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .unwrap();
+
+    let server_handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        let transport = HostTransport::from_tcp_stream(stream).expect("transport");
+        let mut adapter = TransportSessionAdapter::new(transport, "local-corp-tenant");
+
+        let err = host_negotiate_and_authenticate_session(&mut adapter, &store, now);
+        assert!(matches!(
+            err,
+            Err(TransportSessionError::TenantMismatch { .. })
+        ));
+        assert!(!adapter.is_control_authorized());
+    });
+
+    let client_stream = std::net::TcpStream::connect(addr).expect("client connect");
+    let mut client_transport = HostTransport::from_tcp_stream(client_stream).expect("transport");
+
+    let err = peer_negotiate_and_authenticate_session(
+        &mut client_transport,
+        &peer_key,
+        "wrong-tenant-peer",
+        "attacker-foreign-tenant",
+    );
+    assert!(err.is_err());
+
+    server_handle.join().expect("server join");
+}
+
+#[test]
+fn tcp_lan_full_handshake_revoked_peer_rejected() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let now = 7_300_000_u64;
+
+    let peer_key = SigningKey::from_bytes(&[0x44_u8; 32]);
+    let peer_pk = peer_key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "revoked-peer".to_owned(),
+            display_name: "Revoked Peer".to_owned(),
+            public_key: peer_pk,
+            enrolled_at_epoch_secs: now - 100,
+            trust_expires_at_epoch_secs: now + 10_000,
+            managed: false,
+            revoked: true, // Marked revoked
+            status: PersistedDeviceStatus::Offline,
+        })
+        .unwrap();
+
+    let server_handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        let transport = HostTransport::from_tcp_stream(stream).expect("transport");
+        let mut adapter = TransportSessionAdapter::new(transport, "kmj-tenant");
+
+        let err = host_negotiate_and_authenticate_session(&mut adapter, &store, now);
+        assert!(matches!(err, Err(TransportSessionError::PeerRevoked)));
+        assert!(!adapter.is_control_authorized());
+    });
+
+    let client_stream = std::net::TcpStream::connect(addr).expect("client connect");
+    let mut client_transport = HostTransport::from_tcp_stream(client_stream).expect("transport");
+
+    let err = peer_negotiate_and_authenticate_session(
+        &mut client_transport,
+        &peer_key,
+        "revoked-peer",
+        "kmj-tenant",
+    );
+    assert!(err.is_err());
+
+    server_handle.join().expect("server join");
+}
+
+#[test]
+fn tcp_lan_full_handshake_expired_peer_rejected() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let now = 7_400_000_u64;
+
+    let peer_key = SigningKey::from_bytes(&[0x55_u8; 32]);
+    let peer_pk = peer_key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "expired-peer".to_owned(),
+            display_name: "Expired Peer".to_owned(),
+            public_key: peer_pk,
+            enrolled_at_epoch_secs: now - 1000,
+            trust_expires_at_epoch_secs: now - 1, // Expired
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .unwrap();
+
+    let server_handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        let transport = HostTransport::from_tcp_stream(stream).expect("transport");
+        let mut adapter = TransportSessionAdapter::new(transport, "kmj-tenant");
+
+        let err = host_negotiate_and_authenticate_session(&mut adapter, &store, now);
+        assert!(matches!(err, Err(TransportSessionError::TrustExpired)));
+        assert!(!adapter.is_control_authorized());
+    });
+
+    let client_stream = std::net::TcpStream::connect(addr).expect("client connect");
+    let mut client_transport = HostTransport::from_tcp_stream(client_stream).expect("transport");
+
+    let err = peer_negotiate_and_authenticate_session(
+        &mut client_transport,
+        &peer_key,
+        "expired-peer",
+        "kmj-tenant",
+    );
+    assert!(err.is_err());
+
+    server_handle.join().expect("server join");
 }

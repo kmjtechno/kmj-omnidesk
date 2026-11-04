@@ -8,7 +8,7 @@ use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
     product_shell::{DeviceStatus, ProductShell},
     transport::HostTransport,
-    transport_adapter::TransportSessionAdapter,
+    transport_adapter::{TransportSessionAdapter, host_negotiate_and_authenticate_session},
     trusted_device_store::TrustedDeviceStore,
 };
 use softbuffer::{Context, Surface};
@@ -98,7 +98,7 @@ struct DesktopHost {
     event_loop_proxy: EventLoopProxy<AccessKitEvent>,
     shell: ProductShell,
     enrollment_coordinator: EnrollmentCoordinator,
-    _store_path: PathBuf,
+    store_path: PathBuf,
     session_adapter: Option<TransportSessionAdapter<HostTransport>>,
     accessibility: Vec<AccessibilityNode>,
     accessibility_focus: Option<NodeId>,
@@ -140,7 +140,7 @@ impl DesktopHost {
             event_loop_proxy,
             shell,
             enrollment_coordinator: EnrollmentCoordinator::new(),
-            _store_path: store_path,
+            store_path,
             session_adapter: None,
             accessibility,
             accessibility_focus: None,
@@ -152,6 +152,60 @@ impl DesktopHost {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
+
+        let enroll_peer_addr = std::env::var("OMNIDESK_ENROLL_PEER_ADDR")
+            .ok()
+            .and_then(|addr| addr.parse::<std::net::SocketAddr>().ok());
+
+        if let Some(peer_addr) = enroll_peer_addr {
+            match HostTransport::connect_tcp(peer_addr, std::time::Duration::from_secs(3)) {
+                Ok(mut transport) => {
+                    let mut store = match TrustedDeviceStore::load_from_path(&self.store_path) {
+                        Ok(s) => s,
+                        Err(err) => {
+                            self.shell
+                                .set_error(format!("Trust store load failed: {err}"));
+                            return;
+                        }
+                    };
+                    match omnidesk_core::device_enrollment::host_process_pairing_exchange(
+                        &mut self.enrollment_coordinator,
+                        &mut store,
+                        Some(&self.store_path),
+                        &mut transport,
+                        now,
+                    ) {
+                        Ok(Some(record)) => {
+                            let mut summaries = store.to_device_summaries();
+                            for s in &mut summaries {
+                                s.status = DeviceStatus::Offline;
+                            }
+                            self.shell.replace_devices(summaries);
+                            self.shell.set_error(format!(
+                                "Peer '{}' successfully enrolled and stored (offline)",
+                                record.device_id
+                            ));
+                        }
+                        Ok(None) => {
+                            self.shell.set_error(
+                                "Pairing exchange initiated: challenge transmitted to peer",
+                            );
+                        }
+                        Err(err) => {
+                            self.shell
+                                .set_error(format!("Network pairing exchange failed: {err}"));
+                        }
+                    }
+                }
+                Err(err) => {
+                    self.shell.set_error(format!(
+                        "Cannot connect to enrollment peer at {peer_addr}: {err:?}"
+                    ));
+                }
+            }
+            return;
+        }
+
         match self.enrollment_coordinator.create_challenge(now) {
             Ok(challenge) => {
                 let hex_prefix = format!(
@@ -159,7 +213,7 @@ impl DesktopHost {
                     challenge.nonce[0], challenge.nonce[1], challenge.nonce[2], challenge.nonce[3]
                 );
                 self.shell.set_error(format!(
-                    "Enrollment challenge issued ({hex_prefix}... expires in 300s); awaiting peer signature"
+                    "Enrollment challenge issued ({hex_prefix}... expires in 300s); set OMNIDESK_ENROLL_PEER_ADDR for remote LAN exchange"
                 ));
             }
             Err(err) => {
@@ -186,8 +240,41 @@ impl DesktopHost {
             Ok(transport) => {
                 let tenant =
                     std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-                let adapter = TransportSessionAdapter::new(transport, tenant);
-                self.session_adapter = Some(adapter);
+                let mut adapter = TransportSessionAdapter::new(transport, tenant);
+
+                let store = match TrustedDeviceStore::load_from_path(&self.store_path) {
+                    Ok(s) => s,
+                    Err(err) => {
+                        self.shell.disconnect();
+                        self.shell
+                            .set_error(format!("Trust store load failed: {err}"));
+                        return;
+                    }
+                };
+
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+
+                match host_negotiate_and_authenticate_session(&mut adapter, &store, now) {
+                    Ok(record) => {
+                        if let Err(err) = adapter.authorize_session() {
+                            self.shell.disconnect();
+                            self.shell
+                                .set_error(format!("Session authorization failed: {err:?}"));
+                            return;
+                        }
+                        let _ = self.shell.begin_connect(&record.device_id);
+                        self.session_adapter = Some(adapter);
+                    }
+                    Err(err) => {
+                        adapter.close();
+                        self.session_adapter = None;
+                        self.shell.disconnect();
+                        self.shell
+                            .set_error(format!("Peer authentication failed: {err}"));
+                    }
+                }
             }
             Err(err) => {
                 self.shell.disconnect();
@@ -254,6 +341,34 @@ impl DesktopHost {
             .expect("native render buffer presentation must succeed");
     }
 
+    fn dispatch_action(&mut self, action: DesktopAction) {
+        if action == DesktopAction::EnrollDevice {
+            self.handle_enroll_device();
+        } else if action == DesktopAction::Disconnect {
+            if let Some(mut a) = self.session_adapter.take() {
+                a.close();
+            }
+            apply_action(&mut self.shell, action);
+        } else {
+            if matches!(
+                action,
+                DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
+            ) && self.session_adapter.is_none()
+            {
+                self.try_connect_peer();
+            }
+            let has_auth = self
+                .session_adapter
+                .as_ref()
+                .is_some_and(TransportSessionAdapter::is_control_authorized);
+            if !refuse_unverified_session_action(&mut self.shell, has_auth, action) {
+                apply_action(&mut self.shell, action);
+            }
+        }
+        self.accessibility_focus = None;
+        self.refresh_presentation();
+    }
+
     fn handle_accesskit_action(&mut self, request: &accesskit::ActionRequest) {
         match request.action {
             Action::Focus => {
@@ -264,26 +379,7 @@ impl DesktopHost {
             }
             Action::Click => {
                 if let Some(action) = desktop_action_for_node(&self.shell, request.target_node) {
-                    if action == DesktopAction::EnrollDevice {
-                        self.handle_enroll_device();
-                    } else {
-                        if matches!(
-                            action,
-                            DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
-                        ) && self.session_adapter.is_none()
-                        {
-                            self.try_connect_peer();
-                        }
-                        let has_auth = self
-                            .session_adapter
-                            .as_ref()
-                            .is_some_and(TransportSessionAdapter::is_control_authorized);
-                        if !refuse_unverified_session_action(&mut self.shell, has_auth, action) {
-                            apply_action(&mut self.shell, action);
-                        }
-                    }
-                    self.accessibility_focus = None;
-                    self.refresh_presentation();
+                    self.dispatch_action(action);
                 }
             }
             _ => {}
@@ -378,27 +474,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         x,
                         y,
                     ) {
-                        if action == DesktopAction::EnrollDevice {
-                            self.handle_enroll_device();
-                        } else {
-                            if matches!(
-                                action,
-                                DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
-                            ) && self.session_adapter.is_none()
-                            {
-                                self.try_connect_peer();
-                            }
-                            let has_auth = self
-                                .session_adapter
-                                .as_ref()
-                                .is_some_and(TransportSessionAdapter::is_control_authorized);
-                            if !refuse_unverified_session_action(&mut self.shell, has_auth, action)
-                            {
-                                apply_action(&mut self.shell, action);
-                            }
-                        }
-                        self.accessibility_focus = None;
-                        self.refresh_presentation();
+                        self.dispatch_action(action);
                     }
                 }
             }
@@ -411,31 +487,11 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                                 control.enabled && control.keyboard_key == key.to_ascii_lowercase()
                             })
                             .map(|control| control.action);
-                        if selected_action == Some(DesktopAction::EnrollDevice) {
-                            self.handle_enroll_device();
+                        if let Some(action) = selected_action {
+                            self.dispatch_action(action);
+                        } else if apply_key(&mut self.shell, key) {
                             self.accessibility_focus = None;
                             self.refresh_presentation();
-                        } else {
-                            if matches!(
-                                selected_action,
-                                Some(
-                                    DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
-                                )
-                            ) && self.session_adapter.is_none()
-                            {
-                                self.try_connect_peer();
-                            }
-                            let has_auth = self
-                                .session_adapter
-                                .as_ref()
-                                .is_some_and(TransportSessionAdapter::is_control_authorized);
-                            if selected_action.is_some_and(|action| {
-                                refuse_unverified_session_action(&mut self.shell, has_auth, action)
-                            }) || apply_key(&mut self.shell, key)
-                            {
-                                self.accessibility_focus = None;
-                                self.refresh_presentation();
-                            }
                         }
                     }
                 }
@@ -570,5 +626,27 @@ mod tests {
     fn huge_coordinates_clamp_instead_of_wrapping() {
         assert_eq!(to_pixel(f64::MAX), Some(MAX_PIXEL_OFFSET));
         assert_eq!(to_pixel(1e30), Some(MAX_PIXEL_OFFSET));
+    }
+
+    #[test]
+    fn disconnect_clears_session_adapter_and_disconnects_shell() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "connected-peer".to_owned(),
+            display_name: "Connected peer".to_owned(),
+            status: DeviceStatus::Online,
+        }]);
+        let _ = shell.begin_connect("connected-peer");
+
+        let transport = omnidesk_core::transport::HostTransport::loopback();
+        let mut adapter = super::TransportSessionAdapter::new(transport, "kmj-tenant");
+        adapter
+            .begin_negotiation(omnidesk_core::session::PeerIdentity::new("connected-peer").unwrap())
+            .unwrap();
+
+        adapter.close();
+        assert!(!adapter.is_control_authorized());
+        shell.disconnect();
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
     }
 }
