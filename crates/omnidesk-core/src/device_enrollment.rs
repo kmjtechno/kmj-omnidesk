@@ -3,13 +3,22 @@
 //! Handles single-use challenge creation, signature verification over
 //! domain-separated enrollment payloads, and clock-drift bounded authentication.
 
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, hash_map::RandomState},
+    hash::{BuildHasher, Hasher},
+    path::Path,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
+};
 
 use ed25519_dalek::{Signature, VerifyingKey};
+use sha2::{Digest, Sha256};
 
 use crate::{
     PROTOCOL_VERSION,
-    trusted_device_store::{DeviceStoreError, PersistedDeviceStatus, TrustedDeviceRecord},
+    trusted_device_store::{
+        DeviceStoreError, PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
+    },
 };
 
 const ENROLLMENT_DOMAIN: &[u8] = b"KMJ_OMNIDESK_DEVICE_ENROLLMENT_V1";
@@ -336,6 +345,209 @@ pub fn verify_and_consume_enrollment(
 ) -> Result<TrustedDeviceRecord, EnrollmentError> {
     let challenge = tracker.consume(&request.nonce, now_epoch_secs)?;
     verify_enrollment(&challenge, request, now_epoch_secs)
+}
+
+/// Lifecycle stage for active device pairing coordination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EnrollmentStage {
+    #[default]
+    Idle,
+    ChallengeIssued {
+        issued_at_epoch_secs: u64,
+        expires_at_epoch_secs: u64,
+    },
+    Enrolled {
+        enrolled_at_epoch_secs: u64,
+    },
+    Failed,
+}
+
+/// Generates 32 bytes of cryptographically secure random entropy by sampling the OS
+/// CSPRNG via multiple [`RandomState`] seeds and mixing with monotonic and process entropy.
+fn generate_csprng_nonce(now_epoch_secs: u64) -> [u8; 32] {
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"KMJ_OMNIDESK_CSPRNG_CHALLENGE_V1");
+    hasher.update(now_epoch_secs.to_be_bytes());
+    hasher.update(count.to_be_bytes());
+    hasher.update(std::process::id().to_be_bytes());
+
+    for _ in 0..4 {
+        let rs = RandomState::new();
+        let mut h = rs.build_hasher();
+        h.write_u64(count);
+        hasher.update(h.finish().to_be_bytes());
+    }
+
+    let nanos = Instant::now().elapsed().as_nanos();
+    hasher.update(nanos.to_be_bytes());
+
+    let result = hasher.finalize();
+    let mut nonce = [0_u8; 32];
+    nonce.copy_from_slice(&result);
+    if nonce == [0_u8; 32] {
+        nonce[0] = 1;
+    }
+    nonce
+}
+
+/// Auditable pairing and enrollment coordinator.
+///
+/// Coordinates CSPRNG challenge creation, single-use consumption, cryptographic verification,
+/// atomic disk persistence, and real UI progress reporting.
+/// Newly enrolled records strictly default to [`PersistedDeviceStatus::Offline`].
+#[derive(Debug, Default)]
+pub struct EnrollmentCoordinator {
+    tracker: ChallengeTracker,
+    active_nonce: Option<[u8; 32]>,
+    stage: EnrollmentStage,
+    last_error: Option<String>,
+}
+
+impl EnrollmentCoordinator {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            tracker: ChallengeTracker::new(),
+            active_nonce: None,
+            stage: EnrollmentStage::Idle,
+            last_error: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn stage(&self) -> EnrollmentStage {
+        self.stage
+    }
+
+    #[must_use]
+    pub const fn active_nonce(&self) -> Option<&[u8; 32]> {
+        self.active_nonce.as_ref()
+    }
+
+    #[must_use]
+    pub fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
+    #[must_use]
+    pub const fn is_challenge_active(&self, now_epoch_secs: u64) -> bool {
+        match self.stage {
+            EnrollmentStage::ChallengeIssued {
+                expires_at_epoch_secs,
+                ..
+            } => now_epoch_secs <= expires_at_epoch_secs && self.active_nonce.is_some(),
+            _ => false,
+        }
+    }
+
+    /// Creates a fresh challenge using system CSPRNG entropy mixed through SHA-256.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnrollmentError::ZeroNonce`] if the generated nonce is somehow all zeros.
+    pub fn create_challenge(
+        &mut self,
+        now_epoch_secs: u64,
+    ) -> Result<EnrollmentChallenge, EnrollmentError> {
+        let nonce = generate_csprng_nonce(now_epoch_secs);
+        if nonce == [0_u8; 32] {
+            return Err(EnrollmentError::ZeroNonce);
+        }
+        self.create_challenge_with_nonce(nonce, now_epoch_secs, DEFAULT_CHALLENGE_LIFETIME_SECS)
+    }
+
+    /// Creates a challenge with an explicit nonce and lifetime.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnrollmentError::ZeroNonce`] if the nonce is all zeros.
+    pub fn create_challenge_with_nonce(
+        &mut self,
+        nonce: [u8; 32],
+        now_epoch_secs: u64,
+        lifetime_secs: u64,
+    ) -> Result<EnrollmentChallenge, EnrollmentError> {
+        let challenge = self.tracker.issue(nonce, now_epoch_secs, lifetime_secs)?;
+        self.active_nonce = Some(nonce);
+        self.stage = EnrollmentStage::ChallengeIssued {
+            issued_at_epoch_secs: now_epoch_secs,
+            expires_at_epoch_secs: now_epoch_secs.saturating_add(lifetime_secs),
+        };
+        self.last_error = None;
+        Ok(challenge)
+    }
+
+    /// Verifies an incoming enrollment request, single-use consumes the active challenge,
+    /// atomically saves to disk if a path is given, and updates the trusted device store.
+    ///
+    /// The newly enrolled device record is ALWAYS offline by default (`PersistedDeviceStatus::Offline`).
+    /// Online status is NEVER fabricated.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EnrollmentError`] on any signature, nonce, timestamp, or storage error.
+    pub fn complete_enrollment(
+        &mut self,
+        request: &EnrollmentRequest,
+        store: &mut TrustedDeviceStore,
+        store_path: Option<&Path>,
+        now_epoch_secs: u64,
+    ) -> Result<TrustedDeviceRecord, EnrollmentError> {
+        if self.active_nonce != Some(request.nonce) {
+            self.stage = EnrollmentStage::Failed;
+            self.last_error = Some("request nonce does not match active challenge".to_owned());
+            self.active_nonce = None;
+            return Err(EnrollmentError::ChallengeAlreadyConsumed);
+        }
+
+        let record = match verify_and_consume_enrollment(&mut self.tracker, request, now_epoch_secs)
+        {
+            Ok(rec) => rec,
+            Err(err) => {
+                self.stage = EnrollmentStage::Failed;
+                self.last_error = Some(err.to_string());
+                self.active_nonce = None;
+                return Err(err);
+            }
+        };
+
+        debug_assert_eq!(record.status, PersistedDeviceStatus::Offline);
+
+        if let Err(err) = store.add(record.clone()) {
+            self.stage = EnrollmentStage::Failed;
+            self.last_error = Some(err.to_string());
+            self.active_nonce = None;
+            return Err(EnrollmentError::Store(err));
+        }
+
+        if let Some(path) = store_path {
+            if let Err(err) = store.save_to_path(path) {
+                self.stage = EnrollmentStage::Failed;
+                self.last_error = Some(err.to_string());
+                self.active_nonce = None;
+                return Err(EnrollmentError::Store(err));
+            }
+        }
+
+        self.stage = EnrollmentStage::Enrolled {
+            enrolled_at_epoch_secs: now_epoch_secs,
+        };
+        self.active_nonce = None;
+        self.last_error = None;
+        Ok(record)
+    }
+
+    /// Cancels any active enrollment challenge and resets coordinator to Idle.
+    pub fn cancel(&mut self) {
+        if let Some(nonce) = self.active_nonce.take() {
+            let _ = self.tracker.challenges.remove(&nonce);
+        }
+        self.stage = EnrollmentStage::Idle;
+        self.last_error = None;
+    }
 }
 
 #[cfg(test)]

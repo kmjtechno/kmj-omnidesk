@@ -32,6 +32,7 @@ pub mod renewal_proof;
 pub mod session;
 pub mod stun;
 pub mod transport;
+pub mod transport_adapter;
 pub mod trusted_device_store;
 pub mod uninstall;
 pub mod update_path;

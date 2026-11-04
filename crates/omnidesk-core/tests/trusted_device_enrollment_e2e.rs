@@ -9,13 +9,17 @@ use omnidesk_core::{
     PROTOCOL_VERSION,
     authentication::{peer_auth_message, verify_peer_authentication},
     device_enrollment::{
-        ChallengeTracker, DEFAULT_CHALLENGE_LIFETIME_SECS, EnrollmentChallenge, EnrollmentError,
-        EnrollmentRequest, build_enrollment_message, verify_and_consume_enrollment,
-        verify_enrollment,
+        ChallengeTracker, DEFAULT_CHALLENGE_LIFETIME_SECS, EnrollmentChallenge,
+        EnrollmentCoordinator, EnrollmentError, EnrollmentRequest, EnrollmentStage,
+        build_enrollment_message, verify_and_consume_enrollment, verify_enrollment,
     },
     product_shell::{ConnectError, DeviceStatus, DeviceSummary, ProductShell, SecurityState},
     session::{PeerIdentity, Session, SessionError, SessionState},
-    trusted_device_store::{PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore},
+    transport::LoopbackTransport,
+    transport_adapter::{TransportSessionAdapter, TransportSessionError},
+    trusted_device_store::{
+        DeviceStoreError, PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
+    },
 };
 
 fn temp_store_path(tag: &str) -> PathBuf {
@@ -360,5 +364,333 @@ fn single_use_challenge_consumption_and_zero_byte_nonce_e2e() {
     assert_eq!(
         verify_and_consume_enrollment(&mut tracker, &request, now),
         Err(EnrollmentError::ChallengeAlreadyConsumed)
+    );
+}
+
+#[test]
+fn enrollment_coordinator_csprng_and_single_use_lifecycle() {
+    let mut coordinator = EnrollmentCoordinator::new();
+    let mut store = TrustedDeviceStore::new();
+    let now = 1_000_000_u64;
+
+    assert_eq!(coordinator.stage(), EnrollmentStage::Idle);
+    assert!(coordinator.active_nonce().is_none());
+
+    // 1. CSPRNG challenge issuance
+    let challenge = coordinator.create_challenge(now).expect("create challenge");
+    assert_ne!(challenge.nonce, [0_u8; 32]);
+    assert!(challenge.is_valid_at(now));
+    assert!(coordinator.is_challenge_active(now));
+    assert_eq!(coordinator.active_nonce(), Some(&challenge.nonce));
+
+    // 2. Sign response
+    let signing_key = SigningKey::from_bytes(&[0x55_u8; 32]);
+    let pk = signing_key.verifying_key().to_bytes();
+    let msg = build_enrollment_message("Peer-CSPRNG", &pk, &challenge.nonce, now);
+    let sig = signing_key.sign(&msg).to_bytes();
+
+    let request = EnrollmentRequest {
+        device_id: "Peer-CSPRNG".to_owned(),
+        display_name: "Peer CSPRNG Display".to_owned(),
+        public_key: pk,
+        nonce: challenge.nonce,
+        timestamp_epoch_secs: now,
+        signature: sig,
+    };
+
+    // 3. Complete enrollment
+    let record = coordinator
+        .complete_enrollment(&request, &mut store, None, now)
+        .expect("complete enrollment");
+    assert_eq!(record.device_id, "Peer-CSPRNG");
+    assert_eq!(record.status, PersistedDeviceStatus::Offline);
+    assert_eq!(
+        coordinator.stage(),
+        EnrollmentStage::Enrolled {
+            enrolled_at_epoch_secs: now
+        }
+    );
+    assert!(coordinator.active_nonce().is_none());
+    assert!(!coordinator.is_challenge_active(now));
+    assert_eq!(store.len(), 1);
+
+    // 4. Replay rejected fail-closed
+    assert_eq!(
+        coordinator.complete_enrollment(&request, &mut store, None, now),
+        Err(EnrollmentError::ChallengeAlreadyConsumed)
+    );
+}
+
+#[test]
+fn enrollment_coordinator_atomic_persistence_and_restart() {
+    let path = temp_store_path("coord-restart");
+    if path.exists() {
+        let _ = fs::remove_file(&path);
+    }
+
+    let mut coordinator = EnrollmentCoordinator::new();
+    let mut store = TrustedDeviceStore::new();
+    let now = 2_000_000_u64;
+
+    let challenge = coordinator.create_challenge(now).expect("challenge");
+    let signing_key = SigningKey::from_bytes(&[0x66_u8; 32]);
+    let pk = signing_key.verifying_key().to_bytes();
+    let msg = build_enrollment_message("Peer-Restart", &pk, &challenge.nonce, now);
+    let sig = signing_key.sign(&msg).to_bytes();
+
+    let request = EnrollmentRequest {
+        device_id: "Peer-Restart".to_owned(),
+        display_name: "Peer Restart Display".to_owned(),
+        public_key: pk,
+        nonce: challenge.nonce,
+        timestamp_epoch_secs: now,
+        signature: sig,
+    };
+
+    // Enroll and atomically persist
+    let record = coordinator
+        .complete_enrollment(&request, &mut store, Some(&path), now)
+        .expect("enroll and persist");
+    assert_eq!(record.status, PersistedDeviceStatus::Offline);
+    assert!(path.exists());
+
+    // Restart: reload from disk
+    let loaded = TrustedDeviceStore::load_from_path(&path).expect("reload store");
+    assert_eq!(loaded.len(), 1);
+    let loaded_rec = loaded.get("Peer-Restart").expect("found peer");
+    assert_eq!(loaded_rec.public_key, pk);
+    assert_eq!(loaded_rec.status, PersistedDeviceStatus::Offline);
+
+    let _ = fs::remove_file(&path);
+}
+
+#[test]
+fn enrollment_coordinator_corrupted_store_fails_closed() {
+    let path = temp_store_path("coord-corrupt");
+    fs::write(&path, b"corrupted non-json bytes!").expect("write corrupt file");
+
+    let err = TrustedDeviceStore::load_from_path(&path);
+    assert!(matches!(err, Err(DeviceStoreError::Json(_))));
+
+    let _ = fs::remove_file(&path);
+}
+
+#[test]
+fn transport_session_adapter_full_success_lifecycle() {
+    let transport = LoopbackTransport::default();
+    let mut adapter = TransportSessionAdapter::new(transport, "tenant-acme");
+    let now = 3_000_000_u64;
+
+    let peer_key = SigningKey::from_bytes(&[0x77_u8; 32]);
+    let peer_pk = peer_key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "trusted-acme-peer".to_owned(),
+            display_name: "ACME Peer".to_owned(),
+            public_key: peer_pk,
+            enrolled_at_epoch_secs: now - 100,
+            trust_expires_at_epoch_secs: now + 5000,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .unwrap();
+
+    // 1. Begin negotiation
+    adapter
+        .begin_negotiation(PeerIdentity::new("trusted-acme-peer").unwrap())
+        .expect("begin");
+    assert_eq!(adapter.session().state(), SessionState::Negotiating);
+    assert!(!adapter.is_control_authorized());
+
+    // 2. Authenticate peer
+    let nonce = [0x88_u8; 32];
+    let msg = peer_auth_message(&peer_pk, &nonce);
+    let sig = peer_key.sign(&msg).to_bytes();
+
+    let record = adapter
+        .authenticate_peer(peer_pk, nonce, sig, "tenant-acme", &store, now)
+        .expect("authenticate peer");
+    assert_eq!(record.device_id, "trusted-acme-peer");
+    assert_eq!(adapter.authenticated_device_id(), Some("trusted-acme-peer"));
+    assert_eq!(
+        adapter.session().state(),
+        SessionState::AwaitingAuthorization
+    );
+    assert!(!adapter.is_control_authorized());
+
+    // 3. Authorize session
+    adapter.authorize_session().expect("authorize");
+    assert!(adapter.is_active());
+    assert!(adapter.is_control_authorized());
+
+    // 4. Send and receive payload
+    adapter.send(b"hello authenticated peer").expect("send");
+    let received = adapter.receive().expect("receive");
+    assert_eq!(received, Some(b"hello authenticated peer".to_vec()));
+
+    // 5. Close resets authorization
+    adapter.close();
+    assert!(!adapter.is_active());
+    assert!(!adapter.is_control_authorized());
+    assert!(adapter.authenticated_device_id().is_none());
+}
+
+#[test]
+fn transport_session_adapter_unverified_payload_blocked() {
+    let transport = LoopbackTransport::default();
+    let mut adapter = TransportSessionAdapter::new(transport, "tenant-xyz");
+
+    // Unauthenticated/unauthorized payload blocked fail-closed
+    assert_eq!(
+        adapter.send(b"unverified command"),
+        Err(TransportSessionError::UnverifiedControlBlocked)
+    );
+    assert_eq!(
+        adapter.receive(),
+        Err(TransportSessionError::UnverifiedControlBlocked)
+    );
+}
+
+#[test]
+fn transport_session_adapter_cross_tenant_rejected() {
+    let transport = LoopbackTransport::default();
+    let mut adapter = TransportSessionAdapter::new(transport, "tenant-corp-a");
+    let now = 3_000_000_u64;
+
+    let peer_key = SigningKey::from_bytes(&[0x88_u8; 32]);
+    let peer_pk = peer_key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "peer-b".to_owned(),
+            display_name: "Peer B".to_owned(),
+            public_key: peer_pk,
+            enrolled_at_epoch_secs: now - 100,
+            trust_expires_at_epoch_secs: now + 5000,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .unwrap();
+
+    adapter
+        .begin_negotiation(PeerIdentity::new("peer-b").unwrap())
+        .expect("begin");
+
+    let nonce = [0x99_u8; 32];
+    let msg = peer_auth_message(&peer_pk, &nonce);
+    let sig = peer_key.sign(&msg).to_bytes();
+
+    // Cross-tenant attempt rejected fail-closed
+    let err = adapter.authenticate_peer(peer_pk, nonce, sig, "tenant-corp-b", &store, now);
+    assert_eq!(
+        err,
+        Err(TransportSessionError::TenantMismatch {
+            expected: "tenant-corp-a".to_owned(),
+            received: "tenant-corp-b".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn transport_session_adapter_untrusted_peer_rejected() {
+    let transport = LoopbackTransport::default();
+    let mut adapter = TransportSessionAdapter::new(transport, "tenant-main");
+    let now = 3_000_000_u64;
+
+    let unlisted_key = SigningKey::from_bytes(&[0x99_u8; 32]);
+    let unlisted_pk = unlisted_key.verifying_key().to_bytes();
+
+    let empty_store = TrustedDeviceStore::new();
+
+    adapter
+        .begin_negotiation(PeerIdentity::new("unlisted").unwrap())
+        .expect("begin");
+
+    let nonce = [0xAA_u8; 32];
+    let msg = peer_auth_message(&unlisted_pk, &nonce);
+    let sig = unlisted_key.sign(&msg).to_bytes();
+
+    assert_eq!(
+        adapter.authenticate_peer(unlisted_pk, nonce, sig, "tenant-main", &empty_store, now),
+        Err(TransportSessionError::UntrustedPeer)
+    );
+}
+
+#[test]
+fn transport_session_adapter_revoked_peer_rejected() {
+    let transport = LoopbackTransport::default();
+    let mut adapter = TransportSessionAdapter::new(transport, "tenant-main");
+    let now = 3_000_000_u64;
+
+    let key = SigningKey::from_bytes(&[0xAB_u8; 32]);
+    let pk = key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "revoked-peer".to_owned(),
+            display_name: "Revoked Peer".to_owned(),
+            public_key: pk,
+            enrolled_at_epoch_secs: now - 100,
+            trust_expires_at_epoch_secs: now + 5000,
+            managed: false,
+            revoked: true,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .unwrap();
+
+    adapter
+        .begin_negotiation(PeerIdentity::new("revoked-peer").unwrap())
+        .expect("begin");
+
+    let nonce = [0xBB_u8; 32];
+    let msg = peer_auth_message(&pk, &nonce);
+    let sig = key.sign(&msg).to_bytes();
+
+    assert_eq!(
+        adapter.authenticate_peer(pk, nonce, sig, "tenant-main", &store, now),
+        Err(TransportSessionError::PeerRevoked)
+    );
+}
+
+#[test]
+fn transport_session_adapter_expired_trust_rejected() {
+    let transport = LoopbackTransport::default();
+    let mut adapter = TransportSessionAdapter::new(transport, "tenant-main");
+    let now = 3_000_000_u64;
+
+    let key = SigningKey::from_bytes(&[0xAC_u8; 32]);
+    let pk = key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "expired-peer".to_owned(),
+            display_name: "Expired Peer".to_owned(),
+            public_key: pk,
+            enrolled_at_epoch_secs: now - 5000,
+            trust_expires_at_epoch_secs: now - 100,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .unwrap();
+
+    adapter
+        .begin_negotiation(PeerIdentity::new("expired-peer").unwrap())
+        .expect("begin");
+
+    let nonce = [0xCC_u8; 32];
+    let msg = peer_auth_message(&pk, &nonce);
+    let sig = key.sign(&msg).to_bytes();
+
+    assert_eq!(
+        adapter.authenticate_peer(pk, nonce, sig, "tenant-main", &store, now),
+        Err(TransportSessionError::TrustExpired)
     );
 }

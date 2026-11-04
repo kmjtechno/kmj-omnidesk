@@ -5,7 +5,10 @@ use std::{num::NonZeroU32, path::PathBuf, sync::Arc};
 use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
-    product_shell::DeviceStatus, product_shell::ProductShell,
+    device_enrollment::EnrollmentCoordinator,
+    product_shell::{DeviceStatus, ProductShell},
+    transport::LoopbackTransport,
+    transport_adapter::TransportSessionAdapter,
     trusted_device_store::TrustedDeviceStore,
 };
 use softbuffer::{Context, Surface};
@@ -63,13 +66,20 @@ const MAX_PIXEL_CEILING: f64 = u32::MAX as f64;
 /// A visible local permission prompt must not be confused with an authenticated
 /// network session. Until a real peer transport is wired, reject every path
 /// that could elevate an unverified device to session authorization.
-fn refuse_unverified_session_action(shell: &mut ProductShell, action: DesktopAction) -> bool {
+fn refuse_unverified_session_action(
+    shell: &mut ProductShell,
+    has_authorized_transport: bool,
+    action: DesktopAction,
+) -> bool {
     if matches!(
         action,
         DesktopAction::ConnectDevice(..)
             | DesktopAction::RetryConnect
             | DesktopAction::AllowPermission
     ) {
+        if has_authorized_transport {
+            return false;
+        }
         shell.disconnect();
         shell.set_error(
             "Remote connection unavailable: authenticated peer transport is not established",
@@ -87,6 +97,9 @@ struct DesktopHost {
     context: Context<OwnedDisplayHandle>,
     event_loop_proxy: EventLoopProxy<AccessKitEvent>,
     shell: ProductShell,
+    enrollment_coordinator: EnrollmentCoordinator,
+    _store_path: PathBuf,
+    session_adapter: Option<TransportSessionAdapter<LoopbackTransport>>,
     accessibility: Vec<AccessibilityNode>,
     accessibility_focus: Option<NodeId>,
     cursor_position: Option<(usize, usize)>,
@@ -126,9 +139,33 @@ impl DesktopHost {
             context,
             event_loop_proxy,
             shell,
+            enrollment_coordinator: EnrollmentCoordinator::new(),
+            _store_path: store_path,
+            session_adapter: None,
             accessibility,
             accessibility_focus: None,
             cursor_position: None,
+        }
+    }
+
+    fn handle_enroll_device(&mut self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        match self.enrollment_coordinator.create_challenge(now) {
+            Ok(challenge) => {
+                let hex_prefix = format!(
+                    "{:02x}{:02x}{:02x}{:02x}",
+                    challenge.nonce[0], challenge.nonce[1], challenge.nonce[2], challenge.nonce[3]
+                );
+                self.shell.set_error(format!(
+                    "Enrollment challenge issued ({hex_prefix}... expires in 300s); awaiting peer signature"
+                ));
+            }
+            Err(err) => {
+                self.shell
+                    .set_error(format!("Enrollment challenge failed: {err}"));
+            }
         }
     }
 
@@ -199,7 +236,13 @@ impl DesktopHost {
             }
             Action::Click => {
                 if let Some(action) = desktop_action_for_node(&self.shell, request.target_node) {
-                    if !refuse_unverified_session_action(&mut self.shell, action) {
+                    let has_auth = self
+                        .session_adapter
+                        .as_ref()
+                        .is_some_and(TransportSessionAdapter::is_control_authorized);
+                    if action == DesktopAction::EnrollDevice {
+                        self.handle_enroll_device();
+                    } else if !refuse_unverified_session_action(&mut self.shell, has_auth, action) {
                         apply_action(&mut self.shell, action);
                     }
                     self.accessibility_focus = None;
@@ -298,7 +341,17 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         x,
                         y,
                     ) {
-                        if !refuse_unverified_session_action(&mut self.shell, action) {
+                        let has_auth = self
+                            .session_adapter
+                            .as_ref()
+                            .is_some_and(TransportSessionAdapter::is_control_authorized);
+                        if action == DesktopAction::EnrollDevice {
+                            self.handle_enroll_device();
+                        } else if !refuse_unverified_session_action(
+                            &mut self.shell,
+                            has_auth,
+                            action,
+                        ) {
                             apply_action(&mut self.shell, action);
                         }
                         self.accessibility_focus = None;
@@ -315,8 +368,16 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                                 control.enabled && control.keyboard_key == key.to_ascii_lowercase()
                             })
                             .map(|control| control.action);
-                        if selected_action.is_some_and(|action| {
-                            refuse_unverified_session_action(&mut self.shell, action)
+                        let has_auth = self
+                            .session_adapter
+                            .as_ref()
+                            .is_some_and(TransportSessionAdapter::is_control_authorized);
+                        if selected_action == Some(DesktopAction::EnrollDevice) {
+                            self.handle_enroll_device();
+                            self.accessibility_focus = None;
+                            self.refresh_presentation();
+                        } else if selected_action.is_some_and(|action| {
+                            refuse_unverified_session_action(&mut self.shell, has_auth, action)
                         }) || apply_key(&mut self.shell, key)
                         {
                             self.accessibility_focus = None;
@@ -382,10 +443,28 @@ mod tests {
             DesktopAction::RetryConnect,
             DesktopAction::AllowPermission,
         ] {
-            assert!(refuse_unverified_session_action(&mut shell, action));
+            assert!(refuse_unverified_session_action(&mut shell, false, action));
             assert_eq!(shell.primary_view(), PrimaryView::Devices);
             assert!(shell.selected_device().is_none());
             assert!(shell.last_error().is_some());
+        }
+    }
+
+    #[test]
+    fn authorized_transport_permits_session_actions() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "verified-peer".to_owned(),
+            display_name: "Verified peer".to_owned(),
+            status: DeviceStatus::Offline,
+        }]);
+        let revision = shell.device_revision();
+        for action in [
+            DesktopAction::ConnectDevice(0, revision),
+            DesktopAction::RetryConnect,
+            DesktopAction::AllowPermission,
+        ] {
+            assert!(!refuse_unverified_session_action(&mut shell, true, action));
         }
     }
 
@@ -394,6 +473,7 @@ mod tests {
         let mut shell = ProductShell::new();
         assert!(!refuse_unverified_session_action(
             &mut shell,
+            false,
             DesktopAction::ToggleHelp
         ));
         assert!(shell.last_error().is_none());
