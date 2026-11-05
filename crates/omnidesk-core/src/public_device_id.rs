@@ -1,4 +1,4 @@
-//! Stable public device identifiers for a single, dual-role OmniDesk application.
+//! Stable public device identifiers for a single, dual-role `OmniDesk` application.
 //!
 //! IDs are derived from a verified Ed25519 public key. They identify the
 //! *intended* peer for discovery, but never prove trust or authorize control.
@@ -131,7 +131,7 @@ mod tests {
     fn rejects_ambiguous_or_malformed_remote_ids() {
         let valid = id_for(7).as_str().to_owned();
         for invalid in [
-            "".to_owned(),
+            String::new(),
             " ".to_owned(),
             format!(" {valid}"),
             format!("{valid} "),
