@@ -24,7 +24,7 @@ pub struct SelectedRemoteTarget {
 
 impl SelectedRemoteTarget {
     #[must_use]
-    pub fn public_id(&self) -> &PublicDeviceId {
+    pub const fn public_id(&self) -> &PublicDeviceId {
         &self.id
     }
 
@@ -77,7 +77,7 @@ impl RemoteIdEntry {
     /// Rejects malformed, overlong, Unicode or otherwise noncanonical IDs.
     pub fn paste(&mut self, candidate: &str) -> Result<(), PublicDeviceIdError> {
         let id = PublicDeviceId::parse(candidate)?;
-        self.text = id.as_str().to_owned();
+        id.as_str().clone_into(&mut self.text);
         Ok(())
     }
 
@@ -131,7 +131,7 @@ mod tests {
         typed.push(id.as_str().chars().last().unwrap()).unwrap();
         assert_eq!(typed, pasted);
         typed.clear();
-        assert!(typed.text().is_empty());
+        assert_eq!(typed.text(), "");
     }
 
     #[test]
