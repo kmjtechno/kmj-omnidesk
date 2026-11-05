@@ -26,28 +26,35 @@ pub enum AuthorizationStep {
 /// Inputs verified independently of the UI; none authorize control by themselves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AccessPreflight {
-    pub authenticated_transport: bool,
-    pub trusted_peer: bool,
-    pub tenant_matches: bool,
-    pub peer_revoked: bool,
-    pub session_encrypted: bool,
+    pub transport: TransportTrust,
+    pub peer: PeerTrust,
+    pub tenant: TenantTrust,
+    pub encryption: EncryptionState,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportTrust { Authenticated, Unauthenticated }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerTrust { Trusted, Untrusted, Revoked }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TenantTrust { Matching, Mismatched }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncryptionState { Encrypted, Unencrypted }
 
 impl AccessPreflight {
     /// Fail closed before user consent or unattended password verification.
     #[must_use]
     pub const fn next_step(self, mode: AccessMode) -> AuthorizationStep {
-        if !self.authenticated_transport
-            || !self.trusted_peer
-            || !self.tenant_matches
-            || self.peer_revoked
+        if self.transport != TransportTrust::Authenticated
+            || self.peer != PeerTrust::Trusted
+            || self.tenant != TenantTrust::Matching
         {
             return AuthorizationStep::Reject;
         }
         match mode {
             AccessMode::AskPermission => AuthorizationStep::AwaitLocalConsent,
             AccessMode::PasswordRequired => {
-                if self.session_encrypted {
+                if self.encryption == EncryptionState::Encrypted {
                     AuthorizationStep::AwaitVerifiedPasswordProof
                 } else {
                     AuthorizationStep::Reject
@@ -62,11 +69,10 @@ mod tests {
     use super::*;
 
     const SECURE: AccessPreflight = AccessPreflight {
-        authenticated_transport: true,
-        trusted_peer: true,
-        tenant_matches: true,
-        peer_revoked: false,
-        session_encrypted: true,
+        transport: TransportTrust::Authenticated,
+        peer: PeerTrust::Trusted,
+        tenant: TenantTrust::Matching,
+        encryption: EncryptionState::Encrypted,
     };
 
     #[test]
@@ -85,7 +91,7 @@ mod tests {
             AuthorizationStep::AwaitVerifiedPasswordProof
         );
         let not_encrypted = AccessPreflight {
-            session_encrypted: false,
+            encryption: EncryptionState::Unencrypted,
             ..SECURE
         };
         assert_eq!(
@@ -102,19 +108,19 @@ mod tests {
     fn invalid_trust_or_tenant_is_rejected_for_both_modes() {
         for invalid in [
             AccessPreflight {
-                authenticated_transport: false,
+                transport: TransportTrust::Unauthenticated,
                 ..SECURE
             },
             AccessPreflight {
-                trusted_peer: false,
+                peer: PeerTrust::Untrusted,
                 ..SECURE
             },
             AccessPreflight {
-                tenant_matches: false,
+                tenant: TenantTrust::Mismatched,
                 ..SECURE
             },
             AccessPreflight {
-                peer_revoked: true,
+                peer: PeerTrust::Revoked,
                 ..SECURE
             },
         ] {
