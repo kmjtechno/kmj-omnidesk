@@ -132,7 +132,10 @@ mod tests {
 
     #[test]
     fn unattended_is_off_by_default_even_for_a_trusted_encrypted_peer() {
-        assert_eq!(UnattendedAvailability::default(), UnattendedAvailability::Disabled);
+        assert_eq!(
+            UnattendedAvailability::default(),
+            UnattendedAvailability::Disabled
+        );
         let disabled = AccessPreflight {
             unattended: UnattendedAvailability::default(),
             ..SECURE
