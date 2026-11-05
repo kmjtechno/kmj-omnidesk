@@ -9,7 +9,8 @@ use sha2::{Digest, Sha256};
 
 const DEVICE_ID_DOMAIN: &[u8] = b"KMJ_OMNIDESK_PUBLIC_DEVICE_ID_V1";
 const DEVICE_ID_PREFIX: &str = "KMJ-";
-pub const DEVICE_ID_LENGTH: usize = 68;
+// 224-bit public locator fits the existing 64-byte peer-identity bound.
+pub const DEVICE_ID_LENGTH: usize = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PublicDeviceIdError {
@@ -35,7 +36,7 @@ impl std::error::Error for PublicDeviceIdError {}
 pub struct PublicDeviceId(String);
 
 impl PublicDeviceId {
-    /// Derive a stable 256-bit public locator from a valid Ed25519 public key.
+    /// Derive a stable 224-bit public locator from a valid Ed25519 public key.
     ///
     /// # Errors
     /// Rejects invalid Ed25519 point encodings and the all-zero key.
@@ -49,7 +50,7 @@ impl PublicDeviceId {
             .finalize();
         let mut id = String::with_capacity(DEVICE_ID_LENGTH);
         id.push_str(DEVICE_ID_PREFIX);
-        for byte in digest {
+        for byte in digest.iter().take(28) {
             use std::fmt::Write as _;
             write!(&mut id, "{byte:02X}").expect("writing into a String cannot fail");
         }
@@ -113,6 +114,14 @@ mod tests {
     }
 
     #[test]
+    fn public_id_fits_existing_session_identity_boundary() {
+        use crate::session::{PeerIdentity, MAX_PEER_IDENTITY_BYTES};
+        let id = id_for(7);
+        assert!(id.as_str().len() <= MAX_PEER_IDENTITY_BYTES);
+        assert_eq!(PeerIdentity::new(id.as_str()).unwrap().as_str(), id.as_str());
+    }
+
+    #[test]
     fn canonical_round_trip_and_ascii_only() {
         let generated = id_for(7);
         assert_eq!(
@@ -139,8 +148,8 @@ mod tests {
             valid.replace("KMJ-", "KМJ-"), // Cyrillic homoglyph
             format!("{valid}0"),
             valid[..valid.len() - 1].to_owned(),
-            format!("KMJ-{}", "G".repeat(64)),
-            format!("KMJ-{}", "0".repeat(63) + "\n"),
+            format!("KMJ-{}", "G".repeat(56)),
+            format!("KMJ-{}", "0".repeat(55) + "\n"),
         ] {
             assert_eq!(
                 PublicDeviceId::parse(&invalid),
