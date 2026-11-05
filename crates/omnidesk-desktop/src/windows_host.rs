@@ -380,7 +380,7 @@ impl DesktopHost {
             .resize(width, height)
             .expect("native render surface resize must succeed");
         let mut presentation = presentation_for(&self.shell);
-        presentation.remote_id_text = self.remote_entry.text().to_owned();
+        self.remote_entry.text().clone_into(&mut presentation.remote_id_text);
         presentation.remote_id_focused = self.remote_entry_focused;
         let mut buffer = surface
             .buffer_mut()
