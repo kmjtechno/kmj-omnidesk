@@ -6,6 +6,7 @@
 
 use ed25519_dalek::VerifyingKey;
 use sha2::{Digest, Sha256};
+use crate::trusted_device_store::{TrustedDeviceRecord, TrustedDeviceStore};
 
 const DEVICE_ID_DOMAIN: &[u8] = b"KMJ_OMNIDESK_PUBLIC_DEVICE_ID_V1";
 const DEVICE_ID_PREFIX: &str = "KMJ-";
@@ -18,6 +19,8 @@ pub enum PublicDeviceIdError {
     InvalidFormat,
     OwnDevice,
     PeerKeyMismatch,
+    UntrustedPeer,
+    AmbiguousPeer,
 }
 
 impl std::fmt::Display for PublicDeviceIdError {
@@ -29,6 +32,8 @@ impl std::fmt::Display for PublicDeviceIdError {
             Self::PeerKeyMismatch => {
                 f.write_str("authenticated peer key does not match requested device ID")
             }
+            Self::UntrustedPeer => f.write_str("peer is not enrolled or trust has expired"),
+            Self::AmbiguousPeer => f.write_str("multiple trust records match the same peer key"),
         }
     }
 }
@@ -104,6 +109,33 @@ impl PublicDeviceId {
         } else {
             Err(PublicDeviceIdError::PeerKeyMismatch)
         }
+    }
+
+    /// Resolve exactly one unrevoked, unexpired, enrolled public key for a requested ID.
+    ///
+    /// Do not interpret a returned record as permission to control the device:
+    /// the separate transport must authenticate the key, bind session/tenant,
+    /// enforce encryption and require consent or valid unattended proof.
+    ///
+    /// # Errors
+    /// Rejects unknown/expired/revoked identities and ambiguous trust entries.
+    pub fn resolve_trusted_peer<'a>(
+        &self,
+        store: &'a TrustedDeviceStore,
+        now_epoch_secs: u64,
+    ) -> Result<&'a TrustedDeviceRecord, PublicDeviceIdError> {
+        let mut matching = store.devices().iter().filter(|record| {
+            Self::from_public_key(&record.public_key)
+                .is_ok_and(|derived| &derived == self)
+        });
+        let record = matching.next().ok_or(PublicDeviceIdError::UntrustedPeer)?;
+        if matching.next().is_some() {
+            return Err(PublicDeviceIdError::AmbiguousPeer);
+        }
+        if !record.is_trusted_at(now_epoch_secs) {
+            return Err(PublicDeviceIdError::UntrustedPeer);
+        }
+        Ok(record)
     }
 
     /// Prevent a selected local ID from being silently routed to self.
@@ -199,6 +231,51 @@ mod tests {
         assert_eq!(
             expected.require_matching_public_key(&[0; 32]),
             Err(PublicDeviceIdError::InvalidPublicKey)
+        );
+    }
+
+    #[test]
+    fn trusted_lookup_rejects_unknown_revoked_expired_and_duplicate_keys() {
+        use crate::trusted_device_store::{PersistedDeviceStatus, TrustedDeviceRecord};
+        let key = SigningKey::from_bytes(&[7; 32]).verifying_key().to_bytes();
+        let id = id_for(7);
+        let mut store = TrustedDeviceStore::new();
+        assert_eq!(
+            id.resolve_trusted_peer(&store, 100).err(),
+            Some(PublicDeviceIdError::UntrustedPeer)
+        );
+        let record = TrustedDeviceRecord {
+            device_id: "peer-1".to_owned(),
+            display_name: "Peer".to_owned(),
+            public_key: key,
+            enrolled_at_epoch_secs: 10,
+            trust_expires_at_epoch_secs: 200,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        };
+        store.add(record.clone()).unwrap();
+        assert_eq!(
+            id.resolve_trusted_peer(&store, 100).unwrap().device_id,
+            "peer-1"
+        );
+        assert_eq!(
+            id.resolve_trusted_peer(&store, 200).err(),
+            Some(PublicDeviceIdError::UntrustedPeer)
+        );
+        assert!(store.revoke("peer-1"));
+        assert_eq!(
+            id.resolve_trusted_peer(&store, 100).err(),
+            Some(PublicDeviceIdError::UntrustedPeer)
+        );
+        let mut duplicate_store = TrustedDeviceStore::new();
+        duplicate_store.add(record.clone()).unwrap();
+        let mut duplicate = record;
+        duplicate.device_id = "peer-2".to_owned();
+        duplicate_store.add(duplicate).unwrap();
+        assert_eq!(
+            id.resolve_trusted_peer(&duplicate_store, 100).err(),
+            Some(PublicDeviceIdError::AmbiguousPeer)
         );
     }
 
