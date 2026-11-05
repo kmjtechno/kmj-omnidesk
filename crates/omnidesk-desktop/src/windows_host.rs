@@ -30,7 +30,7 @@ use crate::{
     controls_for_shell,
     layout::{
         LockedDashboardLayout, ShellLayout, initial_window_inner_size, initial_window_origin,
-    }
+    },
     presentation_for,
     render::render_shell,
 };
