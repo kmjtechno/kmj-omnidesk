@@ -30,6 +30,8 @@ pub struct AccessPreflight {
     pub peer: PeerTrust,
     pub tenant: TenantTrust,
     pub encryption: EncryptionState,
+    /// The controlled PC's owner must explicitly enable unattended access.
+    pub unattended: UnattendedAvailability,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +56,14 @@ pub enum EncryptionState {
     Unencrypted,
 }
 
+/// Owner-local setting, never inferred from the caller's request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnattendedAvailability {
+    #[default]
+    Disabled,
+    OwnerEnabled,
+}
+
 impl AccessPreflight {
     /// Fail closed before user consent or unattended password verification.
     #[must_use]
@@ -67,7 +77,9 @@ impl AccessPreflight {
         match mode {
             AccessMode::AskPermission => AuthorizationStep::AwaitLocalConsent,
             AccessMode::PasswordRequired => {
-                if self.encryption == EncryptionState::Encrypted {
+                if self.encryption == EncryptionState::Encrypted
+                    && self.unattended == UnattendedAvailability::OwnerEnabled
+                {
                     AuthorizationStep::AwaitVerifiedPasswordProof
                 } else {
                     AuthorizationStep::Reject
@@ -86,6 +98,7 @@ mod tests {
         peer: PeerTrust::Trusted,
         tenant: TenantTrust::Matching,
         encryption: EncryptionState::Encrypted,
+        unattended: UnattendedAvailability::OwnerEnabled,
     };
 
     #[test]
@@ -113,6 +126,23 @@ mod tests {
         );
         assert_eq!(
             not_encrypted.next_step(AccessMode::AskPermission),
+            AuthorizationStep::AwaitLocalConsent
+        );
+    }
+
+    #[test]
+    fn unattended_is_off_by_default_even_for_a_trusted_encrypted_peer() {
+        assert_eq!(UnattendedAvailability::default(), UnattendedAvailability::Disabled);
+        let disabled = AccessPreflight {
+            unattended: UnattendedAvailability::default(),
+            ..SECURE
+        };
+        assert_eq!(
+            disabled.next_step(AccessMode::PasswordRequired),
+            AuthorizationStep::Reject
+        );
+        assert_eq!(
+            disabled.next_step(AccessMode::AskPermission),
             AuthorizationStep::AwaitLocalConsent
         );
     }
