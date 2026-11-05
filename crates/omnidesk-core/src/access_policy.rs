@@ -71,15 +71,14 @@ impl AccessPreflight {
         if self.transport != TransportTrust::Authenticated
             || self.peer != PeerTrust::Trusted
             || self.tenant != TenantTrust::Matching
+            || self.encryption != EncryptionState::Encrypted
         {
             return AuthorizationStep::Reject;
         }
         match mode {
             AccessMode::AskPermission => AuthorizationStep::AwaitLocalConsent,
             AccessMode::PasswordRequired => {
-                if self.encryption == EncryptionState::Encrypted
-                    && self.unattended == UnattendedAvailability::OwnerEnabled
-                {
+                if self.unattended == UnattendedAvailability::OwnerEnabled {
                     AuthorizationStep::AwaitVerifiedPasswordProof
                 } else {
                     AuthorizationStep::Reject
@@ -126,7 +125,7 @@ mod tests {
         );
         assert_eq!(
             not_encrypted.next_step(AccessMode::AskPermission),
-            AuthorizationStep::AwaitLocalConsent
+            AuthorizationStep::Reject
         );
     }
 
