@@ -28,7 +28,9 @@ use crate::{
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
     controls_for_shell,
-    layout::{LockedDashboardLayout, ShellLayout, initial_window_inner_size, initial_window_origin},
+    layout::{
+        LockedDashboardLayout, ShellLayout, initial_window_inner_size, initial_window_origin,
+    }
     presentation_for,
     render::render_shell,
 };
@@ -595,7 +597,8 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                                     "Remote ID format valid; secure local identity and peer authentication required before connecting",
                                 );
                             } else {
-                                self.shell.set_error("Remote Device ID is incomplete or invalid");
+                                self.shell
+                                    .set_error("Remote Device ID is incomplete or invalid");
                             }
                         }
                         _ => {
