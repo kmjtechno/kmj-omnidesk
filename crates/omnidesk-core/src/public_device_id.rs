@@ -132,7 +132,7 @@ impl PublicDeviceId {
         if matching.next().is_some() {
             return Err(PublicDeviceIdError::AmbiguousPeer);
         }
-        if !record.is_trusted_at(now_epoch_secs) {
+        if now_epoch_secs < record.enrolled_at_epoch_secs || !record.is_trusted_at(now_epoch_secs) {
             return Err(PublicDeviceIdError::UntrustedPeer);
         }
         Ok(record)
