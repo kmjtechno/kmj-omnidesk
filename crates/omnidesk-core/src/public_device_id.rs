@@ -4,9 +4,9 @@
 //! *intended* peer for discovery, but never prove trust or authorize control.
 //! A remote must still pass signed enrollment, tenant checks and local consent.
 
+use crate::trusted_device_store::{TrustedDeviceRecord, TrustedDeviceStore};
 use ed25519_dalek::VerifyingKey;
 use sha2::{Digest, Sha256};
-use crate::trusted_device_store::{TrustedDeviceRecord, TrustedDeviceStore};
 
 const DEVICE_ID_DOMAIN: &[u8] = b"KMJ_OMNIDESK_PUBLIC_DEVICE_ID_V1";
 const DEVICE_ID_PREFIX: &str = "KMJ-";
@@ -125,8 +125,7 @@ impl PublicDeviceId {
         now_epoch_secs: u64,
     ) -> Result<&'a TrustedDeviceRecord, PublicDeviceIdError> {
         let mut matching = store.devices().iter().filter(|record| {
-            Self::from_public_key(&record.public_key)
-                .is_ok_and(|derived| &derived == self)
+            Self::from_public_key(&record.public_key).is_ok_and(|derived| &derived == self)
         });
         let record = matching.next().ok_or(PublicDeviceIdError::UntrustedPeer)?;
         if matching.next().is_some() {
