@@ -1078,7 +1078,13 @@ fn draw_locked_devices(
     );
     if nav_tab == omnidesk_core::product_shell::NavTab::Devices {
         // This is a plain text locator, never a connected/authorized state.
-        canvas.fill_rect(devices.x + 10, devices.y + 28, devices.width - 20, 30, p.background);
+        canvas.fill_rect(
+            devices.x + 10,
+            devices.y + 28,
+            devices.width - 20,
+            30,
+            p.background,
+        );
         canvas.stroke_rect(
             devices.x + 10,
             devices.y + 28,
