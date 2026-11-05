@@ -115,10 +115,13 @@ mod tests {
 
     #[test]
     fn public_id_fits_existing_session_identity_boundary() {
-        use crate::session::{PeerIdentity, MAX_PEER_IDENTITY_BYTES};
+        use crate::session::{MAX_PEER_IDENTITY_BYTES, PeerIdentity};
         let id = id_for(7);
         assert!(id.as_str().len() <= MAX_PEER_IDENTITY_BYTES);
-        assert_eq!(PeerIdentity::new(id.as_str()).unwrap().as_str(), id.as_str());
+        assert_eq!(
+            PeerIdentity::new(id.as_str()).unwrap().as_str(),
+            id.as_str()
+        );
     }
 
     #[test]
