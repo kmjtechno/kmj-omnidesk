@@ -26,7 +26,9 @@ impl std::fmt::Display for PublicDeviceIdError {
             Self::InvalidPublicKey => f.write_str("device public key is invalid"),
             Self::InvalidFormat => f.write_str("remote device ID has invalid format"),
             Self::OwnDevice => f.write_str("cannot connect to this device itself"),
-            Self::PeerKeyMismatch => f.write_str("authenticated peer key does not match requested device ID"),
+            Self::PeerKeyMismatch => {
+                f.write_str("authenticated peer key does not match requested device ID")
+            }
         }
     }
 }
