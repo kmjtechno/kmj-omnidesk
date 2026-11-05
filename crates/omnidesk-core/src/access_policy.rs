@@ -57,7 +57,7 @@ pub enum EncryptionState {
 impl AccessPreflight {
     /// Fail closed before user consent or unattended password verification.
     #[must_use]
-    pub const fn next_step(self, mode: AccessMode) -> AuthorizationStep {
+    pub fn next_step(self, mode: AccessMode) -> AuthorizationStep {
         if self.transport != TransportTrust::Authenticated
             || self.peer != PeerTrust::Trusted
             || self.tenant != TenantTrust::Matching
