@@ -109,6 +109,9 @@ pub struct PresentationModel {
     pub title: &'static str,
     pub status: &'static str,
     pub details: Vec<String>,
+    /// Untrusted ID text. This is never proof of an authenticated peer.
+    pub remote_id_text: String,
+    pub remote_id_focused: bool,
     pub controls: Vec<ShellControl>,
     pub visual: VisualSystem,
     /// One-line summary shown under the content header, e.g. "3 devices · 2 online".
@@ -153,6 +156,8 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         title: "KMJ OmniDesk",
         status,
         details,
+        remote_id_text: String::new(),
+        remote_id_focused: false,
         controls: controls_for_shell(shell),
         visual: VisualSystem::kmj_black_red(),
         summary,

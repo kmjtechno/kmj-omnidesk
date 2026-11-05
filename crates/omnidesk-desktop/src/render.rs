@@ -455,13 +455,22 @@ fn draw_quick_connect(
         canvas.text(remote_x, inner_y, "REMOTE DEVICE ID", 1, palette.muted);
         canvas.fill_rect(remote_x, inner_y + 24, remote_width, 34, palette.background);
         canvas.stroke_rect(remote_x, inner_y + 24, remote_width, 34, 1, palette.border);
+        let caption = if presentation.remote_id_text.is_empty() {
+            "TYPE REMOTE DEVICE ID"
+        } else {
+            &presentation.remote_id_text
+        };
         canvas.text_clipped(
             remote_x + 12,
             inner_y + 36,
-            "SELECT A REGISTERED DEVICE BELOW",
+            caption,
             1,
             remote_width.saturating_sub(24),
-            palette.muted,
+            if presentation.remote_id_focused {
+                palette.foreground
+            } else {
+                palette.muted
+            },
         );
 
         let button_width = remote_width.min(156);
@@ -1067,6 +1076,45 @@ fn draw_locked_devices(
         col_title,
         p.foreground,
     );
+    if nav_tab == omnidesk_core::product_shell::NavTab::Devices {
+        // This is a plain text locator, never a connected/authorized state.
+        canvas.fill_rect(
+            devices.x + 10,
+            devices.y + 28,
+            devices.width - 20,
+            30,
+            p.background,
+        );
+        canvas.stroke_rect(
+            devices.x + 10,
+            devices.y + 28,
+            devices.width - 20,
+            30,
+            1,
+            if presentation.remote_id_focused {
+                p.accent
+            } else {
+                p.border
+            },
+        );
+        let caption = if presentation.remote_id_text.is_empty() {
+            "REMOTE ID: CLICK TO TYPE"
+        } else {
+            &presentation.remote_id_text
+        };
+        locked_label(
+            canvas,
+            devices.x + 15,
+            devices.y + 46,
+            devices.width - 30,
+            caption,
+            if presentation.remote_id_focused {
+                p.foreground
+            } else {
+                p.muted
+            },
+        );
+    }
     canvas.fill_rect(
         devices.x + 10,
         devices.y + 60,

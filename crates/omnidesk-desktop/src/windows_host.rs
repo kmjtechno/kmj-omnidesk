@@ -6,7 +6,9 @@ use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
-    product_shell::{DeviceStatus, PrimaryView, ProductShell},
+    product_shell::{DeviceStatus, NavTab, PrimaryView, ProductShell},
+    public_device_id::PublicDeviceId,
+    remote_id_entry::RemoteIdEntry,
     transport::HostTransport,
     transport_adapter::{TransportSessionAdapter, host_negotiate_and_authenticate_session},
     trusted_device_store::TrustedDeviceStore,
@@ -16,6 +18,7 @@ use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle},
+    keyboard::{Key, NamedKey},
     window::{Icon, Window, WindowAttributes, WindowId},
 };
 
@@ -25,7 +28,9 @@ use crate::{
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
     controls_for_shell,
-    layout::{initial_window_inner_size, initial_window_origin},
+    layout::{
+        LockedDashboardLayout, ShellLayout, initial_window_inner_size, initial_window_origin,
+    },
     presentation_for,
     render::render_shell,
 };
@@ -98,6 +103,27 @@ fn refuse_unverified_session_action(
     false
 }
 
+/// Geometry of the remote-ID input in the locked and compact layouts.
+fn remote_id_field_contains(width: usize, height: usize, x: usize, y: usize) -> bool {
+    if let Some(layout) = LockedDashboardLayout::for_window(width, height) {
+        let rect = layout.devices;
+        return x >= rect.x.saturating_add(10)
+            && x < rect.x.saturating_add(rect.width.saturating_sub(10))
+            && y >= rect.y.saturating_add(28)
+            && y < rect.y.saturating_add(58);
+    }
+    let Some(layout) = ShellLayout::for_window(width, height) else {
+        return false;
+    };
+    if layout.content_width < 560 {
+        return false;
+    }
+    let left = layout.content_x + layout.content_width / 2 + 22;
+    let top = layout.top_bar_height + 118;
+    let right = layout.content_x + layout.content_width - 22;
+    x >= left && x < right && y >= top && y < top + 34
+}
+
 struct DesktopHost {
     // Drop platform adapters/surfaces before the window and context that provide their handles.
     surface: Option<Surface<OwnedDisplayHandle, Arc<Window>>>,
@@ -106,6 +132,8 @@ struct DesktopHost {
     context: Context<OwnedDisplayHandle>,
     event_loop_proxy: EventLoopProxy<AccessKitEvent>,
     shell: ProductShell,
+    remote_entry: RemoteIdEntry,
+    remote_entry_focused: bool,
     enrollment_coordinator: EnrollmentCoordinator,
     store_path: PathBuf,
     session_adapter: Option<TransportSessionAdapter<HostTransport>>,
@@ -148,6 +176,8 @@ impl DesktopHost {
             context,
             event_loop_proxy,
             shell,
+            remote_entry: RemoteIdEntry::new(),
+            remote_entry_focused: false,
             enrollment_coordinator: EnrollmentCoordinator::new(),
             store_path,
             session_adapter: None,
@@ -349,7 +379,11 @@ impl DesktopHost {
         surface
             .resize(width, height)
             .expect("native render surface resize must succeed");
-        let presentation = presentation_for(&self.shell);
+        let mut presentation = presentation_for(&self.shell);
+        self.remote_entry
+            .text()
+            .clone_into(&mut presentation.remote_id_text);
+        presentation.remote_id_focused = self.remote_entry_focused;
         let mut buffer = surface
             .buffer_mut()
             .expect("native render buffer acquisition must succeed");
@@ -536,19 +570,50 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
             } => {
                 if let (Some((x, y)), Some(window)) = (self.cursor_position, self.window.as_ref()) {
                     let size = window.inner_size();
-                    if let Some(action) = action_at_point(
-                        &self.shell,
-                        usize::try_from(size.width).unwrap_or(usize::MAX),
-                        usize::try_from(size.height).unwrap_or(usize::MAX),
-                        x,
-                        y,
-                    ) {
+                    let width = usize::try_from(size.width).unwrap_or(usize::MAX);
+                    let height = usize::try_from(size.height).unwrap_or(usize::MAX);
+                    let field_hit = self.shell.primary_view() == PrimaryView::Devices
+                        && self.shell.nav_tab() == NavTab::Devices
+                        && remote_id_field_contains(width, height, x, y);
+                    self.remote_entry_focused = field_hit;
+                    if field_hit {
+                        window.request_redraw();
+                    } else if let Some(action) = action_at_point(&self.shell, width, height, x, y) {
                         self.dispatch_action(action);
+                    } else {
+                        window.request_redraw();
                     }
                 }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                if let Some(text) = event.text {
+                if self.remote_entry_focused {
+                    match &event.logical_key {
+                        Key::Named(NamedKey::Escape | NamedKey::Tab) => {
+                            self.remote_entry_focused = false;
+                        }
+                        Key::Named(NamedKey::Backspace) => self.remote_entry.backspace(),
+                        Key::Named(NamedKey::Enter) => {
+                            self.remote_entry_focused = false;
+                            if PublicDeviceId::parse(self.remote_entry.text()).is_ok() {
+                                self.shell.set_error(
+                                    "Remote ID format valid; secure local identity and peer authentication required before connecting",
+                                );
+                            } else {
+                                self.shell
+                                    .set_error("Remote Device ID is incomplete or invalid");
+                            }
+                        }
+                        _ => {
+                            if let Some(text) = event.text {
+                                for character in text.chars() {
+                                    // Rejected Unicode/control characters never enter the model.
+                                    let _ = self.remote_entry.push(character);
+                                }
+                            }
+                        }
+                    }
+                    self.refresh_presentation();
+                } else if let Some(text) = event.text {
                     if let Some(key) = text.chars().next() {
                         let selected_action = controls_for_shell(&self.shell)
                             .into_iter()
