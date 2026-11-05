@@ -33,13 +33,26 @@ pub struct AccessPreflight {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TransportTrust { Authenticated, Unauthenticated }
+pub enum TransportTrust {
+    Authenticated,
+    Unauthenticated,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PeerTrust { Trusted, Untrusted, Revoked }
+pub enum PeerTrust {
+    Trusted,
+    Untrusted,
+    Revoked,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TenantTrust { Matching, Mismatched }
+pub enum TenantTrust {
+    Matching,
+    Mismatched,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EncryptionState { Encrypted, Unencrypted }
+pub enum EncryptionState {
+    Encrypted,
+    Unencrypted,
+}
 
 impl AccessPreflight {
     /// Fail closed before user consent or unattended password verification.
