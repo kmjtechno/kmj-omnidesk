@@ -17,6 +17,7 @@ pub enum PublicDeviceIdError {
     InvalidPublicKey,
     InvalidFormat,
     OwnDevice,
+    PeerKeyMismatch,
 }
 
 impl std::fmt::Display for PublicDeviceIdError {
@@ -25,6 +26,7 @@ impl std::fmt::Display for PublicDeviceIdError {
             Self::InvalidPublicKey => f.write_str("device public key is invalid"),
             Self::InvalidFormat => f.write_str("remote device ID has invalid format"),
             Self::OwnDevice => f.write_str("cannot connect to this device itself"),
+            Self::PeerKeyMismatch => f.write_str("authenticated peer key does not match requested device ID"),
         }
     }
 }
@@ -79,6 +81,27 @@ impl PublicDeviceId {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Bind the selected remote ID to the peer's authenticated public key.
+    ///
+    /// This must be called *after* independent signature authentication, not
+    /// as a substitute for it. A valid ID or matching key does not authorize
+    /// screen, input or unattended access.
+    ///
+    /// # Errors
+    /// Rejects invalid peer key encodings or a key different from the
+    /// public identity selected by the user.
+    pub fn require_matching_public_key(
+        &self,
+        authenticated_public_key: &[u8; 32],
+    ) -> Result<(), PublicDeviceIdError> {
+        let authenticated_id = Self::from_public_key(authenticated_public_key)?;
+        if self == &authenticated_id {
+            Ok(())
+        } else {
+            Err(PublicDeviceIdError::PeerKeyMismatch)
+        }
     }
 
     /// Prevent a selected local ID from being silently routed to self.
@@ -159,6 +182,22 @@ mod tests {
                 Err(PublicDeviceIdError::InvalidFormat)
             );
         }
+    }
+
+    #[test]
+    fn requested_id_must_match_authenticated_peer_key() {
+        let expected = id_for(7);
+        let correct = SigningKey::from_bytes(&[7; 32]).verifying_key().to_bytes();
+        let impostor = SigningKey::from_bytes(&[8; 32]).verifying_key().to_bytes();
+        assert_eq!(expected.require_matching_public_key(&correct), Ok(()));
+        assert_eq!(
+            expected.require_matching_public_key(&impostor),
+            Err(PublicDeviceIdError::PeerKeyMismatch)
+        );
+        assert_eq!(
+            expected.require_matching_public_key(&[0; 32]),
+            Err(PublicDeviceIdError::InvalidPublicKey)
+        );
     }
 
     #[test]
