@@ -40,9 +40,7 @@ impl PublicDeviceId {
     /// # Errors
     /// Rejects invalid Ed25519 point encodings and the all-zero key.
     pub fn from_public_key(public_key: &[u8; 32]) -> Result<Self, PublicDeviceIdError> {
-        if public_key.iter().all(|&b| b == 0)
-            || VerifyingKey::from_bytes(public_key).is_err()
-        {
+        if public_key.iter().all(|&b| b == 0) || VerifyingKey::from_bytes(public_key).is_err() {
             return Err(PublicDeviceIdError::InvalidPublicKey);
         }
         let digest = Sha256::new()
@@ -68,7 +66,9 @@ impl PublicDeviceId {
             .strip_prefix(DEVICE_ID_PREFIX)
             .ok_or(PublicDeviceIdError::InvalidFormat)?;
         if value.len() != DEVICE_ID_LENGTH
-            || !body.bytes().all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b))
+            || !body
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b))
         {
             return Err(PublicDeviceIdError::InvalidFormat);
         }
@@ -95,11 +95,13 @@ impl PublicDeviceId {
 
 #[cfg(test)]
 mod tests {
-    use ed25519_dalek::SigningKey;
     use super::*;
+    use ed25519_dalek::SigningKey;
 
     fn id_for(seed: u8) -> PublicDeviceId {
-        let public_key = SigningKey::from_bytes(&[seed; 32]).verifying_key().to_bytes();
+        let public_key = SigningKey::from_bytes(&[seed; 32])
+            .verifying_key()
+            .to_bytes();
         PublicDeviceId::from_public_key(&public_key).expect("valid public key")
     }
 
@@ -113,10 +115,16 @@ mod tests {
     #[test]
     fn canonical_round_trip_and_ascii_only() {
         let generated = id_for(7);
-        assert_eq!(PublicDeviceId::parse(generated.as_str()).unwrap(), generated);
+        assert_eq!(
+            PublicDeviceId::parse(generated.as_str()).unwrap(),
+            generated
+        );
         assert!(generated.as_str().starts_with("KMJ-"));
-        assert!(generated.as_str()[4..].bytes().all(|c|
-            c.is_ascii_digit() || (b'A'..=b'F').contains(&c)));
+        assert!(
+            generated.as_str()[4..]
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'A'..=b'F').contains(&c))
+        );
     }
 
     #[test]
@@ -134,16 +142,23 @@ mod tests {
             format!("KMJ-{}", "G".repeat(64)),
             format!("KMJ-{}", "0".repeat(63) + "\n"),
         ] {
-            assert_eq!(PublicDeviceId::parse(&invalid), Err(PublicDeviceIdError::InvalidFormat));
+            assert_eq!(
+                PublicDeviceId::parse(&invalid),
+                Err(PublicDeviceIdError::InvalidFormat)
+            );
         }
     }
 
     #[test]
     fn rejects_zero_key_and_self_connection() {
-        assert_eq!(PublicDeviceId::from_public_key(&[0; 32]),
-            Err(PublicDeviceIdError::InvalidPublicKey));
-        assert_eq!(id_for(7).require_remote(&id_for(7)),
-            Err(PublicDeviceIdError::OwnDevice));
+        assert_eq!(
+            PublicDeviceId::from_public_key(&[0; 32]),
+            Err(PublicDeviceIdError::InvalidPublicKey)
+        );
+        assert_eq!(
+            id_for(7).require_remote(&id_for(7)),
+            Err(PublicDeviceIdError::OwnDevice)
+        );
         assert_eq!(id_for(7).require_remote(&id_for(8)), Ok(()));
     }
 }
