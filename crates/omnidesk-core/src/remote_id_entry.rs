@@ -5,7 +5,7 @@
 //! authorizes transport establishment, password login, screen or input control.
 
 use crate::{
-    public_device_id::{PublicDeviceId, PublicDeviceIdError, DEVICE_ID_LENGTH},
+    public_device_id::{DEVICE_ID_LENGTH, PublicDeviceId, PublicDeviceIdError},
     trusted_device_store::TrustedDeviceStore,
 };
 
@@ -140,7 +140,10 @@ mod tests {
         let mut entry = RemoteIdEntry::new();
         entry.paste(id.as_str()).unwrap();
         for invalid in ["", "KMJ-abc", "KMJ-💻", "KMJ-\n", " KMJ-"] {
-            assert_eq!(entry.paste(invalid), Err(PublicDeviceIdError::InvalidFormat));
+            assert_eq!(
+                entry.paste(invalid),
+                Err(PublicDeviceIdError::InvalidFormat)
+            );
             assert_eq!(entry.text(), id.as_str());
         }
         for invalid in ['💻', '\n', 'a', ' '] {
@@ -165,18 +168,18 @@ mod tests {
             entry.select_trusted(&own, &store, 100).err(),
             Some(PublicDeviceIdError::UntrustedPeer)
         );
-        store.add(TrustedDeviceRecord {
-            device_id: "remote-8".to_owned(),
-            display_name: "Remote PC".to_owned(),
-            public_key: SigningKey::from_bytes(&[8; 32])
-                .verifying_key()
-                .to_bytes(),
-            enrolled_at_epoch_secs: 10,
-            trust_expires_at_epoch_secs: 200,
-            managed: false,
-            revoked: false,
-            status: PersistedDeviceStatus::Offline,
-        }).unwrap();
+        store
+            .add(TrustedDeviceRecord {
+                device_id: "remote-8".to_owned(),
+                display_name: "Remote PC".to_owned(),
+                public_key: SigningKey::from_bytes(&[8; 32]).verifying_key().to_bytes(),
+                enrolled_at_epoch_secs: 10,
+                trust_expires_at_epoch_secs: 200,
+                managed: false,
+                revoked: false,
+                status: PersistedDeviceStatus::Offline,
+            })
+            .unwrap();
         let selected = entry.select_trusted(&own, &store, 100).unwrap();
         assert_eq!(selected.public_id(), &remote);
         assert_eq!(selected.enrolled_device_id(), "remote-8");
