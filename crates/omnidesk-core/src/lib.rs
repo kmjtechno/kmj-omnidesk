@@ -26,6 +26,7 @@ pub mod metrics;
 pub mod nat_traversal;
 pub mod pipeline;
 pub mod product_shell;
+pub mod public_device_id;
 pub mod reconnect;
 pub mod relay;
 pub mod renewal_proof;
