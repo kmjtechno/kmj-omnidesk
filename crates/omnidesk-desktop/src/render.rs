@@ -1082,6 +1082,225 @@ fn draw_locked_devices(
     }
 }
 
+fn draw_locked_your_id_card(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let your_id_card = layout.your_id_card_rect();
+    canvas.fill_rect(
+        your_id_card.x,
+        your_id_card.y,
+        your_id_card.width,
+        your_id_card.height,
+        p.surface,
+    );
+    canvas.stroke_rect(
+        your_id_card.x,
+        your_id_card.y,
+        your_id_card.width,
+        your_id_card.height,
+        1,
+        p.border,
+    );
+    locked_label(
+        canvas,
+        your_id_card.x + 16,
+        your_id_card.y + 14,
+        your_id_card.width.saturating_sub(32),
+        "THIS DESKTOP  ·  YOUR ID",
+        p.muted,
+    );
+
+    let id_str = if presentation.local_device_id.is_empty() {
+        "KMJ-..."
+    } else {
+        &presentation.local_device_id
+    };
+    locked_label(
+        canvas,
+        your_id_card.x + 16,
+        your_id_card.y + 50,
+        your_id_card.width.saturating_sub(140),
+        id_str,
+        p.foreground,
+    );
+
+    let copy_btn = layout.your_id_copy_btn_rect();
+    canvas.fill_rect(
+        copy_btn.x,
+        copy_btn.y,
+        copy_btn.width,
+        copy_btn.height,
+        p.border,
+    );
+    canvas.stroke_rect(
+        copy_btn.x,
+        copy_btn.y,
+        copy_btn.width,
+        copy_btn.height,
+        1,
+        p.muted,
+    );
+    locked_label(
+        canvas,
+        copy_btn.x + 14,
+        copy_btn.y + 10,
+        copy_btn.width.saturating_sub(28),
+        "COPY ID",
+        p.foreground,
+    );
+}
+
+fn draw_locked_remote_id_input(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    input_rect: crate::layout::DashboardRect,
+    p: Palette,
+) {
+    canvas.fill_rect(
+        input_rect.x,
+        input_rect.y,
+        input_rect.width,
+        input_rect.height,
+        p.background,
+    );
+    let input_border_color = if presentation.remote_id_focused {
+        p.accent
+    } else {
+        p.border
+    };
+    canvas.stroke_rect(
+        input_rect.x,
+        input_rect.y,
+        input_rect.width,
+        input_rect.height,
+        if presentation.remote_id_focused { 2 } else { 1 },
+        input_border_color,
+    );
+
+    if presentation.remote_id_input.is_empty() {
+        if presentation.remote_id_focused {
+            locked_label(
+                canvas,
+                input_rect.x + 12,
+                input_rect.y + 11,
+                input_rect.width.saturating_sub(24),
+                "|",
+                p.accent,
+            );
+        } else {
+            locked_label(
+                canvas,
+                input_rect.x + 12,
+                input_rect.y + 11,
+                input_rect.width.saturating_sub(24),
+                "e.g. 123-456-789",
+                p.muted,
+            );
+        }
+    } else {
+        let display_text = if presentation.remote_id_focused {
+            format!("{}|", presentation.remote_id_input)
+        } else {
+            presentation.remote_id_input.clone()
+        };
+        locked_label(
+            canvas,
+            input_rect.x + 12,
+            input_rect.y + 11,
+            input_rect.width.saturating_sub(24),
+            &display_text,
+            p.foreground,
+        );
+    }
+}
+
+fn draw_locked_remote_id_card(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let remote_id_card = layout.remote_id_card_rect();
+    canvas.fill_rect(
+        remote_id_card.x,
+        remote_id_card.y,
+        remote_id_card.width,
+        remote_id_card.height,
+        p.surface,
+    );
+    canvas.stroke_rect(
+        remote_id_card.x,
+        remote_id_card.y,
+        remote_id_card.width,
+        remote_id_card.height,
+        1,
+        p.border,
+    );
+    locked_label(
+        canvas,
+        remote_id_card.x + 16,
+        remote_id_card.y + 14,
+        remote_id_card.width.saturating_sub(32),
+        "REMOTE DESK  ·  ENTER REMOTE ID",
+        p.muted,
+    );
+
+    draw_locked_remote_id_input(canvas, presentation, layout.remote_id_input_rect(), p);
+
+    let connect_btn = layout.remote_id_connect_btn_rect();
+    let connect_enabled = !presentation.remote_id_input.is_empty();
+    canvas.fill_rect(
+        connect_btn.x,
+        connect_btn.y,
+        connect_btn.width,
+        connect_btn.height,
+        if connect_enabled { p.accent } else { p.border },
+    );
+    canvas.stroke_rect(
+        connect_btn.x,
+        connect_btn.y,
+        connect_btn.width,
+        connect_btn.height,
+        1,
+        if connect_enabled { p.accent } else { p.border },
+    );
+    locked_label(
+        canvas,
+        connect_btn.x + 18,
+        connect_btn.y + 11,
+        connect_btn.width.saturating_sub(36),
+        "CONNECT",
+        if connect_enabled {
+            p.foreground
+        } else {
+            p.muted
+        },
+    );
+}
+
+fn draw_locked_dual_role_cards(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    draw_locked_your_id_card(canvas, presentation, layout, p);
+    draw_locked_remote_id_card(canvas, presentation, layout, p);
+
+    let screen = layout.remote_screen;
+    locked_label(
+        canvas,
+        screen.x + 22,
+        screen.y + 248,
+        screen.width.saturating_sub(44),
+        "Direct E2E encrypted · Ed25519 identity · LAN & Relay ready",
+        p.muted,
+    );
+}
+
 fn draw_locked_remote_view(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -1160,30 +1379,7 @@ fn draw_locked_remote_view(
             p.accent,
         );
     } else {
-        locked_label(
-            canvas,
-            screen.x + 22,
-            screen.y + 22,
-            screen.width - 44,
-            "Remote desktop",
-            p.foreground,
-        );
-        locked_label(
-            canvas,
-            screen.x + 22,
-            screen.y + 48,
-            screen.width - 44,
-            "No authenticated remote video",
-            p.muted,
-        );
-        locked_label(
-            canvas,
-            screen.x + 22,
-            screen.y + 73,
-            screen.width - 44,
-            "Connect to a verified device",
-            p.muted,
-        );
+        draw_locked_dual_role_cards(canvas, presentation, layout, p);
     }
 }
 

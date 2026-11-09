@@ -114,6 +114,22 @@ struct DesktopHost {
     cursor_position: Option<(usize, usize)>,
 }
 
+fn copy_to_clipboard(text: &str) {
+    use std::io::Write;
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    if let Ok(mut child) = std::process::Command::new("clip.exe")
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+    {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        let _ = child.wait();
+    }
+}
+
 impl DesktopHost {
     fn new(
         context: Context<OwnedDisplayHandle>,
@@ -140,6 +156,17 @@ impl DesktopHost {
             }
             shell.replace_devices(devices);
         }
+        let identity_path = std::env::var_os("LOCALAPPDATA")
+            .map_or_else(|| PathBuf::from("."), PathBuf::from)
+            .join("KMJ-OmniDesk")
+            .join("device_identity.json");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let identity =
+            omnidesk_core::device_identity::DeviceIdentity::load_or_create(&identity_path, now)
+                .unwrap_or_else(|_| omnidesk_core::device_identity::DeviceIdentity::generate(now));
+        shell.set_local_device_id(identity.public_id());
         let accessibility = accessibility_snapshot(&shell);
         Self {
             surface: None,
@@ -419,6 +446,14 @@ impl DesktopHost {
                 self.shell
                     .set_error("Session approval rejected: peer or permission prompt mismatch");
             }
+        } else if action == DesktopAction::CopyYourId {
+            copy_to_clipboard(self.shell.local_device_id());
+            apply_action(&mut self.shell, action);
+        } else if action == DesktopAction::ConnectRemoteId {
+            apply_action(&mut self.shell, action);
+            if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
+                self.try_connect_peer();
+            }
         } else if matches!(
             action,
             DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
@@ -544,10 +579,41 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         y,
                     ) {
                         self.dispatch_action(action);
+                    } else if self.shell.is_remote_id_focused() {
+                        self.shell.set_remote_id_focused(false);
+                        self.refresh_presentation();
                     }
                 }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if self.shell.is_remote_id_focused() {
+                    match &event.logical_key {
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Backspace) => {
+                            self.shell.backspace_remote_id();
+                            self.refresh_presentation();
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter) => {
+                            self.dispatch_action(DesktopAction::ConnectRemoteId);
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) => {
+                            self.shell.set_remote_id_focused(false);
+                            self.refresh_presentation();
+                            return;
+                        }
+                        _ => {}
+                    }
+                    if let Some(text) = &event.text {
+                        for c in text.chars() {
+                            if !c.is_control() {
+                                self.shell.append_remote_id_char(c);
+                            }
+                        }
+                        self.refresh_presentation();
+                        return;
+                    }
+                }
                 if let Some(text) = event.text {
                     if let Some(key) = text.chars().next() {
                         let selected_action = controls_for_shell(&self.shell)
