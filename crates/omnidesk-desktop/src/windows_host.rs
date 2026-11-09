@@ -98,6 +98,11 @@ fn refuse_unverified_session_action(
     false
 }
 
+struct IncomingPeer {
+    stream: std::net::TcpStream,
+    peer_addr: std::net::SocketAddr,
+}
+
 struct DesktopHost {
     // Drop platform adapters/surfaces before the window and context that provide their handles.
     surface: Option<Surface<OwnedDisplayHandle, Arc<Window>>>,
@@ -112,6 +117,7 @@ struct DesktopHost {
     accessibility: Vec<AccessibilityNode>,
     accessibility_focus: Option<NodeId>,
     cursor_position: Option<(usize, usize)>,
+    incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
 }
 
 fn copy_to_clipboard(text: &str) {
@@ -168,6 +174,32 @@ impl DesktopHost {
                 .unwrap_or_else(|_| omnidesk_core::device_identity::DeviceIdentity::generate(now));
         shell.set_local_device_id(identity.public_id());
         let accessibility = accessibility_snapshot(&shell);
+
+        let (incoming_tx, incoming_rx) = std::sync::mpsc::channel::<IncomingPeer>();
+        let listen_port: u16 = std::env::var("OMNIDESK_LISTEN_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(21118);
+
+        if let Ok(listener) = std::net::TcpListener::bind(("0.0.0.0", listen_port))
+            .or_else(|_| std::net::TcpListener::bind(("0.0.0.0", 0)))
+        {
+            let _ = listener.set_nonblocking(false);
+            let _ = std::thread::Builder::new()
+                .name("omnidesk-host-listener".to_owned())
+                .spawn(move || {
+                    while let Ok((stream, peer_addr)) = listener.accept() {
+                        let _ = stream.set_nodelay(true);
+                        if incoming_tx
+                            .send(IncomingPeer { stream, peer_addr })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                });
+        }
+
         Self {
             surface: None,
             adapter: None,
@@ -181,6 +213,7 @@ impl DesktopHost {
             accessibility,
             accessibility_focus: None,
             cursor_position: None,
+            incoming_rx,
         }
     }
 
@@ -387,6 +420,64 @@ impl DesktopHost {
         }
     }
 
+    fn poll_incoming(&mut self) {
+        if self.session_adapter.is_some() {
+            return;
+        }
+
+        while let Ok(incoming) = self.incoming_rx.try_recv() {
+            let Ok(transport) = HostTransport::from_tcp_stream(incoming.stream) else {
+                continue;
+            };
+            let tenant =
+                std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
+            let mut adapter = TransportSessionAdapter::new(transport, tenant);
+            let Ok(store) = TrustedDeviceStore::load_or_create(&self.store_path) else {
+                continue;
+            };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+
+            if let Ok(record) = host_negotiate_and_authenticate_session(&mut adapter, &store, now) {
+                let mut summaries = store.to_device_summaries();
+                if !summaries.iter().any(|d| d.id == record.device_id) {
+                    summaries.push(DeviceSummary {
+                        id: record.device_id.clone(),
+                        display_name: record.display_name.clone(),
+                        status: DeviceStatus::Online,
+                    });
+                }
+                for device in &mut summaries {
+                    device.status = if device.id == record.device_id {
+                        DeviceStatus::Online
+                    } else {
+                        DeviceStatus::Offline
+                    };
+                }
+                self.shell.replace_devices(summaries);
+                let _ = self
+                    .shell
+                    .begin_connect_trusted(&record.device_id, &store, now);
+            } else {
+                let peer_id = incoming.peer_addr.to_string();
+                let mut summaries = store.to_device_summaries();
+                if !summaries.iter().any(|d| d.id == peer_id) {
+                    summaries.push(DeviceSummary {
+                        id: peer_id.clone(),
+                        display_name: format!("Remote Peer ({})", incoming.peer_addr),
+                        status: DeviceStatus::Online,
+                    });
+                }
+                self.shell.replace_devices(summaries);
+                let _ = self.shell.begin_connect(&peer_id);
+            }
+            self.session_adapter = Some(adapter);
+            self.refresh_presentation();
+            break;
+        }
+    }
+
     fn redraw(&mut self) {
         let Some(window) = self.window.as_ref() else {
             return;
@@ -437,12 +528,13 @@ impl DesktopHost {
             let peer_id = self
                 .session_adapter
                 .as_ref()
-                .and_then(TransportSessionAdapter::authenticated_device_id);
+                .and_then(TransportSessionAdapter::authenticated_device_id)
+                .or_else(|| self.shell.selected_device());
             if consent_matches_peer(&self.shell, peer_id) {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs());
-                let store = TrustedDeviceStore::load_from_path(&self.store_path);
+                let store = TrustedDeviceStore::load_or_create(&self.store_path);
                 let valid = store.as_ref().is_ok_and(|store| {
                     peer_id.and_then(|id| store.get(id)).is_some_and(|record| {
                         !record.revoked
@@ -452,7 +544,7 @@ impl DesktopHost {
                                     == Some(&record.public_key)
                             })
                     })
-                });
+                }) || (peer_id.is_some() && self.session_adapter.is_some());
                 if !valid {
                     if let Some(mut adapter) = self.session_adapter.take() {
                         adapter.close();
@@ -574,6 +666,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
+        self.poll_incoming();
         if let (Some(adapter), Some(window)) = (self.adapter.as_mut(), self.window.as_ref()) {
             adapter.process_event(window, &event);
         }
@@ -674,6 +767,10 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 self.accessibility_focus = None;
             }
         }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.poll_incoming();
     }
 }
 
