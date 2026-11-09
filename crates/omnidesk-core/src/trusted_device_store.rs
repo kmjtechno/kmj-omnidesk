@@ -332,6 +332,24 @@ impl TrustedDeviceStore {
         Ok(store)
     }
 
+    /// Loads the store from `path`, or creates a clean empty store if it does not yet exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DeviceStoreError`] if an existing file is corrupt, or if the new store cannot be saved.
+    pub fn load_or_create(path: &Path) -> Result<Self, DeviceStoreError> {
+        if path.exists() {
+            Self::load_from_path(path)
+        } else {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let store = Self::new();
+            store.save_to_path(path)?;
+            Ok(store)
+        }
+    }
+
     /// Atomically writes the store to disk using a temporary sibling file and replace.
     ///
     /// # Errors

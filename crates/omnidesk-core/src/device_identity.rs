@@ -322,12 +322,18 @@ pub fn format_public_id(public_key: &[u8; 32]) -> String {
 
 /// Normalizes a user-entered Remote ID into canonical `KMJ-XXX-XXX-XXX` format.
 ///
-/// Strips spaces, dashes, and optional "KMJ" prefix.
+/// Strips spaces, dashes, and optional "KMJ" prefix, or preserves valid network endpoints.
 #[must_use]
 pub fn normalize_remote_id(input: &str) -> Option<String> {
-    let mut digits = String::with_capacity(16);
     let trimmed = input.trim();
+    if let Ok(addr) = trimmed.parse::<std::net::SocketAddr>() {
+        return Some(addr.to_string());
+    }
+    if let Ok(ip) = trimmed.parse::<std::net::IpAddr>() {
+        return Some(format!("{ip}:21118"));
+    }
 
+    let mut digits = String::with_capacity(16);
     let body = if trimmed.len() >= 3 && trimmed[..3].eq_ignore_ascii_case("KMJ") {
         &trimmed[3..]
     } else {
@@ -378,7 +384,7 @@ pub fn validate_remote_id(input: &str, local_id: Option<&str>) -> Result<String,
     }
 
     for c in trimmed.chars() {
-        if !c.is_ascii_alphanumeric() && c != '-' && c != ' ' && c != '_' {
+        if !c.is_ascii_alphanumeric() && c != '-' && c != ' ' && c != '_' && c != '.' && c != ':' {
             return Err(RemoteIdError::InvalidCharacter(c));
         }
     }
