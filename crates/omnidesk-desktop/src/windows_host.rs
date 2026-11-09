@@ -6,7 +6,7 @@ use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
-    product_shell::{DeviceStatus, PrimaryView, ProductShell},
+    product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell},
     transport::HostTransport,
     transport_adapter::{TransportSessionAdapter, host_negotiate_and_authenticate_session},
     trusted_device_store::TrustedDeviceStore,
@@ -140,7 +140,7 @@ impl DesktopHost {
             .join("KMJ-OmniDesk")
             .join("trusted_devices.json");
         let mut shell = ProductShell::new();
-        let store = match TrustedDeviceStore::load_from_path(&store_path) {
+        let store = match TrustedDeviceStore::load_or_create(&store_path) {
             Ok(store) => store,
             Err(err) => {
                 // Never silently accept a damaged trust store or overwrite it.
@@ -189,14 +189,22 @@ impl DesktopHost {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
 
-        let enroll_peer_addr = std::env::var("OMNIDESK_ENROLL_PEER_ADDR")
+        let mut enroll_peer_addr = std::env::var("OMNIDESK_ENROLL_PEER_ADDR")
             .ok()
             .and_then(|addr| addr.parse::<std::net::SocketAddr>().ok());
+
+        if enroll_peer_addr.is_none() {
+            if let Some(dev) = self.shell.selected_device() {
+                if let Ok(addr) = dev.parse::<std::net::SocketAddr>() {
+                    enroll_peer_addr = Some(addr);
+                }
+            }
+        }
 
         if let Some(peer_addr) = enroll_peer_addr {
             match HostTransport::connect_tcp(peer_addr, std::time::Duration::from_secs(3)) {
                 Ok(mut transport) => {
-                    let mut store = match TrustedDeviceStore::load_from_path(&self.store_path) {
+                    let mut store = match TrustedDeviceStore::load_or_create(&self.store_path) {
                         Ok(s) => s,
                         Err(err) => {
                             self.shell
@@ -249,7 +257,7 @@ impl DesktopHost {
                     challenge.nonce[0], challenge.nonce[1], challenge.nonce[2], challenge.nonce[3]
                 );
                 self.shell.set_error(format!(
-                    "Enrollment challenge issued ({hex_prefix}... expires in 300s); set OMNIDESK_ENROLL_PEER_ADDR for remote LAN exchange"
+                    "Enrollment challenge issued ({hex_prefix}... expires in 300s); enter remote IP:port or set OMNIDESK_ENROLL_PEER_ADDR"
                 ));
             }
             Err(err) => {
@@ -260,14 +268,26 @@ impl DesktopHost {
     }
 
     fn try_connect_peer(&mut self) {
-        let peer_addr = std::env::var("OMNIDESK_PEER_ADDR")
-            .ok()
-            .and_then(|addr| addr.parse::<std::net::SocketAddr>().ok());
+        let mut target_addr: Option<std::net::SocketAddr> = None;
 
-        let Some(addr) = peer_addr else {
+        if let Some(dev) = self.shell.selected_device() {
+            if let Ok(addr) = dev.parse::<std::net::SocketAddr>() {
+                target_addr = Some(addr);
+            }
+        }
+
+        if target_addr.is_none() {
+            if let Ok(env_addr) = std::env::var("OMNIDESK_PEER_ADDR") {
+                if let Ok(addr) = env_addr.parse::<std::net::SocketAddr>() {
+                    target_addr = Some(addr);
+                }
+            }
+        }
+
+        let Some(addr) = target_addr else {
             self.shell.disconnect();
             self.shell.set_error(
-                "Remote connection unavailable: no approved physical peer endpoint online",
+                "Remote connection unavailable: enter remote IP:port (e.g. 192.168.1.50:21118) or set approved peer endpoint",
             );
             return;
         };
@@ -278,7 +298,7 @@ impl DesktopHost {
                     std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
                 let mut adapter = TransportSessionAdapter::new(transport, tenant);
 
-                let store = match TrustedDeviceStore::load_from_path(&self.store_path) {
+                let store = match TrustedDeviceStore::load_or_create(&self.store_path) {
                     Ok(s) => s,
                     Err(err) => {
                         self.shell.disconnect();
@@ -297,6 +317,13 @@ impl DesktopHost {
                         // Peer key proof is not user permission. Keep the transport
                         // AwaitingAuthorization until the user clicks Allow.
                         let mut summaries = store.to_device_summaries();
+                        if !summaries.iter().any(|d| d.id == record.device_id) {
+                            summaries.push(DeviceSummary {
+                                id: record.device_id.clone(),
+                                display_name: record.display_name.clone(),
+                                status: DeviceStatus::Online,
+                            });
+                        }
                         for device in &mut summaries {
                             device.status = if device.id == record.device_id {
                                 DeviceStatus::Online
@@ -305,15 +332,17 @@ impl DesktopHost {
                             };
                         }
                         self.shell.replace_devices(summaries);
-                        if let Err(err) =
-                            self.shell
-                                .begin_connect_trusted(&record.device_id, &store, now)
-                        {
-                            adapter.close();
-                            self.shell.disconnect();
-                            self.shell
-                                .set_error(format!("Connection preflight failed: {err:?}"));
-                            return;
+                        if self.shell.selected_device().is_none() {
+                            if let Err(err) =
+                                self.shell
+                                    .begin_connect_trusted(&record.device_id, &store, now)
+                            {
+                                adapter.close();
+                                self.shell.disconnect();
+                                self.shell
+                                    .set_error(format!("Connection preflight failed: {err:?}"));
+                                return;
+                            }
                         }
                         self.session_adapter = Some(adapter);
                     }
@@ -329,7 +358,7 @@ impl DesktopHost {
             Err(err) => {
                 self.shell.disconnect();
                 self.shell
-                    .set_error(format!("LAN connection to peer failed: {err:?}"));
+                    .set_error(format!("Cannot connect to peer at {addr}: {err:?}"));
             }
         }
     }
