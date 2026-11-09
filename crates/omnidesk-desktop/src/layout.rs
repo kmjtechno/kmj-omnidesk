@@ -474,6 +474,59 @@ impl LockedDashboardLayout {
     }
 
     #[must_use]
+    pub const fn your_id_card_rect(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.remote_screen.x + 18,
+            y: self.remote_screen.y + 18,
+            width: self.remote_screen.width.saturating_sub(36),
+            height: 94,
+        }
+    }
+
+    #[must_use]
+    pub const fn your_id_copy_btn_rect(&self) -> DashboardRect {
+        let card = self.your_id_card_rect();
+        DashboardRect {
+            x: card.x + card.width.saturating_sub(116),
+            y: card.y + 46,
+            width: 100,
+            height: 34,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_id_card_rect(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.remote_screen.x + 18,
+            y: self.remote_screen.y + 126,
+            width: self.remote_screen.width.saturating_sub(36),
+            height: 104,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_id_input_rect(&self) -> DashboardRect {
+        let card = self.remote_id_card_rect();
+        DashboardRect {
+            x: card.x + 16,
+            y: card.y + 50,
+            width: card.width.saturating_sub(146),
+            height: 38,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_id_connect_btn_rect(&self) -> DashboardRect {
+        let input = self.remote_id_input_rect();
+        DashboardRect {
+            x: input.x + input.width + 10,
+            y: input.y,
+            width: 104,
+            height: 38,
+        }
+    }
+
+    #[must_use]
     pub const fn help_button_rect(&self, window_width: usize) -> DashboardRect {
         DashboardRect {
             x: window_width.saturating_sub(100),
@@ -518,6 +571,53 @@ mod locked_dashboard_tests {
                     .contains(l.device_row(0).x, l.device_row(0).y)
             );
             assert!(!l.device_row(0).contains(l.navigation.x, l.device_row(0).y));
+        }
+    }
+
+    #[test]
+    fn dual_role_cards_geometry_inside_remote_screen() {
+        for (width, height) in [(1180, 600), (1419, 611), (1920, 1080), (2560, 1440)] {
+            let l = LockedDashboardLayout::for_window(width, height).unwrap();
+            let screen = l.remote_screen;
+            let your_id = l.your_id_card_rect();
+            let copy_btn = l.your_id_copy_btn_rect();
+            let remote_id = l.remote_id_card_rect();
+            let input = l.remote_id_input_rect();
+            let connect_btn = l.remote_id_connect_btn_rect();
+
+            // Both cards are within remote_screen bounds
+            assert!(your_id.x >= screen.x);
+            assert!(your_id.y >= screen.y);
+            assert!(your_id.x + your_id.width <= screen.x + screen.width);
+            assert!(your_id.y + your_id.height <= screen.y + screen.height);
+
+            assert!(remote_id.x >= screen.x);
+            assert!(remote_id.y >= screen.y);
+            assert!(remote_id.x + remote_id.width <= screen.x + screen.width);
+            assert!(remote_id.y + remote_id.height <= screen.y + screen.height);
+
+            // Your ID card and Remote ID card do not vertically overlap
+            assert!(remote_id.y >= your_id.y + your_id.height);
+
+            // Copy button is inside Your ID card
+            assert!(copy_btn.x >= your_id.x);
+            assert!(copy_btn.y >= your_id.y);
+            assert!(copy_btn.x + copy_btn.width <= your_id.x + your_id.width);
+            assert!(copy_btn.y + copy_btn.height <= your_id.y + your_id.height);
+
+            // Input and Connect button are inside Remote ID card
+            assert!(input.x >= remote_id.x);
+            assert!(input.y >= remote_id.y);
+            assert!(input.x + input.width <= remote_id.x + remote_id.width);
+            assert!(input.y + input.height <= remote_id.y + remote_id.height);
+
+            assert!(connect_btn.x >= remote_id.x);
+            assert!(connect_btn.y >= remote_id.y);
+            assert!(connect_btn.x + connect_btn.width <= remote_id.x + remote_id.width);
+            assert!(connect_btn.y + connect_btn.height <= remote_id.y + remote_id.height);
+
+            // Input and Connect button do not horizontally overlap
+            assert!(connect_btn.x >= input.x + input.width);
         }
     }
 }

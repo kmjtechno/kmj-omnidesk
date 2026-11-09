@@ -97,6 +97,9 @@ pub struct ProductShell {
     nav_tab: NavTab,
     device_filter: DeviceFilter,
     help_open: bool,
+    local_device_id: String,
+    remote_id_input: String,
+    remote_id_focused: bool,
 }
 
 impl ProductShell {
@@ -115,6 +118,9 @@ impl ProductShell {
             nav_tab: NavTab::Devices,
             device_filter: DeviceFilter::All,
             help_open: false,
+            local_device_id: String::new(),
+            remote_id_input: String::new(),
+            remote_id_focused: false,
         }
     }
 
@@ -382,6 +388,76 @@ impl ProductShell {
 
     pub const fn set_help_open(&mut self, open: bool) {
         self.help_open = open;
+    }
+
+    #[must_use]
+    pub fn local_device_id(&self) -> &str {
+        &self.local_device_id
+    }
+
+    pub fn set_local_device_id(&mut self, id: impl Into<String>) {
+        self.local_device_id = id.into();
+    }
+
+    #[must_use]
+    pub fn remote_id_input(&self) -> &str {
+        &self.remote_id_input
+    }
+
+    pub fn set_remote_id_input(&mut self, input: impl Into<String>) {
+        self.remote_id_input = input.into();
+    }
+
+    pub fn append_remote_id_char(&mut self, c: char) {
+        if self.remote_id_input.len() < crate::device_identity::MAX_REMOTE_ID_LEN
+            && (c.is_ascii_alphanumeric() || c == '-' || c == ' ' || c == '_')
+        {
+            self.remote_id_input.push(c);
+        }
+    }
+
+    pub fn backspace_remote_id(&mut self) {
+        self.remote_id_input.pop();
+    }
+
+    pub fn clear_remote_id(&mut self) {
+        self.remote_id_input.clear();
+    }
+
+    #[must_use]
+    pub const fn is_remote_id_focused(&self) -> bool {
+        self.remote_id_focused
+    }
+
+    pub const fn set_remote_id_focused(&mut self, focused: bool) {
+        self.remote_id_focused = focused;
+    }
+
+    /// Validates `remote_id_input` and sets selected device.
+    ///
+    /// # Errors
+    /// Returns [`ConnectError`] if the Remote ID is invalid or matches `local_device_id`.
+    pub fn begin_connect_remote_id(&mut self) -> Result<String, ConnectError> {
+        let local_opt = if self.local_device_id.is_empty() {
+            None
+        } else {
+            Some(self.local_device_id.as_str())
+        };
+        match crate::device_identity::validate_remote_id(&self.remote_id_input, local_opt) {
+            Ok(normalized) => {
+                self.selected_device = Some(normalized.clone());
+                self.last_attempted_device = Some(normalized.clone());
+                self.security_state = SecurityState::AuthorizationRequired;
+                self.last_error = None;
+                self.remote_id_focused = false;
+                Ok(normalized)
+            }
+            Err(err) => {
+                let msg = err.to_string();
+                self.set_error(msg.clone());
+                Err(ConnectError::UntrustedPeer(msg))
+            }
+        }
     }
 }
 
@@ -654,5 +730,55 @@ mod tests {
             Err(ConnectError::DeviceOffline)
         );
         assert!(shell.last_error().unwrap().contains("offline"));
+    }
+
+    #[test]
+    fn remote_id_input_and_connect_flow() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-222-333");
+        assert_eq!(shell.local_device_id(), "KMJ-111-222-333");
+
+        // Type remote ID characters
+        shell.set_remote_id_focused(true);
+        assert!(shell.is_remote_id_focused());
+
+        shell.append_remote_id_char('4');
+        shell.append_remote_id_char('5');
+        shell.append_remote_id_char('6');
+        shell.append_remote_id_char('-');
+        shell.append_remote_id_char('7');
+        shell.append_remote_id_char('8');
+        shell.append_remote_id_char('9');
+        shell.append_remote_id_char('-');
+        shell.append_remote_id_char('0');
+        shell.append_remote_id_char('1');
+        shell.append_remote_id_char('2');
+        assert_eq!(shell.remote_id_input(), "456-789-012");
+
+        // Backspace and append
+        shell.backspace_remote_id();
+        assert_eq!(shell.remote_id_input(), "456-789-01");
+        shell.append_remote_id_char('2');
+        assert_eq!(shell.remote_id_input(), "456-789-012");
+
+        // Connect valid remote ID
+        let res = shell.begin_connect_remote_id();
+        assert_eq!(res, Ok("KMJ-456-789-012".to_owned()));
+        assert_eq!(shell.selected_device(), Some("KMJ-456-789-012"));
+        assert_eq!(shell.security_state(), SecurityState::AuthorizationRequired);
+        assert!(!shell.is_remote_id_focused());
+
+        // Self-connection must be refused
+        shell.disconnect();
+        shell.set_remote_id_input("111 222 333");
+        let self_res = shell.begin_connect_remote_id();
+        assert!(self_res.is_err());
+        assert!(
+            shell
+                .last_error()
+                .unwrap()
+                .contains("Cannot connect to self")
+        );
+        assert_eq!(shell.security_state(), SecurityState::Disconnected);
     }
 }

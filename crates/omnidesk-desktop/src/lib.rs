@@ -31,6 +31,9 @@ pub enum DesktopAction {
     EnrollDevice,
     RefreshDiscovery,
     RetryConnect,
+    CopyYourId,
+    FocusRemoteIdInput,
+    ConnectRemoteId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +118,9 @@ pub struct PresentationModel {
     pub summary: String,
     /// Labels for the panel's labelled rows, in order.
     pub panel_title: &'static str,
+    pub local_device_id: String,
+    pub remote_id_input: String,
+    pub remote_id_focused: bool,
 }
 
 #[must_use]
@@ -157,6 +163,9 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         visual: VisualSystem::kmj_black_red(),
         summary,
         panel_title,
+        local_device_id: shell.local_device_id().to_owned(),
+        remote_id_input: shell.remote_id_input().to_owned(),
+        remote_id_focused: shell.is_remote_id_focused(),
     }
 }
 
@@ -294,6 +303,9 @@ pub fn presentation_details(shell: &ProductShell) -> Vec<String> {
             } else {
                 vec![format!("{} registered device(s)", shell.devices().len())]
             };
+            if !shell.local_device_id().is_empty() {
+                list.push(format!("Your ID: {}", shell.local_device_id()));
+            }
             if let Some(err) = shell.last_error() {
                 list.push(format!("Notice: {err}"));
             }
@@ -403,6 +415,24 @@ pub fn control_rects_for(
 }
 
 #[must_use]
+const fn locked_dual_role_action(
+    locked: &LockedDashboardLayout,
+    x: usize,
+    y: usize,
+) -> Option<DesktopAction> {
+    if locked.your_id_copy_btn_rect().contains(x, y) {
+        return Some(DesktopAction::CopyYourId);
+    }
+    if locked.remote_id_connect_btn_rect().contains(x, y) {
+        return Some(DesktopAction::ConnectRemoteId);
+    }
+    if locked.remote_id_input_rect().contains(x, y) || locked.remote_id_card_rect().contains(x, y) {
+        return Some(DesktopAction::FocusRemoteIdInput);
+    }
+    None
+}
+
+#[must_use]
 pub fn action_at_point(
     shell: &ProductShell,
     width: usize,
@@ -481,6 +511,12 @@ pub fn action_at_point(
         // connect targets active under their empty-state panels.
         if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() != NavTab::Devices {
             return None;
+        }
+
+        if shell.primary_view() == PrimaryView::Devices {
+            if let Some(action) = locked_dual_role_action(&locked, x, y) {
+                return Some(action);
+            }
         }
     }
 
@@ -582,10 +618,47 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
         DesktopAction::RetryConnect => {
             let _ = shell.retry_connect();
         }
+        DesktopAction::CopyYourId => {
+            shell.set_remote_id_focused(false);
+            let id = shell.local_device_id().to_owned();
+            if id.is_empty() {
+                shell.set_error("Device identity not initialized yet");
+            } else {
+                shell.set_error(format!("Your ID '{id}' copied to clipboard"));
+            }
+        }
+        DesktopAction::FocusRemoteIdInput => {
+            shell.set_remote_id_focused(true);
+        }
+        DesktopAction::ConnectRemoteId => {
+            shell.set_remote_id_focused(false);
+            let _ = shell.begin_connect_remote_id();
+        }
     }
 }
 
 pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
+    if shell.is_remote_id_focused() {
+        match key {
+            '\x08' => {
+                shell.backspace_remote_id();
+                return true;
+            }
+            '\r' | '\n' => {
+                apply_action(shell, DesktopAction::ConnectRemoteId);
+                return true;
+            }
+            '\x1b' => {
+                shell.set_remote_id_focused(false);
+                return true;
+            }
+            c if !c.is_control() => {
+                shell.append_remote_id_char(c);
+                return true;
+            }
+            _ => return false,
+        }
+    }
     let key = key.to_ascii_lowercase();
     let control_match =
         if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() != NavTab::Devices {
@@ -1400,5 +1473,69 @@ mod tests {
         assert_eq!(action, Some(DesktopAction::ToggleHelp));
         apply_action(&mut shell, action.unwrap());
         assert!(shell.is_help_open());
+    }
+
+    #[test]
+    fn dual_role_cards_pointer_and_keyboard_interaction() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-123-456-789");
+
+        let layout = LockedDashboardLayout::for_window(1419, 611).expect("layout");
+
+        // 1. Click Copy Your ID button
+        let copy_rect = layout.your_id_copy_btn_rect();
+        let copy_action = action_at_point(&shell, 1419, 611, copy_rect.x + 5, copy_rect.y + 5);
+        assert_eq!(copy_action, Some(DesktopAction::CopyYourId));
+        apply_action(&mut shell, copy_action.unwrap());
+        assert!(shell.last_error().unwrap().contains("KMJ-123-456-789"));
+
+        // 2. Click Remote ID input box -> focuses input
+        let input_rect = layout.remote_id_input_rect();
+        let focus_action = action_at_point(&shell, 1419, 611, input_rect.x + 5, input_rect.y + 5);
+        assert_eq!(focus_action, Some(DesktopAction::FocusRemoteIdInput));
+        apply_action(&mut shell, focus_action.unwrap());
+        assert!(shell.is_remote_id_focused());
+
+        // 3. Type characters via apply_key while focused
+        assert!(apply_key(&mut shell, '9'));
+        assert!(apply_key(&mut shell, '8'));
+        assert!(apply_key(&mut shell, '7'));
+        assert!(apply_key(&mut shell, '-'));
+        assert!(apply_key(&mut shell, '6'));
+        assert!(apply_key(&mut shell, '5'));
+        assert!(apply_key(&mut shell, '4'));
+        assert_eq!(shell.remote_id_input(), "987-654");
+
+        // 4. Backspace
+        assert!(apply_key(&mut shell, '\x08'));
+        assert_eq!(shell.remote_id_input(), "987-65");
+
+        // 5. Complete input and connect via click
+        shell.append_remote_id_char('4');
+        shell.append_remote_id_char('-');
+        shell.append_remote_id_char('3');
+        shell.append_remote_id_char('2');
+        shell.append_remote_id_char('1');
+        assert_eq!(shell.remote_id_input(), "987-654-321");
+
+        let connect_rect = layout.remote_id_connect_btn_rect();
+        let connect_action =
+            action_at_point(&shell, 1419, 611, connect_rect.x + 5, connect_rect.y + 5);
+        assert_eq!(connect_action, Some(DesktopAction::ConnectRemoteId));
+        apply_action(&mut shell, connect_action.unwrap());
+        assert_eq!(shell.selected_device(), Some("KMJ-987-654-321"));
+        assert!(!shell.is_remote_id_focused());
+
+        // 6. Refuse self-connection
+        shell.disconnect();
+        shell.set_remote_id_input("123-456-789");
+        apply_action(&mut shell, DesktopAction::ConnectRemoteId);
+        assert!(
+            shell
+                .last_error()
+                .unwrap()
+                .contains("Cannot connect to self")
+        );
+        assert_eq!(shell.selected_device(), None);
     }
 }

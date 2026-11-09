@@ -12,6 +12,7 @@ pub mod collaboration;
 pub mod commercial_gate;
 pub mod connectivity;
 pub mod device_enrollment;
+pub mod device_identity;
 pub mod direct_connect;
 pub mod direct_udp;
 pub mod enterprise;
