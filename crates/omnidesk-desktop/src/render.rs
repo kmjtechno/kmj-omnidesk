@@ -1104,6 +1104,7 @@ fn draw_locked_your_id_card(
         1,
         p.border,
     );
+    canvas.fill_rect(your_id_card.x + 1, your_id_card.y + 1, your_id_card.width.saturating_sub(2), 2, p.border);
     locked_label(
         canvas,
         your_id_card.x + 16,
@@ -1252,6 +1253,7 @@ fn draw_locked_remote_id_card(
         1,
         p.border,
     );
+    canvas.fill_rect(remote_id_card.x + 1, remote_id_card.y + 1, remote_id_card.width.saturating_sub(2), 2, p.accent);
     locked_label(
         canvas,
         remote_id_card.x + 16,
@@ -1313,14 +1315,38 @@ fn draw_locked_dual_role_cards(
     draw_locked_remote_id_card(canvas, presentation, layout, p);
 
     let screen = layout.remote_screen;
+    let guidance_y = screen.y + if layout.access_cards_wide() { 245 } else { 333 };
     locked_label(
         canvas,
         screen.x + 22,
-        screen.y + 248,
+        guidance_y,
         screen.width.saturating_sub(44),
         "Connection requires verified peer identity and target permission",
         p.muted,
     );
+
+    // Keep the actual remote-view region available for future authenticated
+    // video. This intentional offline display is not a fake screenshot.
+    if screen.height > if layout.access_cards_wide() { 355 } else { 450 } {
+        let display_y = guidance_y + 34;
+        canvas.h_line(screen.x + 18, display_y, screen.width.saturating_sub(36), p.border);
+        locked_label(
+            canvas,
+            screen.x + 22,
+            display_y + 20,
+            screen.width.saturating_sub(44),
+            "REMOTE DISPLAY",
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            screen.x + 22,
+            display_y + 48,
+            screen.width.saturating_sub(44),
+            "No verified desktop stream. Connect to an authorized device.",
+            p.muted,
+        );
+    }
 }
 
 fn draw_locked_remote_view(
