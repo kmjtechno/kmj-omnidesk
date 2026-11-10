@@ -27,6 +27,14 @@ The earlier implementation accepted HMAC password proofs over a raw TCP channel,
 
 Future work must bind password proof to a reviewed mutually authenticated encrypted channel, verify target identity and session transcript, reject replay/guesses, isolate privileges, obtain explicit remote-user permission (or independently scoped unattended grant), and route actual decoded screen frames into the native display. Do not restore any previously removed auto-authorization or fake metric path to make demos look successful.
 
+## Additional low-level password proof guard (2026-11-10)
+
+The `Transport` interface now defaults `is_peer_authenticated_and_encrypted()` to `false`; all current loopback/TCP transports inherit this fail-closed default. The core host and client password authentication entrypoints refuse a raw password proof until a future independently verified encrypted, mutually authenticated transport explicitly implements that capability. A former integration test which expected password login to succeed on raw TCP has been replaced by a negative regression test.
+
+**These are committed source changes, not executed Windows QA evidence.** The source is intentionally not production functional for ID+Password remote control at present.
+
+**Remaining protocol-level blocker:** The signed-key `TransportSessionAdapter::authorize_session` / `send` / `receive` path also needs independent encryption/channel-binding admission before real remote input or screen data may be enabled. It must not be considered safe solely because an Ed25519 challenge passes. Do not implement secure-channel capability as a hardcoded `true` on raw TCP, LAN, or relay.
+
 ## Latest validation status
 
 | Gate | Evidence |
