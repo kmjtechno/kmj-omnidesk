@@ -1,99 +1,85 @@
-//! Produces authentic pixel-perfect render captures for all KMJ OmniDesk V5 native screens.
-
+//! Render-only receipts for the approved KMJ OmniDesk V5 native UI.
+//!
+//! These are deterministic pixel-buffer captures, NOT screenshots from a
+//! running Windows app and NOT evidence of real remote network sessions.
+//! Do not fabricate connection statistics or a "Connected" mock session.
 use std::{
     fs::{self, File},
-    io::{BufWriter, Write},
-    path::PathBuf,
+    io::{self, BufWriter, Write},
+    path::{Path, PathBuf},
 };
 
-use omnidesk_core::product_shell::{
-    ConnectionStats, DeviceStatus, DeviceSummary, NavTab, PermissionDecision, ProductShell,
-};
+use omnidesk_core::product_shell::{NavTab, ProductShell};
 use omnidesk_desktop::{presentation_for, render::render_shell};
 
-const WIDTH: usize = 1419;
-const HEIGHT: usize = 700;
-
-fn save_ppm(path: &PathBuf, pixels: &[u32]) -> std::io::Result<()> {
+fn save_ppm(path: &Path, pixels: &[u32], width: usize, height: usize) -> io::Result<()> {
     let mut file = BufWriter::new(File::create(path)?);
-    writeln!(file, "P6\n{WIDTH} {HEIGHT}\n255")?;
+    writeln!(file, "P6\n{width} {height}\n255")?;
     for &pixel in pixels {
         let rgb = [
-            u8::try_from((pixel >> 16) & 0xff).expect("bounded red"),
-            u8::try_from((pixel >> 8) & 0xff).expect("bounded green"),
-            u8::try_from(pixel & 0xff).expect("bounded blue"),
+            u8::try_from((pixel >> 16) & 0xff).expect("red channel"),
+            u8::try_from((pixel >> 8) & 0xff).expect("green channel"),
+            u8::try_from(pixel & 0xff).expect("blue channel"),
         ];
         file.write_all(&rgb)?;
     }
     file.flush()
 }
 
-fn render_to_ppm(shell: &ProductShell, path: &PathBuf) -> std::io::Result<()> {
+fn render_to_ppm(
+    shell: &ProductShell,
+    out_dir: &Path,
+    filename: &str,
+    width: usize,
+    height: usize,
+) -> io::Result<()> {
     let model = presentation_for(shell);
-    let mut pixels = vec![0_u32; WIDTH * HEIGHT];
-    render_shell(&mut pixels, WIDTH, HEIGHT, &model);
-    save_ppm(path, &pixels)
+    let mut pixels = vec![0_u32; width * height];
+    render_shell(&mut pixels, width, height, &model);
+    save_ppm(&out_dir.join(filename), &pixels, width, height)
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> io::Result<()> {
     let out_dir = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("target/v5_captures"));
     fs::create_dir_all(&out_dir)?;
 
-    // 1. Remote Access Screen (default view)
-    let mut shell1 = ProductShell::new();
-    shell1.set_local_device_id("KMJ-571-752-800");
-    render_to_ppm(&shell1, &out_dir.join("01_remote_access.ppm"))?;
+    let mut shell = ProductShell::new();
+    // Illustrative, non-operational ID used only for offline renderer QA.
+    shell.set_local_device_id("KMJ-000-000-000");
 
-    // 2. Connected Remote Workspace Screen
-    let mut shell2 = ProductShell::new();
-    shell2.set_local_device_id("KMJ-571-752-800");
-    shell2.replace_devices(vec![DeviceSummary {
-        id: "KMJ-482-731-906".into(),
-        display_name: "Engineering Desktop".into(),
-        status: DeviceStatus::Online,
-    }]);
-    shell2.begin_connect("KMJ-482-731-906").unwrap();
-    shell2.decide_permission(PermissionDecision::Allow);
-    shell2.update_connection_stats(ConnectionStats {
-        latency_ms: 2,
-        bitrate_kbps: 8400,
-        fps: 60,
-    });
-    render_to_ppm(&shell2, &out_dir.join("02_connected_workspace.ppm"))?;
+    // The locked design must retain Connect + Share + Remote Display at
+    // typical compact and full-size desktop resolutions.
+    for (name, width, height) in [
+        ("01_remote_access_compact.ppm", 1419, 611),
+        ("02_remote_access_laptop.ppm", 1280, 800),
+        ("03_remote_access_wide.ppm", 1920, 1080),
+    ] {
+        render_to_ppm(&shell, &out_dir, name, width, height)?;
+    }
 
-    // 3. Trusted Devices Directory Screen
-    let mut shell3 = ProductShell::new();
-    shell3.set_local_device_id("KMJ-571-752-800");
-    shell3.set_nav_tab(NavTab::Connections);
-    render_to_ppm(&shell3, &out_dir.join("03_trusted_devices.ppm"))?;
+    for (name, tab) in [
+        ("04_sessions.ppm", NavTab::Connections),
+        ("05_file_transfer.ppm", NavTab::FileTransfer),
+        ("06_remote_actions.ppm", NavTab::RemoteActions),
+        ("07_automation.ppm", NavTab::Automation),
+        ("08_security_center.ppm", NavTab::Security),
+        ("09_preferences.ppm", NavTab::Settings),
+    ] {
+        shell.set_nav_tab(tab);
+        render_to_ppm(&shell, &out_dir, name, 1419, 800)?;
+    }
 
-    // 4. Sessions & History Screen
-    let mut shell4 = ProductShell::new();
-    shell4.set_local_device_id("KMJ-571-752-800");
-    shell4.set_nav_tab(NavTab::RemoteActions);
-    render_to_ppm(&shell4, &out_dir.join("04_sessions.ppm"))?;
-
-    // 5. Secure File Transfer Screen
-    let mut shell5 = ProductShell::new();
-    shell5.set_local_device_id("KMJ-571-752-800");
-    shell5.set_nav_tab(NavTab::FileTransfer);
-    render_to_ppm(&shell5, &out_dir.join("05_file_transfer.ppm"))?;
-
-    // 6. Security Center Screen
-    let mut shell6 = ProductShell::new();
-    shell6.set_local_device_id("KMJ-571-752-800");
-    shell6.set_nav_tab(NavTab::Security);
-    render_to_ppm(&shell6, &out_dir.join("06_security_center.ppm"))?;
-
-    // 7. Preferences Screen
-    let mut shell7 = ProductShell::new();
-    shell7.set_local_device_id("KMJ-571-752-800");
-    shell7.set_nav_tab(NavTab::Settings);
-    render_to_ppm(&shell7, &out_dir.join("07_preferences.ppm"))?;
-
-    println!("All V5 PPM captures generated successfully in {:?}", out_dir);
+    let mut receipt = BufWriter::new(File::create(out_dir.join("RECEIPT.txt"))?);
+    writeln!(receipt, "KMJ_OMNIDESK_V5_CAPTURE_TYPE=OFFLINE_NATIVE_RENDER_BUFFER")?;
+    writeln!(receipt, "VERIFIED_NETWORK_SESSION=NO")?;
+    writeln!(receipt, "CONNECTED_DESKTOP_CAPTURE=NO")?;
+    writeln!(receipt, "WINDOWS_EXE_SCREENSHOT=NO")?;
+    writeln!(receipt, "SCREEN_COUNT=9")?;
+    writeln!(receipt, "BROWSER_MOCKUP=NO")?;
+    receipt.flush()?;
+    println!("V5 offline Rust renderer captures: {}", out_dir.display());
     Ok(())
 }
