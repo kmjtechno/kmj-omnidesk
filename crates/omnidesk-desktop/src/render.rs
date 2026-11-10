@@ -1304,8 +1304,9 @@ fn draw_locked_remote_id_card(
     draw_locked_remote_id_input(canvas, presentation, layout.remote_id_input_rect(), p);
 
     let connect_btn = layout.remote_id_connect_btn_rect();
-    let connect_enabled = !presentation.remote_id_input.is_empty()
-        && !presentation.remote_password_input_masked.is_empty();
+    // A valid-looking ID is only a locator, not authenticated access.
+    // This flag controls only the visual/pointer readiness of the CTA.
+    let connect_enabled = presentation.remote_access_form_ready;
     canvas.fill_rect(
         connect_btn.x,
         connect_btn.y,
