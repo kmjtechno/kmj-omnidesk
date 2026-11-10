@@ -67,6 +67,22 @@ During the 2026-11-10 continuation, the GitHub source was inspected for V5 locke
 
 **Verification boundary:** No exact-head `cargo fmt`, `clippy`, tests or Windows UI capture has been verified for these commits. No live executable was overwritten, signed installer published or unsafe remote session activated.
 
+## Native PNG visual-review path — committed, pending execution
+
+To reduce the unresolved V5 visual-QA blocker, the existing Rust renderer example now generates **11 true PNG pixel-buffer captures** using the already-declared `image` crate (`image::save_buffer_with_format`), with non-network receipt text. It does not fabricate connected-session screenshots.
+
+The Windows preview script `scripts/Build-V5-Windows-Preview.ps1` now:
+
+- Makes a unique, isolated GitHub feature-branch checkout without altering P520's dirty main
+- Optionally checks `-ExpectedSha` against the exact cloned 40-character Git commit
+- Runs `cargo fmt`, `clippy`, `test` and release `build` and stops on any failure
+- Builds and executes the capture example and refuses missing, malformed or incorrect PNG counts
+- Writes SHA256 checksums for all 11 PNG files, executable SHA256 and exact source SHA to the preview receipt
+- Generates a self-contained local `index.html` gallery of the 11 offline native-render images, clearly labelled **not a Windows desktop screenshot**
+- Never installs over, stops or overwrites the running OmniDesk Windows application
+
+This provides an actionable zero-additional-cost QA route **when an exact-branch Windows execution profile becomes authorized/available**. The current CodeBridge profiles are limited to the shared checkout or old clean lanes, and this script **has not executed in this chat**. The actual V5 UI remains unverified until a real Windows preview capture and owner visual comparison pass.
+
 ## Latest validation status
 
 | Gate | Evidence |
