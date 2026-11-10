@@ -785,40 +785,45 @@ fn draw_locked_header(
 }
 
 fn draw_locked_nav_icon(canvas: &mut Canvas<'_>, index: usize, x: usize, y: usize, color: u32) {
-    // Low-overdraw monochrome vector-style icons; no external font/icon
-    // dependency or fabricated online/connection state.
+    // Minimal native glyphs for the owner-locked six navigation destinations.
+    // Their visual location and labels are shared by pointer and AccessKit.
     match index {
         0 => {
-            canvas.stroke_rect(x, y, 16, 12, 1, color);
-            canvas.fill_rect(x + 7, y + 12, 2, 3, color);
-            canvas.fill_rect(x + 4, y + 15, 8, 1, color);
+            // Remote access: desktop monitor.
+            canvas.stroke_rect(x, y, 16, 11, 1, color);
+            canvas.fill_rect(x + 7, y + 11, 2, 3, color);
+            canvas.h_line(x + 4, y + 14, 8, color);
         }
         1 => {
-            canvas.stroke_rect(x, y + 4, 10, 8, 1, color);
-            canvas.stroke_rect(x + 7, y, 10, 8, 1, color);
+            // Trusted devices: two overlapping verified computers.
+            canvas.stroke_rect(x, y + 4, 11, 8, 1, color);
+            canvas.stroke_rect(x + 6, y, 11, 8, 1, color);
         }
         2 => {
-            canvas.stroke_rect(x + 2, y, 12, 16, 1, color);
-            canvas.fill_rect(x + 5, y + 6, 6, 1, color);
+            // Sessions: clock face and hands.
+            canvas.dot(x + 8, y + 8, 7, color);
+            canvas.dot(x + 8, y + 8, 5, 0x0e_11_14);
+            canvas.fill_rect(x + 8, y + 4, 1, 5, color);
+            canvas.h_line(x + 8, y + 8, 4, color);
         }
         3 => {
-            for dy in [0, 8] {
-                for dx in [0, 8] {
-                    canvas.stroke_rect(x + dx, y + dy, 6, 6, 1, color);
-                }
-            }
+            // File transfer: document with a transfer arrow.
+            canvas.stroke_rect(x + 3, y, 10, 15, 1, color);
+            canvas.h_line(x + 5, y + 5, 6, color);
+            canvas.h_line(x + 5, y + 8, 4, color);
+            canvas.fill_rect(x + 12, y + 11, 5, 1, color);
         }
         4 => {
-            canvas.stroke_rect(x + 2, y + 2, 12, 12, 1, color);
-            canvas.dot(x + 8, y + 8, 3, color);
-        }
-        5 => {
-            canvas.stroke_rect(x + 3, y, 10, 13, 1, color);
-            canvas.fill_rect(x + 7, y + 8, 2, 5, color);
+            // Security: shield with an identity mark.
+            canvas.stroke_rect(x + 3, y, 11, 13, 1, color);
+            canvas.dot(x + 8, y + 6, 2, color);
+            canvas.fill_rect(x + 7, y + 10, 3, 2, color);
         }
         _ => {
+            // Preferences: settings dial.
             canvas.dot(x + 8, y + 8, 7, color);
-            canvas.dot(x + 8, y + 8, 3, 0x0e_11_14);
+            canvas.dot(x + 8, y + 8, 4, 0x0e_11_14);
+            canvas.dot(x + 8, y + 8, 2, color);
         }
     }
 }
