@@ -138,6 +138,9 @@ pub struct PresentationModel {
     pub local_password_revealed: bool,
     pub remote_password_input_masked: String,
     pub remote_password_focused: bool,
+    /// Enables the Connect CTA only with a valid, non-self Remote ID and
+    /// a nonempty password. This is UI readiness, NOT authentication.
+    pub remote_access_form_ready: bool,
     pub remote_input_enabled: bool,
     pub fullscreen_enabled: bool,
     pub selected_monitor: usize,
@@ -179,6 +182,17 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         PrimaryView::PermissionPrompt => "Authorization",
         PrimaryView::Session => "Session setup",
     };
+    let local_id = if shell.local_device_id().is_empty() {
+        None
+    } else {
+        Some(shell.local_device_id())
+    };
+    let remote_access_form_ready =
+        omnidesk_core::device_identity::validate_remote_id(
+            shell.remote_id_input(),
+            local_id,
+        ).is_ok()
+            && !shell.remote_password_input().trim().is_empty();
     let remote_pw_masked = "•".repeat(shell.remote_password_input().chars().count());
     PresentationModel {
         primary_view: shell.primary_view(),
@@ -199,6 +213,7 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         local_password_revealed: shell.password_manager().is_revealed(),
         remote_password_input_masked: remote_pw_masked,
         remote_password_focused: shell.is_remote_password_focused(),
+        remote_access_form_ready,
         remote_input_enabled: shell.remote_input_enabled(),
         fullscreen_enabled: shell.fullscreen_enabled(),
         selected_monitor: shell.selected_monitor(),
@@ -573,6 +588,19 @@ pub fn action_at_point(
                 return None;
             }
             if let Some(action) = locked_dual_role_action(&locked, x, y) {
+                if action == DesktopAction::ConnectRemoteId
+                    && !presentation_for(shell).remote_access_form_ready
+                {
+                    return None;
+                }
+                if matches!(
+                    action,
+                    DesktopAction::CopyYourPassword
+                        | DesktopAction::ToggleYourPasswordReveal
+                ) && shell.password_manager().raw_password().is_none()
+                {
+                    return None;
+                }
                 return Some(action);
             }
         } else if shell.primary_view() == PrimaryView::Session {
@@ -1662,8 +1690,30 @@ mod tests {
     }
 
     #[test]
+    fn v5_connect_button_stays_disabled_for_invalid_or_missing_credentials() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        let l = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let c = l.remote_id_connect_btn_rect();
+        let hit = |shell: &ProductShell| action_at_point(shell, 1419, 611, c.x + 5, c.y + 5);
+        assert_eq!(hit(&shell), None);
+        shell.set_remote_id_input("bad");
+        shell.set_remote_password_input("temporary-only");
+        assert_eq!(hit(&shell), None);
+        shell.set_remote_id_input("111-111-111"); // self
+        assert_eq!(hit(&shell), None);
+        shell.set_remote_id_input("222-222-222");
+        assert_eq!(hit(&shell), Some(DesktopAction::ConnectRemoteId));
+        shell.clear_remote_password();
+        assert_eq!(hit(&shell), None);
+    }
+
+    #[test]
     fn v5_access_form_hit_targets_match_layout_at_real_desktop_sizes() {
-        let shell = ProductShell::new();
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        shell.set_remote_id_input("222-222-222");
+        shell.set_remote_password_input("test-only-secret");
         for (width, height) in [(1024, 768), (1419, 611), (1920, 1080)] {
             let layout = LockedDashboardLayout::for_window(width, height)
                 .expect("V5 desktop layout");
