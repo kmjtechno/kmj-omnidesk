@@ -396,6 +396,11 @@ impl ProductShell {
         self.selected_device = None;
         self.security_state = SecurityState::Disconnected;
         self.connection_stats = None;
+        // Never retain an entered remote session password across disconnection
+        // or a failed/revoked connection attempt. This clears logical state;
+        // secure heap zeroization must be added before handling real secrets.
+        self.remote_password_input.clear();
+        self.remote_password_focused = false;
     }
 
     #[must_use]
@@ -516,7 +521,14 @@ impl ProductShell {
     }
 
     pub fn set_remote_password_input(&mut self, input: impl Into<String>) {
-        self.remote_password_input = input.into();
+        // Match keyboard input limits; prevent programmatic/paste input from
+        // storing unbounded data or terminal control characters.
+        self.remote_password_input = input
+            .into()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(32)
+            .collect();
     }
 
     pub fn append_remote_password_char(&mut self, c: char) {
@@ -927,6 +939,20 @@ mod tests {
             Err(ConnectError::DeviceOffline)
         );
         assert!(shell.last_error().unwrap().contains("offline"));
+    }
+
+    #[test]
+    fn remote_password_input_is_bounded_and_cleared_on_disconnect() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input(format!("{}\n", "x".repeat(200)));
+        assert_eq!(shell.remote_password_input().chars().count(), 32);
+        shell.set_remote_password_input("abcd-1234\r\n");
+        assert_eq!(shell.remote_password_input(), "abcd-1234");
+        shell.focus_remote_password();
+        assert!(shell.is_remote_password_focused());
+        shell.disconnect();
+        assert_eq!(shell.remote_password_input(), "");
+        assert!(!shell.is_remote_password_focused());
     }
 
     #[test]
