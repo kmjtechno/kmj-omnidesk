@@ -884,7 +884,7 @@ fn draw_locked_navigation(
         nav.x + 32,
         nav_bottom - 51,
         nav.width.saturating_sub(48),
-        "Disconnected",
+        presentation.status,
         p.foreground,
     );
     locked_label(
@@ -1365,7 +1365,7 @@ fn draw_locked_dual_role_cards(
         screen.x + 22,
         guidance_y,
         screen.width.saturating_sub(44),
-        "Connection requires verified peer identity and target permission",
+        "Secure access requires encrypted peer identity and explicit permission",
         p.muted,
     );
 
@@ -1725,7 +1725,12 @@ fn draw_locked_action_buttons(
     }
 }
 
-fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
+fn draw_locked_inspector(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
     let inspector = layout.inspector;
     // Right cards. Values remain unavailable until verified by transport.
     let first = inspector.height * 36 / 100;
@@ -1773,7 +1778,11 @@ fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout
         info_x + 17,
         status_y + 43,
         info_w - 17,
-        "No verified connection",
+        match presentation.primary_view {
+            omnidesk_core::product_shell::PrimaryView::Devices => "No verified connection",
+            omnidesk_core::product_shell::PrimaryView::PermissionPrompt => "Permission pending",
+            omnidesk_core::product_shell::PrimaryView::Session => "Transport still unverified",
+        },
         p.muted,
     );
     for (index, text) in [
@@ -1816,7 +1825,7 @@ fn draw_locked_dashboard(
     draw_locked_session_tiles(canvas, presentation, layout, p);
     draw_locked_devices(canvas, presentation, layout, p);
     if layout.inspector.width > 0 {
-        draw_locked_inspector(canvas, layout, p);
+        draw_locked_inspector(canvas, presentation, layout, p);
     }
 }
 
