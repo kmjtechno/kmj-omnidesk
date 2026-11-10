@@ -66,6 +66,8 @@ pub struct ConnectionStats {
 pub enum NavTab {
     #[default]
     Devices,
+    /// Dedicated V5 sidebar directory, distinct from the Remote Access form.
+    TrustedDevices,
     Connections,
     FileTransfer,
     RemoteActions,
