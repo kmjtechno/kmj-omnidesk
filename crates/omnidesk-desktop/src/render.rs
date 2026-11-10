@@ -1460,165 +1460,79 @@ fn draw_locked_remote_view(
     }
 }
 
-#[allow(clippy::too_many_lines)]
 fn draw_locked_remote_workspace(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
+    // ProductShell permission state alone cannot prove transport video, FPS,
+    // codec, cipher or round-trip latency. Only display verified facts.
     let screen = layout.remote_screen;
-    canvas.fill_rect(
-        screen.x,
-        screen.y,
-        screen.width,
-        screen.height,
-        p.background,
-    );
+    canvas.fill_rect(screen.x, screen.y, screen.width, screen.height, p.background);
     canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
-
-    let banner_h = 32;
-    canvas.fill_rect(screen.x, screen.y, screen.width, banner_h, p.surface);
-    canvas.stroke_rect(screen.x, screen.y, screen.width, banner_h, 1, p.border);
-
-    let remote_name = if presentation.remote_id_input.is_empty() {
-        "REMOTE WORKSPACE · CONNECTED"
-    } else {
-        &presentation.remote_id_input
-    };
+    canvas.fill_rect(screen.x, screen.y, screen.width, 35, p.surface);
     locked_label(
         canvas,
-        screen.x + 14,
-        screen.y + 10,
-        screen.width / 2,
-        &format!("DESK: {remote_name}"),
+        screen.x + 16,
+        screen.y + 12,
+        screen.width.saturating_sub(32),
+        "REMOTE DISPLAY  /  FRAME STREAM NOT VERIFIED",
         p.foreground,
     );
 
-    let pill_x = screen.x + screen.width.saturating_sub(260);
-    canvas.fill_rect(pill_x, screen.y + 6, 90, 20, p.border);
-    canvas.fill_rect(pill_x + 8, screen.y + 12, 6, 6, 0x0022_c55e);
+    let detail = presentation
+        .details
+        .iter()
+        .find(|item| item.starts_with("Device:"))
+        .map_or("No verified peer metadata", String::as_str);
     locked_label(
         canvas,
-        pill_x + 20,
-        screen.y + 10,
-        65,
-        "LIVE 60 FPS",
-        0x0022_c55e,
-    );
-
-    let mon_x = pill_x + 96;
-    canvas.fill_rect(mon_x, screen.y + 6, 68, 20, p.border);
-    locked_label(
-        canvas,
-        mon_x + 6,
-        screen.y + 10,
-        56,
-        &format!(
-            "MON {}/{}",
-            presentation.selected_monitor, presentation.total_monitors
-        ),
-        p.muted,
-    );
-
-    let enc_x = mon_x + 74;
-    canvas.fill_rect(enc_x, screen.y + 6, 75, 20, p.border);
-    locked_label(canvas, enc_x + 6, screen.y + 10, 63, "ENCRYPTED", p.accent);
-
-    let grid_step = 40;
-    for gx in (screen.x + 20..screen.x + screen.width.saturating_sub(20)).step_by(grid_step) {
-        for gy in (screen.y + banner_h + 20..screen.y + screen.height.saturating_sub(60))
-            .step_by(grid_step)
-        {
-            canvas.fill_rect(gx, gy, 1, 1, p.border);
-        }
-    }
-
-    let center_w = (screen.width * 65) / 100;
-    let center_h = ((screen.height.saturating_sub(banner_h + 70)) * 65) / 100;
-    let center_x = screen.x + (screen.width.saturating_sub(center_w)) / 2;
-    let center_y = screen.y + banner_h + 16;
-    canvas.fill_rect(center_x, center_y, center_w, center_h, p.surface);
-    canvas.stroke_rect(center_x, center_y, center_w, center_h, 1, p.border);
-
-    canvas.fill_rect(center_x, center_y, center_w, 24, p.border);
-    locked_label(
-        canvas,
-        center_x + 12,
-        center_y + 6,
-        center_w.saturating_sub(24),
-        "Remote Desktop Workspace — Active Session",
+        screen.x + 22,
+        screen.y + 68,
+        screen.width.saturating_sub(44),
+        detail,
         p.foreground,
     );
-
     locked_label(
         canvas,
-        center_x + 20,
-        center_y + 40,
-        center_w.saturating_sub(40),
-        "Display: 1920x1080 @ 60Hz · Windows Desktop Stream",
+        screen.x + 22,
+        screen.y + 96,
+        screen.width.saturating_sub(44),
+        "Session permission does not establish an authenticated video stream.",
         p.muted,
     );
     locked_label(
         canvas,
-        center_x + 20,
-        center_y + 65,
-        center_w.saturating_sub(40),
-        "Transport: Direct LAN (TCP/UDP) · ChaCha20-Poly1305",
+        screen.x + 22,
+        screen.y + 122,
+        screen.width.saturating_sub(44),
+        "Waiting for authenticated transport, frame decoder and peer consent.",
         p.muted,
     );
-    locked_label(
-        canvas,
-        center_x + 20,
-        center_y + 90,
-        center_w.saturating_sub(40),
-        "Input: Interactive keyboard and pointer capture active",
-        p.foreground,
-    );
 
-    let tb = layout.session_toolbar_rect();
-    canvas.fill_rect(tb.x, tb.y, tb.width, tb.height, p.surface);
-    canvas.stroke_rect(tb.x, tb.y, tb.width, tb.height, 1, p.border);
-
-    let btn_labels = [
-        if presentation.remote_input_enabled {
-            "INPUT: ON"
-        } else {
-            "INPUT: OFF"
-        },
-        "DISPLAY",
-        if presentation.clipboard_sync_enabled {
-            "CLIP: ON"
-        } else {
-            "CLIP: OFF"
-        },
+    let bar = layout.session_toolbar_rect();
+    canvas.fill_rect(bar.x, bar.y, bar.width, bar.height, p.surface);
+    canvas.stroke_rect(bar.x, bar.y, bar.width, bar.height, 1, p.border);
+    let labels = [
+        if presentation.remote_input_enabled { "INPUT ON" } else { "INPUT OFF" },
+        "MONITORS",
+        if presentation.clipboard_sync_enabled { "CLIP ON" } else { "CLIP OFF" },
         "FILES",
-        if presentation.fullscreen_enabled {
-            "EXIT FULL"
-        } else {
-            "FULLSCREEN"
-        },
+        if presentation.fullscreen_enabled { "EXIT FULL" } else { "FULLSCREEN" },
         "DISCONNECT",
     ];
-
-    for (i, label) in btn_labels.iter().enumerate() {
-        let b = layout.session_tool_btn_rect(i);
-        let is_disconnect = i == 5;
-        let bg_color = if is_disconnect { p.accent } else { p.border };
-        canvas.fill_rect(b.x, b.y, b.width, b.height, bg_color);
-        canvas.stroke_rect(
-            b.x,
-            b.y,
-            b.width,
-            b.height,
-            1,
-            if is_disconnect { p.accent } else { p.border },
+    for (index, label) in labels.iter().enumerate() {
+        let rect = layout.session_tool_btn_rect(index);
+        canvas.fill_rect(
+            rect.x, rect.y, rect.width, rect.height,
+            if index == 5 { p.accent } else { p.border },
         );
         locked_label(
             canvas,
-            b.x + 8,
-            b.y + (b.height / 2).saturating_sub(6),
-            b.width.saturating_sub(16),
+            rect.x + 8,
+            rect.y + 12,
+            rect.width.saturating_sub(16),
             label,
             p.foreground,
         );
