@@ -329,13 +329,19 @@ pub struct LockedDashboardLayout {
 impl LockedDashboardLayout {
     #[must_use]
     pub fn for_window(width: usize, height: usize) -> Option<Self> {
-        if width < 1024 || height < 600 {
+        if width < 800 || height < 600 {
             return None;
         }
         // V5: remote access is the primary task, not a four-column
         // directory dashboard. Give the viewer the entire center column.
         let top = 70;
-        let navigation_width = (width / 100 * 15).clamp(182, 220);
+        // Compact 800–1023px windows collapse to a labelled-in-AccessKit
+        // icon rail rather than falling back to the obsolete desktop UI.
+        let navigation_width = if width < 1024 {
+            78
+        } else {
+            (width / 100 * 15).clamp(182, 220)
+        };
         // At laptop widths, drop the inspector instead of crushing the
         // access cards. The status is still available in the workspace.
         let inspector_width = if width < 1180 {
@@ -507,7 +513,7 @@ impl LockedDashboardLayout {
     /// actual viewer width, retaining the stacked layout on smaller desktops.
     #[must_use]
     pub const fn access_cards_wide(&self) -> bool {
-        self.remote_screen.width >= 680
+        self.remote_screen.width >= 640
     }
 
     #[must_use]
@@ -692,10 +698,14 @@ mod locked_dashboard_tests {
 
     #[test]
     fn compact_windows_fall_back_and_laptops_hide_the_inspector() {
-        assert!(LockedDashboardLayout::for_window(960, 640).is_none());
+        assert!(LockedDashboardLayout::for_window(760, 640).is_none());
+        assert!(LockedDashboardLayout::for_window(960, 640).is_some());
         assert!(LockedDashboardLayout::for_window(1419, 560).is_none());
         assert_eq!(LockedDashboardLayout::for_window(1024, 768).unwrap().inspector.width, 0);
+        assert_eq!(LockedDashboardLayout::for_window(960, 640).unwrap().navigation.width, 78);
         for (width, height) in [
+            (800, 600),
+            (960, 640),
             (1024, 768),
             (1180, 600),
             (1200, 800),
@@ -756,6 +766,18 @@ mod locked_dashboard_tests {
                 assert!(btn.y + btn.height <= card.y + card.height);
                 assert!(btn.x + btn.width <= card.x + card.width);
             }
+        }
+    }
+
+    #[test]
+    fn v5_icon_rail_keeps_cards_and_stage_visible_on_small_windows() {
+        for (width, height) in [(800, 600), (960, 640)] {
+            let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+            assert_eq!(layout.navigation.width, 78);
+            assert!(layout.viewer.width >= 640);
+            assert!(layout.access_cards_wide());
+            assert!(layout.remote_stage_rect().height >= 95);
+            assert!(layout.remote_stage_rect().x >= layout.viewer.x);
         }
     }
 
