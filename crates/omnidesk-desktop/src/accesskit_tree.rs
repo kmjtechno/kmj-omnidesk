@@ -27,12 +27,11 @@ const V5_NAV_FIRST_NODE: u64 = 11_001;
 const V5_SETTINGS_NODE: NodeId = NodeId(12_001);
 const V5_HELP_NODE: NodeId = NodeId(12_002);
 
-const V5_NAV_TABS: [NavTab; 7] = [
+const V5_NAV_TABS: [NavTab; 6] = [
     NavTab::Devices,
+    NavTab::TrustedDevices,
     NavTab::Connections,
     NavTab::FileTransfer,
-    NavTab::RemoteActions,
-    NavTab::Automation,
     NavTab::Security,
     NavTab::Settings,
 ];
@@ -85,7 +84,11 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
             // A11y activation must never bypass pointer hit-testing's
             // three-visible-tile limit or a secondary tab's hidden directory.
             let visible = shell.primary_view() != PrimaryView::Devices
-                || (shell.nav_tab() == NavTab::Devices && *index < 3);
+                || match shell.nav_tab() {
+                    NavTab::Devices => *index < 3,
+                    NavTab::TrustedDevices => *index < 9,
+                    _ => false,
+                };
             visible && control.enabled && control_node_id(*index) == node_id
         })
         .map(|(_, control)| control.action)
@@ -157,10 +160,15 @@ pub fn build_accesskit_tree_at_size(
     let mut nodes = Vec::with_capacity(controls.len() + 1);
 
     for (index, control) in controls.iter().enumerate() {
-        if shell.primary_view() == PrimaryView::Devices
-            && (shell.nav_tab() != NavTab::Devices || index >= 3)
-        {
-            continue;
+        if shell.primary_view() == PrimaryView::Devices {
+            let visible = match shell.nav_tab() {
+                NavTab::Devices => index < 3,
+                NavTab::TrustedDevices => index < 9,
+                _ => false,
+            };
+            if !visible {
+                continue;
+            }
         }
         let id = control_node_id(index);
         child_ids.push(id);
@@ -204,12 +212,11 @@ pub fn build_accesskit_tree_at_size(
     // Keep the same tab order and rectangles as the renderer and hit tester.
     if let Some(layout) = LockedDashboardLayout::for_window(width, height) {
         for (index, label) in [
-            "Remote Access",
+            "Remote access",
+            "Trusted devices",
             "Sessions",
-            "File Transfer",
-            "Remote Actions",
-            "Automation",
-            "Security Center",
+            "File transfer",
+            "Security center",
             "Preferences",
         ]
         .iter()
@@ -380,7 +387,7 @@ mod tests {
         );
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
         // Root + at most three visible trusted-device tiles.
-        assert_eq!(tree.nodes.len(), 21);
+        assert_eq!(tree.nodes.len(), 20);
         assert_eq!(tree.focus, V5_REMOTE_ID_NODE);
         assert_eq!(
             tree.nodes[0].1.bounds(),
@@ -467,16 +474,47 @@ mod tests {
         );
         assert_eq!(desktop_action_for_node(&shell, V5_COPY_ID_NODE), None);
         assert_eq!(
-            desktop_action_for_node(&shell, NodeId(V5_NAV_FIRST_NODE + 5)),
+            desktop_action_for_node(&shell, NodeId(V5_NAV_FIRST_NODE + 4)),
             Some(DesktopAction::SelectNav(NavTab::Security))
         );
+    }
+
+    #[test]
+    fn trusted_devices_accessibility_matches_real_on_screen_peers() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary};
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "trusted-a".to_owned(),
+                display_name: "Verified peer A".to_owned(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "trusted-b".to_owned(),
+                display_name: "Offline peer B".to_owned(),
+                status: DeviceStatus::Offline,
+            },
+        ]);
+        shell.set_nav_tab(NavTab::TrustedDevices);
+        let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let (_, first) = tree.nodes.iter().find(|(id, _)| *id == NodeId(1)).unwrap();
+        let (_, second) = tree.nodes.iter().find(|(id, _)| *id == NodeId(2)).unwrap();
+        assert_eq!(first.bounds(), Some(dashboard_bounds(layout.trusted_device_tile_rect(0))));
+        assert!(!first.is_disabled());
+        assert!(second.is_disabled());
+        assert_eq!(desktop_action_for_node(&shell, NodeId(2)), None);
+        assert!(matches!(
+            desktop_action_for_node(&shell, NodeId(1)),
+            Some(DesktopAction::ConnectDevice(0, _))
+        ));
     }
 
     #[test]
     fn v5_sidebar_accessibility_actions_match_native_tabs() {
         let shell = ProductShell::new();
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
-        let nav_node = NodeId(V5_NAV_FIRST_NODE + 5);
+        let nav_node = NodeId(V5_NAV_FIRST_NODE + 4);
         assert!(tree.nodes.iter().any(|(id, _)| *id == nav_node));
         assert_eq!(
             desktop_action_for_node(&shell, nav_node),
