@@ -54,6 +54,19 @@ Committed on this feature branch: KMJ branded task-first header and sidebar; res
 
 **P520 build blocker receipt:** isolated exact-HEAD lane preparation for commit `81654f5d1de8cb8978208bf9672321bbdcfb93f2` returned `DEVICE_TIMEOUT`. A subsequent read-only lane-status inspection showed only preexisting clean lanes `e0f24c2...` and `d49fa215...`, and the dirty shared `main` checkout remained unchanged. Do not claim a successful build or repeat destructive checkouts. Use the existing isolated preview build guidance when an approved local branch execution path is available. Hosted paid CI quota must not be used.
 
+## V5 locked UI — current regression audit and fixes
+
+During the 2026-11-10 continuation, the GitHub source was inspected for V5 locked-design regression failures. These are **committed source fixes, NOT executed test passes**:
+
+- A stale four-column click-test used the relocated trusted-device row to guess the File Transfer sidebar position. Its new assertion uses `LockedDashboardLayout::nav_tab_rect(2)` and the actual sidebar/workspace gutter.
+- A stale password-layout test compared the local password label y-coordinate to the remote card's y-coordinate. Its new assertion compares the real Connect/Share card rectangles and validates that the password row stays within its card.
+- The Help overlay previously replaced the central UI visually while allowing clicks through to hidden Connect/Password controls. Those pointer hits are now disabled; tests cover 800×600, 960×640, 1419×611 and 1920×1080.
+- Help opening blurs and re-masks credential fields; Help no longer exposes hidden password/Connect controls as AccessKit nodes or actions.
+- The V5 top-bar Help and Preferences buttons now have accessible roles, real-window bounds and explicit actions. Default accessibility focus moves to the visible Help button when its overlay is open.
+- Sidebar navigation dismisses Help to show the selected page. The existing hidden-input focus and password reset behavior remains in force.
+
+**Verification boundary:** No exact-head `cargo fmt`, `clippy`, tests or Windows UI capture has been verified for these commits. No live executable was overwritten, signed installer published or unsafe remote session activated.
+
 ## Latest validation status
 
 | Gate | Evidence |
