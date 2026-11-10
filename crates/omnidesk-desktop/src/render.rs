@@ -759,7 +759,7 @@ fn draw_locked_header(
         search_x + 14,
         29,
         search_w.saturating_sub(28),
-        "REMOTE WORKSPACE  /  DEVICE DIRECTORY",
+        "SECURE REMOTE ACCESS  /  ONE APP, EVERY DESK",
         p.muted,
     );
 
@@ -1354,46 +1354,80 @@ fn draw_locked_dual_role_cards(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    draw_locked_your_id_card(canvas, presentation, layout, p);
+    // The approved V5 first screen always leads with the two concrete
+    // workflows. A separate remote-display stage follows them at every
+    // supported desktop size, including compact-height 1419x611.
     draw_locked_remote_id_card(canvas, presentation, layout, p);
+    draw_locked_your_id_card(canvas, presentation, layout, p);
 
-    let screen = layout.remote_screen;
-    let guidance_offset = if layout.access_cards_wide() { 245 } else { 333 };
-    let guidance_y = screen.y + guidance_offset;
+    let stage = layout.remote_stage_rect();
+    canvas.fill_rect(stage.x, stage.y, stage.width, stage.height, p.background);
+    canvas.stroke_rect(stage.x, stage.y, stage.width, stage.height, 1, p.border);
+    canvas.fill_rect(
+        stage.x + 1,
+        stage.y + 1,
+        stage.width.saturating_sub(2),
+        31,
+        p.surface,
+    );
+    canvas.dot(stage.x + 16, stage.y + 16, 3, p.accent);
+    canvas.dot(stage.x + 28, stage.y + 16, 3, p.border);
+    canvas.dot(stage.x + 40, stage.y + 16, 3, p.border);
     locked_label(
         canvas,
-        screen.x + 22,
-        guidance_y,
-        screen.width.saturating_sub(44),
-        "Secure access requires encrypted peer identity and explicit permission",
-        p.muted,
+        stage.x + 54,
+        stage.y + 12,
+        stage.width.saturating_sub(72),
+        "REMOTE DISPLAY  /  NO VERIFIED CONNECTION",
+        p.foreground,
     );
 
-    // Keep the actual remote-view region available for future authenticated
-    // video. This intentional offline display is not a fake screenshot.
-    let display_min_height = if layout.access_cards_wide() { 355 } else { 450 };
-    if screen.height > display_min_height {
-        let display_y = guidance_y + 34;
-        canvas.h_line(
-            screen.x + 18,
-            display_y,
-            screen.width.saturating_sub(36),
+    // A premium empty state, not a simulated remote screenshot and never
+    // a fabricated connected status. Keep the viewport useful at 600px.
+    if stage.height >= 175 {
+        let icon_x = stage.x + stage.width / 2;
+        let icon_y = stage.y + (stage.height / 2).saturating_sub(21);
+        canvas.stroke_rect(
+            icon_x.saturating_sub(20),
+            icon_y.saturating_sub(19),
+            40,
+            29,
+            2,
             p.border,
         );
+        canvas.fill_rect(icon_x.saturating_sub(2), icon_y + 11, 4, 8, p.border);
+        canvas.h_line(icon_x.saturating_sub(12), icon_y + 20, 24, p.border);
         locked_label(
             canvas,
-            screen.x + 22,
-            display_y + 20,
-            screen.width.saturating_sub(44),
-            "REMOTE DISPLAY",
+            stage.x + 18,
+            icon_y + 35,
+            stage.width.saturating_sub(36),
+            "Your remote screen starts here",
             p.foreground,
         );
         locked_label(
             canvas,
-            screen.x + 22,
-            display_y + 48,
-            screen.width.saturating_sub(44),
-            "No verified desktop stream. Connect to an authorized device.",
+            stage.x + 18,
+            icon_y + 60,
+            stage.width.saturating_sub(36),
+            "Enter a device ID and password; remote control needs verified access.",
+            p.muted,
+        );
+    } else {
+        locked_label(
+            canvas,
+            stage.x + 18,
+            stage.y + 49,
+            stage.width.saturating_sub(36),
+            "Your remote screen starts here",
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            stage.x + 18,
+            stage.y + 71,
+            stage.width.saturating_sub(36),
+            "Requires authenticated transport and target permission",
             p.muted,
         );
     }
@@ -1426,7 +1460,7 @@ fn draw_locked_remote_view(
     locked_label(
         canvas,
         viewer.x + 18,
-        viewer.y + 66,
+        viewer.y + if layout.compact_height() { 51 } else { 66 },
         viewer.width.saturating_sub(36),
         presentation.status,
         p.muted,
