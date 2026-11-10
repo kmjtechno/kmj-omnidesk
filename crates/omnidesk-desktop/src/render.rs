@@ -2139,6 +2139,45 @@ fn draw_locked_details(
     }
 }
 
+/// These session actions are intentionally disabled until a real encrypted
+/// peer transport, target consent and active session are independently proven.
+fn draw_locked_action_buttons(
+    canvas: &mut Canvas<'_>,
+    p: Palette,
+    info_x: usize,
+    info_w: usize,
+    actions_y: usize,
+) {
+    locked_label(
+        canvas,
+        info_x,
+        actions_y + 16,
+        info_w,
+        "SESSION TOOLS  /  LOCKED",
+        p.foreground,
+    );
+    for (index, text) in ["Remote Input", "File Transfer", "Monitors", "Clipboard"]
+        .iter()
+        .enumerate()
+    {
+        let columns = 2;
+        let cell_w = info_w / columns;
+        let x = info_x + index % columns * cell_w + 2;
+        let y = actions_y + 37 + index / columns * 37;
+        let button_width = cell_w.saturating_sub(8);
+        canvas.fill_rect(x, y, button_width, 31, p.background);
+        canvas.stroke_rect(x, y, button_width, 31, 1, p.border);
+        locked_label(
+            canvas,
+            x + 5,
+            y + 12,
+            button_width.saturating_sub(10),
+            text,
+            p.muted,
+        );
+    }
+}
+
 fn draw_locked_inspector(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
