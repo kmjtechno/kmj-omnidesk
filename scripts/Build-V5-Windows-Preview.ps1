@@ -57,7 +57,11 @@ try {
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
         throw "Built executable missing: $binary"
     }
-    $previewDir = Join-Path $base ("preview-" + $sha.Substring(0,12))
+    # Preserve previous test evidence: every run gets an exclusive folder.
+    $previewDir = Join-Path $base (
+        "preview-" + $sha.Substring(0,12) + "-" + $stamp + "-" +
+        ([guid]::NewGuid().ToString('N').Substring(0,8))
+    )
     if (Test-Path -LiteralPath $previewDir) {
         throw "Preview output already exists: $previewDir"
     }
