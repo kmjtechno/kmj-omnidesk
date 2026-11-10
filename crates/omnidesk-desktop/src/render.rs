@@ -1053,6 +1053,14 @@ fn draw_locked_your_id_card(
         p.foreground,
     );
 
+    locked_label(
+        canvas,
+        your_id_card.x + 16,
+        your_id_card.y + 41,
+        your_id_card.width.saturating_sub(145),
+        "YOUR DEVICE ID",
+        p.muted,
+    );
     let id_str = if presentation.local_device_id.is_empty() {
         "KMJ-..."
     } else {
@@ -1104,8 +1112,8 @@ fn draw_locked_your_id_card(
         canvas,
         password.x,
         password.y,
-        password.width.saturating_sub(175),
-        &format!("YOUR PW: {}", presentation.local_password_display),
+        password.width,
+        &format!("YOUR PASSWORD: {}", presentation.local_password_display),
         p.foreground,
     );
 
@@ -1157,6 +1165,18 @@ fn draw_locked_your_id_card(
         rot_btn.y + 4,
         rot_btn.width.saturating_sub(16),
         "NEW",
+        p.muted,
+    );
+    locked_label(
+        canvas,
+        your_id_card.x + 16,
+        your_id_card.y + 159,
+        your_id_card.width.saturating_sub(32),
+        if presentation.local_password_display == "NOT CONFIGURED" {
+            "Generate a temporary password to share this device"
+        } else {
+            "Secure access still requires verified transport and permission"
+        },
         p.muted,
     );
 }
