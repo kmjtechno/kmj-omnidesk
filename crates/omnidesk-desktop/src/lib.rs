@@ -190,10 +190,8 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         Some(shell.local_device_id())
     };
     let remote_access_form_ready =
-        omnidesk_core::device_identity::validate_remote_id(
-            shell.remote_id_input(),
-            local_id,
-        ).is_ok()
+        omnidesk_core::device_identity::validate_remote_id(shell.remote_id_input(), local_id)
+            .is_ok()
             && !shell.remote_password_input().trim().is_empty();
     // A plaintext display copy exists only for an explicit local reveal.
     // It must never be logged, persisted or sent to accessibility nodes.
@@ -518,6 +516,7 @@ const fn locked_dual_role_action(
 }
 
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn action_at_point(
     shell: &ProductShell,
     width: usize,
@@ -614,8 +613,7 @@ pub fn action_at_point(
                 }
                 if matches!(
                     action,
-                    DesktopAction::CopyYourPassword
-                        | DesktopAction::ToggleYourPasswordReveal
+                    DesktopAction::CopyYourPassword | DesktopAction::ToggleYourPasswordReveal
                 ) && shell.password_manager().raw_password().is_none()
                 {
                     return None;
@@ -1797,9 +1795,8 @@ mod tests {
         let mut shell = ProductShell::new();
         let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
         let button = layout.remote_password_reveal_btn_rect();
-        let hit = |shell: &ProductShell| {
-            action_at_point(shell, 1419, 611, button.x + 5, button.y + 5)
-        };
+        let hit =
+            |shell: &ProductShell| action_at_point(shell, 1419, 611, button.x + 5, button.y + 5);
         assert_eq!(hit(&shell), None);
         shell.set_remote_password_input("secret-only-for-ui-test");
         let hidden = presentation_for(&shell);
@@ -1812,7 +1809,7 @@ mod tests {
         assert_eq!(shown.remote_password_display, "secret-only-for-ui-test");
         shell.disconnect();
         assert!(!presentation_for(&shell).remote_password_revealed);
-        assert!(presentation_for(&shell).remote_password_display.is_empty());
+        assert_eq!(presentation_for(&shell).remote_password_display, "");
     }
 
     #[test]
@@ -1841,8 +1838,8 @@ mod tests {
         shell.set_remote_id_input("222-222-222");
         shell.set_remote_password_input("test-only-secret");
         for (width, height) in [(1024, 768), (1419, 611), (1920, 1080)] {
-            let layout = LockedDashboardLayout::for_window(width, height)
-                .expect("V5 desktop layout");
+            let layout =
+                LockedDashboardLayout::for_window(width, height).expect("V5 desktop layout");
             let remote_id = layout.remote_id_input_rect();
             let remote_password = layout.remote_password_status_rect();
             let connect = layout.remote_id_connect_btn_rect();
@@ -1942,7 +1939,12 @@ mod tests {
         assert_eq!(connect_action, None, "disabled V5 CTA cannot be clicked");
         apply_action(&mut shell, DesktopAction::ConnectRemoteId);
         assert!(shell.selected_device().is_none());
-        assert!(shell.last_error().unwrap().contains("remote session password"));
+        assert!(
+            shell
+                .last_error()
+                .unwrap()
+                .contains("remote session password")
+        );
 
         // A password-shaped input alone is not a verified remote connection,
         // but it permits the shell to begin the guarded request.

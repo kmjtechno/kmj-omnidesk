@@ -1,4 +1,4 @@
-//! Render-only receipts for the approved KMJ OmniDesk V5 native UI.
+//! Render-only receipts for the approved KMJ `OmniDesk` V5 native UI.
 //!
 //! PNG captures come directly from the Rust software renderer; these are
 //! NOT Windows desktop captures, live network streams or connected sessions.
@@ -48,8 +48,7 @@ fn render_to_png(
 fn main() -> io::Result<()> {
     let out_dir = std::env::args_os()
         .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target/v5_captures"));
+        .map_or_else(|| PathBuf::from("target/v5_captures"), PathBuf::from);
     fs::create_dir_all(&out_dir)?;
 
     let mut shell = ProductShell::new();
@@ -81,13 +80,19 @@ fn main() -> io::Result<()> {
     }
 
     let mut receipt = BufWriter::new(File::create(out_dir.join("RECEIPT.txt"))?);
-    writeln!(receipt, "KMJ_OMNIDESK_V5_CAPTURE_TYPE=OFFLINE_NATIVE_RENDER_BUFFER_PNG")?;
+    writeln!(
+        receipt,
+        "KMJ_OMNIDESK_V5_CAPTURE_TYPE=OFFLINE_NATIVE_RENDER_BUFFER_PNG"
+    )?;
     writeln!(receipt, "VERIFIED_NETWORK_SESSION=NO")?;
     writeln!(receipt, "CONNECTED_DESKTOP_CAPTURE=NO")?;
     writeln!(receipt, "WINDOWS_EXE_SCREENSHOT=NO")?;
     writeln!(receipt, "SCREEN_COUNT=11")?;
     writeln!(receipt, "BROWSER_MOCKUP=NO")?;
     receipt.flush()?;
-    println!("V5 offline Rust renderer PNG captures: {}", out_dir.display());
+    println!(
+        "V5 offline Rust renderer PNG captures: {}",
+        out_dir.display()
+    );
     Ok(())
 }

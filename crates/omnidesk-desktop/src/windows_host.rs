@@ -6,7 +6,7 @@ use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
-    product_shell::{DeviceStatus, PermissionDecision, PrimaryView, ProductShell},
+    product_shell::{DeviceStatus, PrimaryView, ProductShell},
     transport::HostTransport,
     transport_adapter::TransportSessionAdapter,
     trusted_device_store::TrustedDeviceStore,
@@ -118,6 +118,7 @@ struct DesktopHost {
     accessibility_focus: Option<NodeId>,
     cursor_position: Option<(usize, usize)>,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
+    #[allow(dead_code)]
     identity: omnidesk_core::device_identity::DeviceIdentity,
 }
 
@@ -332,12 +333,8 @@ impl DesktopHost {
         let size = window.inner_size();
         let width = usize::try_from(size.width).unwrap_or(usize::MAX);
         let height = usize::try_from(size.height).unwrap_or(usize::MAX);
-        let update = build_accesskit_tree_at_size(
-            &self.shell,
-            self.accessibility_focus,
-            width,
-            height,
-        );
+        let update =
+            build_accesskit_tree_at_size(&self.shell, self.accessibility_focus, width, height);
         if let Some(adapter) = self.adapter.as_mut() {
             adapter.update_if_active(|| update);
         }
@@ -467,19 +464,22 @@ impl DesktopHost {
             if copy_to_clipboard(self.shell.local_device_id()) {
                 apply_action(&mut self.shell, action);
             } else {
-                self.shell.set_error("Unable to copy device ID to the Windows clipboard");
+                self.shell
+                    .set_error("Unable to copy device ID to the Windows clipboard");
             }
         } else if action == DesktopAction::CopyYourPassword {
             // Never claim success when no password exists or the OS clipboard
             // write fails. This requires an explicit visible button click.
-            let copied = self.shell
+            let copied = self
+                .shell
                 .password_manager()
                 .raw_password()
                 .is_some_and(copy_to_clipboard);
             if copied {
                 apply_action(&mut self.shell, action);
             } else {
-                self.shell.set_error("Session password unavailable or clipboard copy failed");
+                self.shell
+                    .set_error("Session password unavailable or clipboard copy failed");
             }
         } else if action == DesktopAction::ConnectRemoteId {
             apply_action(&mut self.shell, action);
@@ -508,16 +508,13 @@ impl DesktopHost {
     fn handle_accesskit_action(&mut self, request: &accesskit::ActionRequest) {
         match request.action {
             Action::Focus => {
-                if let Some(action) =
-                    desktop_action_for_node(&self.shell, request.target_node)
-                {
+                if let Some(action) = desktop_action_for_node(&self.shell, request.target_node) {
                     // Assistive-tech focus on an editable ID/password field
                     // must also move the actual keyboard input focus. Never
                     // copy/read the secret into accessibility node values.
                     if matches!(
                         action,
-                        DesktopAction::FocusRemoteIdInput
-                            | DesktopAction::FocusRemotePasswordInput
+                        DesktopAction::FocusRemoteIdInput | DesktopAction::FocusRemotePasswordInput
                     ) {
                         self.dispatch_action(action);
                     }
@@ -583,6 +580,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,

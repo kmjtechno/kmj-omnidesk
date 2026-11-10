@@ -439,11 +439,11 @@ impl ProductShell {
         self.help_open
     }
 
-    pub fn toggle_help(&mut self) {
+    pub const fn toggle_help(&mut self) {
         self.set_help_open(!self.help_open);
     }
 
-    pub fn set_help_open(&mut self, open: bool) {
+    pub const fn set_help_open(&mut self, open: bool) {
         self.help_open = open;
         if open {
             // Help replaces the Remote Access canvas. Blur hidden fields,
@@ -585,7 +585,7 @@ impl ProductShell {
         self.remote_password_focused
     }
 
-    pub fn set_remote_password_focused(&mut self, focused: bool) {
+    pub const fn set_remote_password_focused(&mut self, focused: bool) {
         self.remote_password_focused = focused;
         // Explicit reveal never persists when the secret input loses focus.
         if !focused {
@@ -593,7 +593,7 @@ impl ProductShell {
         }
     }
 
-    pub fn focus_remote_id(&mut self) {
+    pub const fn focus_remote_id(&mut self) {
         self.remote_id_focused = true;
         self.remote_password_focused = false;
         self.remote_password_revealed = false;
@@ -1019,7 +1019,7 @@ mod tests {
         assert!(shell.is_remote_password_revealed());
         shell.set_nav_tab(NavTab::Security);
         assert_eq!(shell.nav_tab(), NavTab::Security);
-        assert!(shell.remote_password_input().is_empty());
+        assert_eq!(shell.remote_password_input(), "");
         assert!(!shell.is_remote_password_focused());
         assert!(!shell.is_remote_password_revealed());
         shell.set_nav_tab(NavTab::Devices);
@@ -1063,7 +1063,7 @@ mod tests {
         assert!(shell.is_remote_password_revealed());
         shell.disconnect();
         assert!(!shell.is_remote_password_revealed());
-        assert!(shell.remote_password_input().is_empty());
+        assert_eq!(shell.remote_password_input(), "");
     }
 
     #[test]

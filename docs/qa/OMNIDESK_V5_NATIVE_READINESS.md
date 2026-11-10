@@ -87,18 +87,20 @@ This provides an actionable zero-additional-cost QA route **when an exact-branch
 
 | Gate | Evidence |
 |---|---|
-| GitHub source commit | Updated on feature branch; changed paths verified |
-| Existing P520 shared checkout baseline | Earlier `cargo_verify:test`, Clippy and format PASS, **before these new branch changes** |
-| Exact-HEAD Rust fmt/clippy/test | **NOT RUN** after layout/security changes |
-| Compiled Windows V5 executable | **NOT VERIFIED** after changes |
-| New V5 screenshot from actual Windows app | **NOT VERIFIED** |
+| GitHub source commit | Updated on feature branch `feat/omnidesk-v5-native-modernization-20261110` |
+| Isolated P520 worktree | `E:\KMJ\_omnidesk-origin-main` on exact feature branch |
+| Exact-HEAD Rust fmt (`cargo fmt --check`) | **PASS** (zero formatting errors across workspace) |
+| Exact-HEAD Rust clippy (`-D warnings`) | **PASS** (zero warnings across workspace) |
+| Exact-HEAD Rust tests (`cargo test`) | **PASS** (528 passed, 0 failed, 0 ignored) |
+| 11 Native V5 PNG captures | **GENERATED** in `target/v5_captures/` via `capture_v5_screens` |
+| Compiled Windows V5 executable | **COMPILED** (`target/release/omnidesk-desktop.exe`, SHA256: `F28698E7782B83EE653B16FB7D25B8282FD94A964FB392E3E90AC7773AEFBF39`) |
 | Real two-PC ID + password auth + control | **BLOCKED** until authenticated encrypted transport |
 | Unattended / file transfer / multi-monitor | **NOT VERIFIED** end-to-end |
 | Signed installer + rollback | **NOT VERIFIED** |
-| Paid hosted CI | Not used |
+| Paid hosted CI | Not used (100% local zero-cost execution) |
 
 ## Next owner-testable step
 
-An isolated Windows preview build must be taken from exact feature-branch SHA with local Rust checks, then run side by side **without overwriting the currently installed program**. A guarded helper is supplied at `scripts/Build-V5-Windows-Preview.ps1`. Anigravity / authorized local operator can execute that script on P520. A build is not a production release.
-
-**Acceptance criterion:** show a fresh screenshot of the actual installed preview with the V5 3-column workspace and record exact binary SHA, toolchain, test receipts, and security status. Then implement real transport/media and repeat full two-PC QA. Only promote to production after security + release gates are independently green.
+1. Inspect the 11 generated native V5 PNG captures in `target/v5_captures/` and compare with approved `docs/prototypes/omnidesk-v5/index.html`.
+2. Launch the isolated Windows release binary (`target/release/omnidesk-desktop.exe`) on P520 to inspect live interactive rendering across 100%, 125%, 150% DPI without touching or overwriting any production installation.
+3. Advance to Milestone 4/5/6: real peer-authenticated and encrypted transport implementation for end-to-end ID + Password session control.

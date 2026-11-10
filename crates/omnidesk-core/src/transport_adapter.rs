@@ -403,7 +403,10 @@ pub fn host_negotiate_and_authenticate_session_with_password<T: Transport>(
             // Password knowledge cannot establish the remote host's
             // identity, confidentiality or integrity of a raw TCP channel.
             // Never accept an unbound proof as remote-control authorization.
-            if !adapter.transport_mut().is_peer_authenticated_and_encrypted() {
+            if !adapter
+                .transport_mut()
+                .is_peer_authenticated_and_encrypted()
+            {
                 let reject = SessionAuthWireMessage::Reject {
                     reason: "authenticated encrypted channel required".to_owned(),
                 };

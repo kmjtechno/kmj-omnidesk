@@ -176,9 +176,9 @@ mod tests {
         assert_eq!((width, height), (968.0, 684.0));
         assert!(width + 56.0 <= 1024.0);
         assert!(height + 84.0 <= 768.0);
-        // A small monitor uses the compact fallback rather than clipping the
-        // locked four-column dashboard beyond the visible screen.
-        assert!(LockedDashboardLayout::for_window(968, 684).is_none());
+        // V5 fits a 1024x768 physical monitor with the responsive 3-column layout
+        // (compact nav rail, wide remote workspace, collapsed inspector).
+        assert!(LockedDashboardLayout::for_window(968, 684).is_some());
         assert!(ShellLayout::for_window(968, 684).is_some());
     }
 
@@ -379,7 +379,10 @@ impl LockedDashboardLayout {
         let compact_height = viewer.height < 700;
         let devices = DashboardRect {
             x: viewer.x + 10,
-            y: viewer.y + viewer.height.saturating_sub(if compact_height { 132 } else { 164 }),
+            y: viewer.y
+                + viewer
+                    .height
+                    .saturating_sub(if compact_height { 132 } else { 164 }),
             width: viewer.width.saturating_sub(20),
             height: if compact_height { 64 } else { 85 },
         };
@@ -387,11 +390,16 @@ impl LockedDashboardLayout {
             x: viewer.x + 10,
             y: viewer.y + if compact_height { 62 } else { 78 },
             width: viewer.width.saturating_sub(20),
-            height: viewer.height.saturating_sub(if compact_height { 208 } else { 255 }),
+            height: viewer
+                .height
+                .saturating_sub(if compact_height { 208 } else { 255 }),
         };
         let session_toolbar = DashboardRect {
             x: viewer.x + 10,
-            y: viewer.y + viewer.height.saturating_sub(if compact_height { 60 } else { 70 }),
+            y: viewer.y
+                + viewer
+                    .height
+                    .saturating_sub(if compact_height { 60 } else { 70 }),
             width: viewer.width.saturating_sub(20),
             height: if compact_height { 48 } else { 56 },
         };
@@ -594,11 +602,7 @@ impl LockedDashboardLayout {
     #[must_use]
     pub const fn remote_id_card_rect(&self) -> DashboardRect {
         DashboardRect {
-            x: if self.access_cards_wide() {
-                self.remote_screen.x + 18
-            } else {
-                self.remote_screen.x + 18
-            },
+            x: self.remote_screen.x + 18,
             y: if self.access_cards_wide() {
                 self.remote_screen.y + 18
             } else {
@@ -713,8 +717,20 @@ mod locked_dashboard_tests {
         assert!(LockedDashboardLayout::for_window(760, 640).is_none());
         assert!(LockedDashboardLayout::for_window(960, 640).is_some());
         assert!(LockedDashboardLayout::for_window(1419, 560).is_none());
-        assert_eq!(LockedDashboardLayout::for_window(1024, 768).unwrap().inspector.width, 0);
-        assert_eq!(LockedDashboardLayout::for_window(960, 640).unwrap().navigation.width, 78);
+        assert_eq!(
+            LockedDashboardLayout::for_window(1024, 768)
+                .unwrap()
+                .inspector
+                .width,
+            0
+        );
+        assert_eq!(
+            LockedDashboardLayout::for_window(960, 640)
+                .unwrap()
+                .navigation
+                .width,
+            78
+        );
         for (width, height) in [
             (800, 600),
             (960, 640),
@@ -826,7 +842,10 @@ mod locked_dashboard_tests {
             let stage = l.remote_stage_rect();
             let own = l.your_id_card_rect();
             let connect = l.remote_id_card_rect();
-            assert!(stage.height >= 95, "remote stage hidden at {width}x{height}");
+            assert!(
+                stage.height >= 95,
+                "remote stage hidden at {width}x{height}"
+            );
             assert!(stage.y >= own.y + own.height);
             assert!(stage.y >= connect.y + connect.height);
             assert!(stage.y + stage.height <= l.remote_screen.y + l.remote_screen.height);

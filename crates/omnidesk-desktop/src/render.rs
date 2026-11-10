@@ -742,13 +742,7 @@ fn draw_locked_header(
         );
     }
     canvas.text(70, 19, "KMJ TECHNO", 2, p.foreground);
-    canvas.text(
-        70,
-        45,
-        "INNOVATE  |  BUILD  |  SCALE",
-        1,
-        p.muted,
-    );
+    canvas.text(70, 45, "INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
 
     // Hide the decorative command strip on compact windows: it is not
     // searchable yet and must never overlap the KMJ TECHNO wordmark.
@@ -889,18 +883,29 @@ fn draw_locked_navigation(
     }
     let nav_bottom = nav.y + nav.height;
     canvas.fill_rect(
-        nav.x + 9, nav_bottom - 69,
-        nav.width.saturating_sub(18), 56, p.background,
+        nav.x + 9,
+        nav_bottom - 69,
+        nav.width.saturating_sub(18),
+        56,
+        p.background,
     );
     canvas.stroke_rect(
-        nav.x + 9, nav_bottom - 69,
-        nav.width.saturating_sub(18), 56, 1, p.border,
+        nav.x + 9,
+        nav_bottom - 69,
+        nav.width.saturating_sub(18),
+        56,
+        1,
+        p.border,
     );
     if nav.width < 120 {
         canvas.dot(nav.x + nav.width / 2, nav_bottom - 40, 5, p.muted);
         locked_label(
-            canvas, nav.x + 12, nav_bottom - 24,
-            nav.width.saturating_sub(24), "LOCAL", p.muted,
+            canvas,
+            nav.x + 12,
+            nav_bottom - 24,
+            nav.width.saturating_sub(24),
+            "LOCAL",
+            p.muted,
         );
     } else {
         canvas.dot(nav.x + 22, nav_bottom - 47, 4, p.muted);
@@ -932,9 +937,18 @@ fn draw_locked_device_rows(
     let area = layout.devices;
     let filter = presentation.device_filter;
     for (index, (label, active)) in [
-        ("ALL", filter == omnidesk_core::product_shell::DeviceFilter::All),
-        ("ONLINE", filter == omnidesk_core::product_shell::DeviceFilter::Online),
-        ("OFFLINE", filter == omnidesk_core::product_shell::DeviceFilter::Offline),
+        (
+            "ALL",
+            filter == omnidesk_core::product_shell::DeviceFilter::All,
+        ),
+        (
+            "ONLINE",
+            filter == omnidesk_core::product_shell::DeviceFilter::Online,
+        ),
+        (
+            "OFFLINE",
+            filter == omnidesk_core::product_shell::DeviceFilter::Offline,
+        ),
     ]
     .iter()
     .enumerate()
@@ -1005,9 +1019,7 @@ fn draw_locked_devices(
         draw_locked_device_rows(canvas, presentation, layout, p);
     } else {
         let status = match presentation.nav_tab {
-            omnidesk_core::product_shell::NavTab::Connections => {
-                "Sessions require a verified peer"
-            }
+            omnidesk_core::product_shell::NavTab::Connections => "Sessions require a verified peer",
             omnidesk_core::product_shell::NavTab::FileTransfer => {
                 "File transfer requires an authorized session"
             }
@@ -1427,25 +1439,24 @@ fn draw_locked_remote_id_card(
         );
     }
     let reveal = layout.remote_password_reveal_btn_rect();
-    canvas.fill_rect(
-        reveal.x, reveal.y, reveal.width, reveal.height, p.surface,
-    );
-    canvas.stroke_rect(
-        reveal.x, reveal.y, reveal.width, reveal.height, 1, p.border,
-    );
+    canvas.fill_rect(reveal.x, reveal.y, reveal.width, reveal.height, p.surface);
+    canvas.stroke_rect(reveal.x, reveal.y, reveal.width, reveal.height, 1, p.border);
     locked_label(
         canvas,
         reveal.x + 6,
         reveal.y + 7,
         reveal.width.saturating_sub(12),
-        if presentation.remote_password_revealed { "HIDE" } else { "SHOW" },
+        if presentation.remote_password_revealed {
+            "HIDE"
+        } else {
+            "SHOW"
+        },
         if presentation.remote_password_display.is_empty() {
             p.muted
         } else {
             p.foreground
         },
     );
-
 }
 
 fn draw_locked_dual_role_cards(
@@ -1535,9 +1546,10 @@ fn draw_locked_dual_role_cards(
 
 /// V5 sidebar pages must not all render the same Remote Access form.
 ///
-/// The source of truth for these states remains ProductShell. These are
+/// The source of truth for these states remains `ProductShell`. These are
 /// dedicated, clearly labelled feature views, not fake device data or
 /// actionable features that require a verified remote connection.
+#[allow(clippy::too_many_lines)]
 fn draw_locked_feature_page(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -1554,7 +1566,10 @@ fn draw_locked_feature_page(
             [
                 ("ACTIVE SESSION", "None verified"),
                 ("CONNECTION HISTORY", "No verified sessions to show"),
-                ("ACCESS PERMISSIONS", "Granted only after secure verification"),
+                (
+                    "ACCESS PERMISSIONS",
+                    "Granted only after secure verification",
+                ),
             ],
         ),
         NavTab::FileTransfer => (
@@ -1612,19 +1627,37 @@ fn draw_locked_feature_page(
     let frame = layout.remote_screen;
     canvas.fill_rect(frame.x, frame.y, frame.width, frame.height, p.background);
     canvas.stroke_rect(frame.x, frame.y, frame.width, frame.height, 1, p.border);
-    canvas.fill_rect(frame.x + 1, frame.y + 1, frame.width.saturating_sub(2), 38, p.surface);
+    canvas.fill_rect(
+        frame.x + 1,
+        frame.y + 1,
+        frame.width.saturating_sub(2),
+        38,
+        p.surface,
+    );
     canvas.fill_rect(frame.x + 1, frame.y + 1, 3, 38, p.accent);
     locked_label(
-        canvas, frame.x + 18, frame.y + 14,
-        frame.width.saturating_sub(36), category, p.accent,
+        canvas,
+        frame.x + 18,
+        frame.y + 14,
+        frame.width.saturating_sub(36),
+        category,
+        p.accent,
     );
     canvas.text_clipped(
-        frame.x + 18, frame.y + 60, heading, 2,
-        frame.width.saturating_sub(36), p.foreground,
+        frame.x + 18,
+        frame.y + 60,
+        heading,
+        2,
+        frame.width.saturating_sub(36),
+        p.foreground,
     );
     locked_label(
-        canvas, frame.x + 18, frame.y + 105,
-        frame.width.saturating_sub(36), explanation, p.muted,
+        canvas,
+        frame.x + 18,
+        frame.y + 105,
+        frame.width.saturating_sub(36),
+        explanation,
+        p.muted,
     );
     let gap = 10;
     let gutter = 18;
@@ -1637,12 +1670,20 @@ fn draw_locked_feature_page(
         canvas.stroke_rect(x, y, width, tile_height, 1, p.border);
         canvas.fill_rect(x + 11, y + 13, 3, 12, p.accent);
         locked_label(
-            canvas, x + 23, y + 15,
-            width.saturating_sub(32), title, p.foreground,
+            canvas,
+            x + 23,
+            y + 15,
+            width.saturating_sub(32),
+            title,
+            p.foreground,
         );
         locked_label(
-            canvas, x + 12, y + 48,
-            width.saturating_sub(24), message, p.muted,
+            canvas,
+            x + 12,
+            y + 48,
+            width.saturating_sub(24),
+            message,
+            p.muted,
         );
     }
     if frame.height > 350 {
@@ -1653,7 +1694,9 @@ fn draw_locked_feature_page(
             p.border,
         );
         locked_label(
-            canvas, frame.x + gutter, frame.y + 145 + tile_height + 46,
+            canvas,
+            frame.x + gutter,
+            frame.y + 145 + tile_height + 46,
             frame.width.saturating_sub(gutter * 2),
             "No remote operation is available until identity, transport and permissions are verified.",
             p.muted,
@@ -1778,7 +1821,13 @@ fn draw_locked_remote_workspace(
     // ProductShell permission state alone cannot prove transport video, FPS,
     // codec, cipher or round-trip latency. Only display verified facts.
     let screen = layout.remote_screen;
-    canvas.fill_rect(screen.x, screen.y, screen.width, screen.height, p.background);
+    canvas.fill_rect(
+        screen.x,
+        screen.y,
+        screen.width,
+        screen.height,
+        p.background,
+    );
     canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
     canvas.fill_rect(screen.x, screen.y, screen.width, 35, p.surface);
     locked_label(
@@ -1824,17 +1873,32 @@ fn draw_locked_remote_workspace(
     canvas.fill_rect(bar.x, bar.y, bar.width, bar.height, p.surface);
     canvas.stroke_rect(bar.x, bar.y, bar.width, bar.height, 1, p.border);
     let labels = [
-        if presentation.remote_input_enabled { "INPUT ON" } else { "INPUT OFF" },
+        if presentation.remote_input_enabled {
+            "INPUT ON"
+        } else {
+            "INPUT OFF"
+        },
         "MONITORS",
-        if presentation.clipboard_sync_enabled { "CLIP ON" } else { "CLIP OFF" },
+        if presentation.clipboard_sync_enabled {
+            "CLIP ON"
+        } else {
+            "CLIP OFF"
+        },
         "FILES",
-        if presentation.fullscreen_enabled { "EXIT FULL" } else { "FULLSCREEN" },
+        if presentation.fullscreen_enabled {
+            "EXIT FULL"
+        } else {
+            "FULLSCREEN"
+        },
         "DISCONNECT",
     ];
     for (index, label) in labels.iter().enumerate() {
         let rect = layout.session_tool_btn_rect(index);
         canvas.fill_rect(
-            rect.x, rect.y, rect.width, rect.height,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
             if index == 5 { p.accent } else { p.border },
         );
         locked_label(

@@ -13,7 +13,6 @@ fn control_node_id(index: usize) -> NodeId {
     NodeId(u64::try_from(index + 1).expect("control index fits u64"))
 }
 
-#[must_use]
 /// Control IDs for V5's native task-focused fields. Device-list items keep
 /// the existing low IDs, while these remain stable as the directory changes.
 const V5_REMOTE_ID_NODE: NodeId = NodeId(10_001);
@@ -28,6 +27,16 @@ const V5_NAV_FIRST_NODE: u64 = 11_001;
 const V5_SETTINGS_NODE: NodeId = NodeId(12_001);
 const V5_HELP_NODE: NodeId = NodeId(12_002);
 
+const V5_NAV_TABS: [NavTab; 7] = [
+    NavTab::Devices,
+    NavTab::Connections,
+    NavTab::FileTransfer,
+    NavTab::RemoteActions,
+    NavTab::Automation,
+    NavTab::Security,
+    NavTab::Settings,
+];
+
 #[must_use]
 pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<DesktopAction> {
     // Always-visible top-bar actions remain operable when Help replaces
@@ -37,17 +46,8 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
         V5_HELP_NODE => return Some(DesktopAction::ToggleHelp),
         _ => {}
     }
-    const NAV: [NavTab; 7] = [
-        NavTab::Devices,
-        NavTab::Connections,
-        NavTab::FileTransfer,
-        NavTab::RemoteActions,
-        NavTab::Automation,
-        NavTab::Security,
-        NavTab::Settings,
-    ];
     if let Some(index) = node_id.0.checked_sub(V5_NAV_FIRST_NODE) {
-        if let Some(tab) = NAV.get(usize::try_from(index).ok()?) {
+        if let Some(tab) = V5_NAV_TABS.get(usize::try_from(index).ok()?) {
             return Some(DesktopAction::SelectNav(*tab));
         }
     }
@@ -55,10 +55,8 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
         && shell.nav_tab() == NavTab::Devices
         && !shell.is_help_open()
     {
-        if (node_id == V5_REMOTE_REVEAL_NODE
-            && shell.remote_password_input().is_empty())
-            || (node_id == V5_CONNECT_NODE
-                && !presentation_for(shell).remote_access_form_ready)
+        if (node_id == V5_REMOTE_REVEAL_NODE && shell.remote_password_input().is_empty())
+            || (node_id == V5_CONNECT_NODE && !presentation_for(shell).remote_access_form_ready)
             || (matches!(node_id, V5_SHOW_PASSWORD_NODE | V5_COPY_PASSWORD_NODE)
                 && shell.password_manager().raw_password().is_none())
         {
@@ -146,6 +144,7 @@ pub fn build_accesskit_tree_with_focus(
 ///
 /// This geometry must match the native renderer and pointer hit-testing.
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn build_accesskit_tree_at_size(
     shell: &ProductShell,
     requested_focus: Option<NodeId>,
@@ -383,9 +382,15 @@ mod tests {
         // Root + at most three visible trusted-device tiles.
         assert_eq!(tree.nodes.len(), 21);
         assert_eq!(tree.focus, V5_REMOTE_ID_NODE);
-        assert_eq!(tree.nodes[0].1.bounds(), Some(Rect {
-            x0: 0.0, y0: 0.0, x1: 1419.0, y1: 611.0,
-        }));
+        assert_eq!(
+            tree.nodes[0].1.bounds(),
+            Some(Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 1419.0,
+                y1: 611.0,
+            })
+        );
         assert_eq!(desktop_action_for_node(&shell, NodeId(4)), None);
         assert_eq!(desktop_action_for_node(&shell, NodeId(5)), None);
 
@@ -430,9 +435,17 @@ mod tests {
         shell.set_remote_password_input("ui-test-only");
         shell.set_help_open(true);
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
-        assert!(!tree.nodes.iter().any(|(id, _)| *id == V5_REMOTE_PASSWORD_NODE));
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(id, _)| *id == V5_REMOTE_PASSWORD_NODE)
+        );
         assert!(!tree.nodes.iter().any(|(id, _)| *id == V5_CONNECT_NODE));
-        assert_eq!(desktop_action_for_node(&shell, V5_REMOTE_PASSWORD_NODE), None);
+        assert_eq!(
+            desktop_action_for_node(&shell, V5_REMOTE_PASSWORD_NODE),
+            None
+        );
         assert_eq!(desktop_action_for_node(&shell, V5_CONNECT_NODE), None);
     }
 
@@ -441,9 +454,17 @@ mod tests {
         let mut shell = ProductShell::new();
         shell.set_nav_tab(NavTab::Security);
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
-        assert!(!tree.nodes.iter().any(|(id, _)| *id == V5_REMOTE_PASSWORD_NODE));
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(id, _)| *id == V5_REMOTE_PASSWORD_NODE)
+        );
         assert!(!tree.nodes.iter().any(|(id, _)| *id == V5_CONNECT_NODE));
-        assert_eq!(desktop_action_for_node(&shell, V5_REMOTE_PASSWORD_NODE), None);
+        assert_eq!(
+            desktop_action_for_node(&shell, V5_REMOTE_PASSWORD_NODE),
+            None
+        );
         assert_eq!(desktop_action_for_node(&shell, V5_COPY_ID_NODE), None);
         assert_eq!(
             desktop_action_for_node(&shell, NodeId(V5_NAV_FIRST_NODE + 5)),
@@ -471,15 +492,21 @@ mod tests {
     fn v5_remote_password_reveal_node_never_contains_the_secret() {
         let mut shell = ProductShell::new();
         let empty = build_accesskit_tree_at_size(&shell, None, 1419, 611);
-        let (_, disabled) = empty.nodes.iter()
-            .find(|(id, _)| *id == V5_REMOTE_REVEAL_NODE).unwrap();
+        let (_, disabled) = empty
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == V5_REMOTE_REVEAL_NODE)
+            .unwrap();
         assert!(disabled.is_disabled());
         assert_eq!(desktop_action_for_node(&shell, V5_REMOTE_REVEAL_NODE), None);
 
         shell.set_remote_password_input("do-not-leak-to-screen-reader");
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
-        let (_, show) = tree.nodes.iter()
-            .find(|(id, _)| *id == V5_REMOTE_REVEAL_NODE).unwrap();
+        let (_, show) = tree
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == V5_REMOTE_REVEAL_NODE)
+            .unwrap();
         assert!(!show.is_disabled());
         assert_eq!(show.value(), None);
         assert_eq!(
@@ -494,7 +521,9 @@ mod tests {
         shell.set_remote_password_input("do-not-expose-this");
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
 
-        let (_, password_node) = tree.nodes.iter()
+        let (_, password_node) = tree
+            .nodes
+            .iter()
             .find(|(id, _)| *id == V5_REMOTE_PASSWORD_NODE)
             .expect("V5 password node");
         assert_eq!(password_node.role(), Role::PasswordInput);
@@ -505,6 +534,11 @@ mod tests {
             desktop_action_for_node(&shell, V5_REMOTE_PASSWORD_NODE),
             Some(DesktopAction::FocusRemotePasswordInput)
         );
+        // Without a valid remote ID, Connect is disabled fail-closed.
+        assert_eq!(desktop_action_for_node(&shell, V5_CONNECT_NODE), None);
+
+        // With valid ID and password, Connect action is operable.
+        shell.set_remote_id_input("KMJ-123-456-789");
         assert_eq!(
             desktop_action_for_node(&shell, V5_CONNECT_NODE),
             Some(DesktopAction::ConnectRemoteId)
