@@ -1327,7 +1327,8 @@ fn draw_locked_dual_role_cards(
 
     // Keep the actual remote-view region available for future authenticated
     // video. This intentional offline display is not a fake screenshot.
-    if screen.height > if layout.access_cards_wide() { 355 } else { 450 } {
+    let display_min_height = if layout.access_cards_wide() { 355 } else { 450 };
+    if screen.height > display_min_height {
         let display_y = guidance_y + 34;
         canvas.h_line(screen.x + 18, display_y, screen.width.saturating_sub(36), p.border);
         locked_label(
