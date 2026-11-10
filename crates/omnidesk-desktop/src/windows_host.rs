@@ -6,7 +6,7 @@ use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
-    product_shell::{DeviceStatus, DeviceSummary, PermissionDecision, PrimaryView, ProductShell},
+    product_shell::{DeviceStatus, PermissionDecision, PrimaryView, ProductShell},
     transport::HostTransport,
     transport_adapter::TransportSessionAdapter,
     trusted_device_store::TrustedDeviceStore,
