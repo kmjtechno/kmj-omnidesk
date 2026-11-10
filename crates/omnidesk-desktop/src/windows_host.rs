@@ -597,8 +597,14 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         y,
                     ) {
                         self.dispatch_action(action);
-                    } else if self.shell.is_remote_id_focused() {
+                    } else if self.shell.is_remote_id_focused()
+                        || self.shell.is_remote_password_focused()
+                    {
+                        // Clicking non-interactive chrome must release
+                        // credential input focus; otherwise typing may land
+                        // in a hidden password field.
                         self.shell.set_remote_id_focused(false);
+                        self.shell.set_remote_password_focused(false);
                         self.refresh_presentation();
                     }
                 }
