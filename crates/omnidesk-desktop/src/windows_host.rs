@@ -620,12 +620,51 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                             self.refresh_presentation();
                             return;
                         }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Tab) => {
+                            self.dispatch_action(DesktopAction::FocusRemotePasswordInput);
+                            return;
+                        }
                         _ => {}
                     }
                     if let Some(text) = &event.text {
                         for c in text.chars() {
                             if !c.is_control() {
                                 self.shell.append_remote_id_char(c);
+                            }
+                        }
+                        self.refresh_presentation();
+                        return;
+                    }
+                }
+                if self.shell.is_remote_password_focused() {
+                    // Credential input takes precedence over every global
+                    // navigation shortcut. The letter 's' must append 's'
+                    // to the password, never open Security Center.
+                    match &event.logical_key {
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Backspace) => {
+                            self.shell.backspace_remote_password();
+                            self.refresh_presentation();
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter) => {
+                            self.dispatch_action(DesktopAction::ConnectRemoteId);
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) => {
+                            self.shell.set_remote_password_focused(false);
+                            self.refresh_presentation();
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Tab) => {
+                            self.dispatch_action(DesktopAction::FocusRemoteIdInput);
+                            return;
+                        }
+                        _ => {}
+                    }
+                    if let Some(text) = &event.text {
+                        for c in text.chars() {
+                            if !c.is_control() {
+                                self.shell.append_remote_password_char(c);
                             }
                         }
                         self.refresh_presentation();
