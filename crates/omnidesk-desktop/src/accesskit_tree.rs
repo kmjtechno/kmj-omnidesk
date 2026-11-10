@@ -25,9 +25,18 @@ const V5_COPY_PASSWORD_NODE: NodeId = NodeId(10_006);
 const V5_ROTATE_PASSWORD_NODE: NodeId = NodeId(10_007);
 const V5_REMOTE_REVEAL_NODE: NodeId = NodeId(10_008);
 const V5_NAV_FIRST_NODE: u64 = 11_001;
+const V5_SETTINGS_NODE: NodeId = NodeId(12_001);
+const V5_HELP_NODE: NodeId = NodeId(12_002);
 
 #[must_use]
 pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<DesktopAction> {
+    // Always-visible top-bar actions remain operable when Help replaces
+    // the central content. They never reveal credential values.
+    match node_id {
+        V5_SETTINGS_NODE => return Some(DesktopAction::OpenSettings),
+        V5_HELP_NODE => return Some(DesktopAction::ToggleHelp),
+        _ => {}
+    }
     const NAV: [NavTab; 7] = [
         NavTab::Devices,
         NavTab::Connections,
@@ -169,6 +178,29 @@ pub fn build_accesskit_tree_at_size(
         nodes.push((id, node));
     }
 
+    if let Some(layout) = LockedDashboardLayout::for_window(width, height) {
+        for (id, name, rect) in [
+            (
+                V5_SETTINGS_NODE,
+                "Open preferences",
+                layout.settings_button_rect(width),
+            ),
+            (
+                V5_HELP_NODE,
+                "Open or close Help",
+                layout.help_button_rect(width),
+            ),
+        ] {
+            let mut node = Node::new(Role::Button);
+            node.set_label(name);
+            node.set_bounds(dashboard_bounds(rect));
+            node.add_action(Action::Focus);
+            node.add_action(Action::Click);
+            child_ids.push(id);
+            nodes.push((id, node));
+        }
+    }
+
     // Native V5 sidebar is a keyboard/screen-reader navigation region.
     // Keep the same tab order and rectangles as the renderer and hit tester.
     if let Some(layout) = LockedDashboardLayout::for_window(width, height) {
@@ -287,7 +319,9 @@ pub fn build_accesskit_tree_at_size(
     root.set_children(child_ids.clone());
     nodes.insert(0, (ROOT_NODE_ID, root));
 
-    let default_focus = if child_ids.contains(&V5_REMOTE_ID_NODE) {
+    let default_focus = if shell.is_help_open() && child_ids.contains(&V5_HELP_NODE) {
+        V5_HELP_NODE
+    } else if child_ids.contains(&V5_REMOTE_ID_NODE) {
         V5_REMOTE_ID_NODE
     } else {
         child_ids.first().copied().unwrap_or(ROOT_NODE_ID)
@@ -347,7 +381,7 @@ mod tests {
         );
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
         // Root + at most three visible trusted-device tiles.
-        assert_eq!(tree.nodes.len(), 19);
+        assert_eq!(tree.nodes.len(), 21);
         assert_eq!(tree.focus, V5_REMOTE_ID_NODE);
         assert_eq!(tree.nodes[0].1.bounds(), Some(Rect {
             x0: 0.0, y0: 0.0, x1: 1419.0, y1: 611.0,
@@ -358,6 +392,36 @@ mod tests {
         // A11y activation on a secondary tab cannot select hidden peers.
         shell.set_nav_tab(NavTab::Security);
         assert_eq!(desktop_action_for_node(&shell, NodeId(1)), None);
+    }
+
+    #[test]
+    fn v5_topbar_help_and_settings_are_accessible_and_hit_aligned() {
+        let mut shell = ProductShell::new();
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
+        for (id, expected_action, rect) in [
+            (
+                V5_SETTINGS_NODE,
+                DesktopAction::OpenSettings,
+                layout.settings_button_rect(1419),
+            ),
+            (
+                V5_HELP_NODE,
+                DesktopAction::ToggleHelp,
+                layout.help_button_rect(1419),
+            ),
+        ] {
+            let (_, node) = tree.nodes.iter().find(|(nid, _)| *nid == id).unwrap();
+            assert_eq!(desktop_action_for_node(&shell, id), Some(expected_action));
+            assert_eq!(node.bounds(), Some(dashboard_bounds(rect)));
+        }
+        shell.set_help_open(true);
+        let help_tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
+        assert_eq!(help_tree.focus, V5_HELP_NODE);
+        assert_eq!(
+            desktop_action_for_node(&shell, V5_HELP_NODE),
+            Some(DesktopAction::ToggleHelp)
+        );
     }
 
     #[test]
