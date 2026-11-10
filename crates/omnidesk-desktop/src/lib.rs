@@ -998,6 +998,7 @@ pub const fn controls_for(view: PrimaryView) -> &'static [AccessibleControl] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use omnidesk_core::product_shell::DeviceSummary;
 
     #[test]
     fn enrollment_without_verified_peer_never_creates_a_trusted_device() {
