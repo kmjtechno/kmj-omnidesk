@@ -1710,6 +1710,24 @@ mod tests {
     }
 
     #[test]
+    fn v5_password_typing_never_activates_global_navigation_shortcuts() {
+        let mut shell = ProductShell::new();
+        shell.focus_remote_password();
+        for character in ['s', 'c', 'f', 'm', 'o', 'd'] {
+            assert!(apply_key(&mut shell, character));
+        }
+        assert_eq!(shell.remote_password_input(), "scfmod");
+        assert_eq!(shell.nav_tab(), NavTab::Devices);
+        assert!(shell.is_remote_password_focused());
+
+        assert!(apply_key(&mut shell, '\t'));
+        assert!(shell.is_remote_id_focused());
+        assert!(!shell.is_remote_password_focused());
+        assert!(apply_key(&mut shell, '\t'));
+        assert!(shell.is_remote_password_focused());
+    }
+
+    #[test]
     fn v5_remote_password_reveal_is_explicit_and_never_default() {
         let mut shell = ProductShell::new();
         let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
