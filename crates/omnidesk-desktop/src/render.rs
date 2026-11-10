@@ -1583,21 +1583,33 @@ fn draw_locked_trusted_devices_page(
     canvas.fill_rect(frame.x, frame.y, frame.width, frame.height, p.background);
     canvas.stroke_rect(frame.x, frame.y, frame.width, frame.height, 1, p.border);
     canvas.fill_rect(
-        frame.x + 1, frame.y + 1,
-        frame.width.saturating_sub(2), 38, p.surface,
+        frame.x + 1,
+        frame.y + 1,
+        frame.width.saturating_sub(2),
+        38,
+        p.surface,
     );
     canvas.fill_rect(frame.x + 1, frame.y + 1, 3, 38, p.accent);
     locked_label(
-        canvas, frame.x + 18, frame.y + 14,
-        frame.width.saturating_sub(36), "TRUSTED DEVICES", p.accent,
+        canvas,
+        frame.x + 18,
+        frame.y + 14,
+        frame.width.saturating_sub(36),
+        "TRUSTED DEVICES",
+        p.accent,
     );
     canvas.text_clipped(
-        frame.x + 18, frame.y + 56,
-        "Your computers", 2,
-        frame.width.saturating_sub(36), p.foreground,
+        frame.x + 18,
+        frame.y + 56,
+        "Your computers",
+        2,
+        frame.width.saturating_sub(36),
+        p.foreground,
     );
     locked_label(
-        canvas, frame.x + 18, frame.y + 102,
+        canvas,
+        frame.x + 18,
+        frame.y + 102,
         frame.width.saturating_sub(36),
         "Only enrolled device identities appear here. Access still requires authorization.",
         p.muted,
@@ -1615,19 +1627,27 @@ fn draw_locked_trusted_devices_page(
             tile.x + 13,
             tile.y + 20,
             4,
-            if control.enabled { VERIFIED_GREEN } else { p.muted },
+            if control.enabled {
+                VERIFIED_GREEN
+            } else {
+                p.muted
+            },
         );
         locked_label(
-            canvas, tile.x + 24, tile.y + 15,
+            canvas,
+            tile.x + 24,
+            tile.y + 15,
             tile.width.saturating_sub(32),
-            &control.label, p.foreground,
+            &control.label,
+            p.foreground,
         );
         shown += 1;
     }
     if shown == 0 {
         locked_label(
             canvas,
-            frame.x + 22, frame.y + 170,
+            frame.x + 22,
+            frame.y + 170,
             frame.width.saturating_sub(44),
             "No trusted devices enrolled. Connect to a verified device first.",
             p.muted,
