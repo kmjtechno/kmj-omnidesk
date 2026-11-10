@@ -436,12 +436,18 @@ impl ProductShell {
         self.help_open
     }
 
-    pub const fn toggle_help(&mut self) {
-        self.help_open = !self.help_open;
+    pub fn toggle_help(&mut self) {
+        self.set_help_open(!self.help_open);
     }
 
-    pub const fn set_help_open(&mut self, open: bool) {
+    pub fn set_help_open(&mut self, open: bool) {
         self.help_open = open;
+        if open {
+            // Help replaces the Remote Access canvas. Blur hidden fields,
+            // including any revealed password, before rendering Help.
+            self.remote_id_focused = false;
+            self.set_remote_password_focused(false);
+        }
     }
 
     #[must_use]
@@ -970,6 +976,21 @@ mod tests {
             Err(ConnectError::DeviceOffline)
         );
         assert!(shell.last_error().unwrap().contains("offline"));
+    }
+
+    #[test]
+    fn v5_help_overlay_blurs_hidden_password_and_resets_reveal() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("ui-test-only");
+        shell.focus_remote_password();
+        shell.toggle_remote_password_reveal();
+        assert!(shell.is_remote_password_revealed());
+        shell.set_help_open(true);
+        assert!(shell.is_help_open());
+        assert!(!shell.is_remote_password_focused());
+        assert!(!shell.is_remote_password_revealed());
+        shell.toggle_help();
+        assert!(!shell.is_help_open());
     }
 
     #[test]
