@@ -121,20 +121,32 @@ struct DesktopHost {
     identity: omnidesk_core::device_identity::DeviceIdentity,
 }
 
-fn copy_to_clipboard(text: &str) {
+/// Explicitly copy user-selected local content to the Windows clipboard.
+///
+/// Returns success only when clip.exe accepted stdin and exited successfully.
+/// Secrets are never passed as process arguments or written to logs. Clipboard
+/// contents persist under Windows policy and must not be treated as secure
+/// storage; never call this without an explicit user action.
+fn copy_to_clipboard(text: &str) -> bool {
     use std::io::Write;
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    if let Ok(mut child) = std::process::Command::new("clip.exe")
+    if text.is_empty() {
+        return false;
+    }
+    let Ok(mut child) = std::process::Command::new("clip.exe")
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(std::process::Stdio::piped())
         .spawn()
-    {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(text.as_bytes());
-        }
-        let _ = child.wait();
-    }
+    else {
+        return false;
+    };
+    let wrote = child
+        .stdin
+        .take()
+        .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
+    let exited = child.wait().is_ok_and(|status| status.success());
+    wrote && exited
 }
 
 impl DesktopHost {
@@ -452,8 +464,23 @@ impl DesktopHost {
                     .set_error("Session approval rejected: peer or permission prompt mismatch");
             }
         } else if action == DesktopAction::CopyYourId {
-            copy_to_clipboard(self.shell.local_device_id());
-            apply_action(&mut self.shell, action);
+            if copy_to_clipboard(self.shell.local_device_id()) {
+                apply_action(&mut self.shell, action);
+            } else {
+                self.shell.set_error("Unable to copy device ID to the Windows clipboard");
+            }
+        } else if action == DesktopAction::CopyYourPassword {
+            // Never claim success when no password exists or the OS clipboard
+            // write fails. This requires an explicit visible button click.
+            let copied = self.shell
+                .password_manager()
+                .raw_password()
+                .is_some_and(copy_to_clipboard);
+            if copied {
+                apply_action(&mut self.shell, action);
+            } else {
+                self.shell.set_error("Session password unavailable or clipboard copy failed");
+            }
         } else if action == DesktopAction::ConnectRemoteId {
             apply_action(&mut self.shell, action);
             if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
