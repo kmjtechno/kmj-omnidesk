@@ -16,6 +16,7 @@
 | Remote-specific navigation, not Main Platform business metrics | `layout.rs::nav_tab_rect`, `render.rs::draw_locked_navigation` | Committed |
 | Main Remote Access page, distinct Connect and Share cards | `layout.rs::{remote_id_card_rect,your_id_card_rect}`, `render.rs` | Committed |
 | Remote ID + password; valid input enables Connect securely | `presentation_for`, `action_at_point`, `render.rs::draw_locked_remote_id_card` | Committed (network access still fail-closed) |
+| Remote Password Show/Hide (masked by default, reset on edit/focus/disconnect) | `ProductShell`, `PresentationModel`, `layout.rs`, `render.rs`, `accesskit_tree.rs` | Committed; non-network UI only |
 | Your ID, password status, Show/Hide, Copy, New | `layout.rs`, `render.rs::draw_locked_your_id_card`, native actions | Committed (no unverified host authentication) |
 | Separate truthful Remote Display stage under forms | `layout.rs::remote_stage_rect`, `render.rs::draw_locked_dual_role_cards` | Committed |
 | Compact trusted-device strip and session toolbar | `layout.rs::{devices,session_toolbar}`, `render.rs` | Committed |
@@ -29,6 +30,7 @@
 
 - Card/Stage/Toolbar/Device-strip boundaries at 800x600, 960x640, 1024x768, 1180x600, 1419x611, 1920x1080
 - Password text vs Show/Copy/New buttons: no overlapping hit targets
+- Remote Password reveal control stays inside the input; masked by default; screen reader never gets the raw secret; reveal resets on input edit or disconnect
 - Invalid/self Remote ID and missing password keep Connect CTA disabled
 - Remote Access clicks and screen-reader nodes inaccessible on unrelated tabs
 - Actual Windows accessibility dimensions rather than fixed 960x640
