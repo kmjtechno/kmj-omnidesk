@@ -1774,18 +1774,20 @@ fn draw_locked_dashboard(
     p: Palette,
 ) {
     draw_locked_header(canvas, presentation, layout, p);
-    for rect in [
-        layout.navigation,
-        layout.viewer,
-        layout.inspector,
-    ] {
+    for rect in [layout.navigation, layout.viewer] {
+        locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
+    }
+    if layout.inspector.width > 0 {
+        let rect = layout.inspector;
         locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
     }
     draw_locked_navigation(canvas, presentation, layout, p);
     draw_locked_remote_view(canvas, presentation, layout, p);
     draw_locked_session_tiles(canvas, presentation, layout, p);
     draw_locked_devices(canvas, presentation, layout, p);
-    draw_locked_inspector(canvas, layout, p);
+    if layout.inspector.width > 0 {
+        draw_locked_inspector(canvas, layout, p);
+    }
 }
 
 /// Draws the current truthful product-shell presentation into an RGB software buffer.
