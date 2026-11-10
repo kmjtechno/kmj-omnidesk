@@ -425,11 +425,15 @@ pub fn control_rects_for(
                     PrimaryView::PermissionPrompt => locked.permission_button(index),
                     PrimaryView::Session => locked.session_button(index, count),
                 };
+                // The V5 quick device strip visibly displays at most three
+                // trusted peers. No invisible row is allowed to accept input
+                // behind the remote display or session toolbar.
+                let visible = presentation.primary_view != PrimaryView::Devices || index < 3;
                 ControlRect {
                     x: rect.x,
                     y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
+                    width: if visible { rect.width } else { 0 },
+                    height: if visible { rect.height } else { 0 },
                 }
             })
             .collect();
@@ -559,15 +563,15 @@ pub fn action_at_point(
         {
             return Some(DesktopAction::ToggleHelp);
         }
-        // Secondary tabs do not draw device rows. Never leave invisible
-        // connect targets active under their empty-state panels.
-        if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() != NavTab::Devices {
-            return None;
-        }
-
+        // Remote ID and own-device credentials remain visible and clickable
+        // across all V5 sidebar views; only the device-directory *rows*
+        // disappear when a secondary tab is selected.
         if shell.primary_view() == PrimaryView::Devices {
             if let Some(action) = locked_dual_role_action(&locked, x, y) {
                 return Some(action);
+            }
+            if shell.nav_tab() != NavTab::Devices {
+                return None;
             }
         } else if shell.primary_view() == PrimaryView::Session {
             if locked.session_tool_btn_rect(0).contains(x, y) {
