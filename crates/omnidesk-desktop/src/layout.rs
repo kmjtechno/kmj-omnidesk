@@ -620,7 +620,7 @@ impl LockedDashboardLayout {
             x: card.x + 16,
             y: card.y + 49,
             width: card.width.saturating_sub(32),
-            height: 36,
+            height: if self.compact_height() { 30 } else { 36 },
         }
     }
 
