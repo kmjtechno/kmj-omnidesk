@@ -44,6 +44,16 @@ The `Transport` interface now defaults `is_peer_authenticated_and_encrypted()` t
 - `accesskit` 0.25.2 was released on 2026-10-25 with a security-relevant fix to avoid disclosing password input contents (upstream changelog). The repository's observed lockfile used 0.25.1. **Required before release:** use an isolated Cargo resolution to update that patch version and regenerate `Cargo.lock` with a legitimate checksum, then run locked tests and screen-reader regression checks. Do not manually invent a lockfile checksum or claim this update is installed.
 - The live installed P520 binary and real two-PC remote sessions have not been retested after these changes. Zero paid CI spent.
 
+## Owner-locked V5 UI first — latest source result
+
+The priority was explicitly changed to completing the previously approved **V5 native visual layout before continuing technology upgrades**. See `docs/design/KMJ_OMNIDESK_V5_NATIVE_DESIGN_LOCK_RECEIPT_20261110.md` for implementation mapping.
+
+Committed on this feature branch: KMJ branded task-first header and sidebar; responsive 800px icon rail, compact/large Connect and Share cards, complete Your Password row with separate Show/Copy/New controls, Remote ID + Password + validation-gated Connect securely, explicit Remote Password Show/Hide (masked by default and re-masked after edit/focus/disconnect), dedicated always-visible Remote Display stage, compact trusted-device strip, distinct Sessions/Transfer/Actions/Automation/Security/Preferences views, truthful premium Session Inspector, screen-reader field roles and matching hit targets. Eleven offline renderer receipt targets are in `crates/omnidesk-desktop/examples/capture_v5_screens.rs`.
+
+**Native implementation status:** source committed; actual feature-branch Windows screenshot, Rust compilation and installed preview **NOT VERIFIED**.
+
+**P520 build blocker receipt:** isolated exact-HEAD lane preparation for commit `81654f5d1de8cb8978208bf9672321bbdcfb93f2` returned `DEVICE_TIMEOUT`. A subsequent read-only lane-status inspection showed only preexisting clean lanes `e0f24c2...` and `d49fa215...`, and the dirty shared `main` checkout remained unchanged. Do not claim a successful build or repeat destructive checkouts. Use the existing isolated preview build guidance when an approved local branch execution path is available. Hosted paid CI quota must not be used.
+
 ## Latest validation status
 
 | Gate | Evidence |
