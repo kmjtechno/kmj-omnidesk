@@ -490,7 +490,11 @@ impl LockedDashboardLayout {
             } else {
                 self.remote_screen.width.saturating_sub(36)
             },
-            height: if self.access_cards_wide() { 205 } else { 135 },
+            height: if self.access_cards_wide() {
+                205
+            } else {
+                135
+            },
         }
     }
 
@@ -537,7 +541,11 @@ impl LockedDashboardLayout {
             } else {
                 self.remote_screen.width.saturating_sub(36)
             },
-            height: if self.access_cards_wide() { 205 } else { 156 },
+            height: if self.access_cards_wide() {
+                205
+            } else {
+                156
+            },
         }
     }
 
@@ -644,7 +652,9 @@ mod locked_dashboard_tests {
             assert!(remote_status.y >= remote.y);
             assert!(remote_status.y + remote_status.height <= remote.y + remote.height);
             assert!(connect.y + connect.height <= remote_status.y);
-            assert!(remote.y + remote.height <= layout.remote_screen.y + layout.remote_screen.height);
+            assert!(
+                remote.y + remote.height <= layout.remote_screen.y + layout.remote_screen.height
+            );
         }
     }
 
