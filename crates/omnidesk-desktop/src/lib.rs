@@ -1015,12 +1015,21 @@ mod tests {
             action_at_point(&shell, 1419, 611, rect.x + 12, rect.y + 12),
             Some(DesktopAction::ConnectDevice(0, shell.device_revision()))
         );
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let file_transfer = layout.nav_tab_rect(2);
         assert_eq!(
-            action_at_point(&shell, 1419, 611, 30, rect.y + 12),
+            action_at_point(
+                &shell,
+                1419,
+                611,
+                file_transfer.x + 12,
+                file_transfer.y + 12,
+            ),
             Some(DesktopAction::SelectNav(NavTab::FileTransfer))
         );
-        // Gutter between navigation and devices column has no hit targets
-        assert_eq!(action_at_point(&shell, 1419, 611, 176, rect.y + 12), None);
+        // The gap between the sidebar and remote workspace is inert.
+        let gap_x = layout.navigation.x + layout.navigation.width + 3;
+        assert_eq!(action_at_point(&shell, 1419, 611, gap_x, rect.y + 12), None);
         shell.begin_connect("paired-desk").unwrap();
         let approval = presentation_for(&shell);
         let yes = control_rects_for(&approval, 1419, 611)[0];
