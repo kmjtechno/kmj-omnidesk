@@ -1,8 +1,8 @@
 //! Render-only receipts for the approved KMJ OmniDesk V5 native UI.
 //!
-//! These are deterministic pixel-buffer captures, NOT screenshots from a
-//! running Windows app and NOT evidence of real remote network sessions.
-//! Do not fabricate connection statistics or a "Connected" mock session.
+//! PNG captures come directly from the Rust software renderer; these are
+//! NOT Windows desktop captures, live network streams or connected sessions.
+//! No test credentials, passwords or session metrics are written to images.
 use std::{
     fs::{self, File},
     io::{self, BufWriter, Write},
@@ -12,21 +12,27 @@ use std::{
 use omnidesk_core::product_shell::{NavTab, ProductShell};
 use omnidesk_desktop::{presentation_for, render::render_shell};
 
-fn save_ppm(path: &Path, pixels: &[u32], width: usize, height: usize) -> io::Result<()> {
-    let mut file = BufWriter::new(File::create(path)?);
-    writeln!(file, "P6\n{width} {height}\n255")?;
+fn save_png(path: &Path, pixels: &[u32], width: usize, height: usize) -> io::Result<()> {
+    let width_u32 = u32::try_from(width).map_err(io::Error::other)?;
+    let height_u32 = u32::try_from(height).map_err(io::Error::other)?;
+    let mut raw_rgb = Vec::with_capacity(pixels.len() * 3);
     for &pixel in pixels {
-        let rgb = [
-            u8::try_from((pixel >> 16) & 0xff).expect("red channel"),
-            u8::try_from((pixel >> 8) & 0xff).expect("green channel"),
-            u8::try_from(pixel & 0xff).expect("blue channel"),
-        ];
-        file.write_all(&rgb)?;
+        raw_rgb.push(u8::try_from((pixel >> 16) & 0xff).expect("red"));
+        raw_rgb.push(u8::try_from((pixel >> 8) & 0xff).expect("green"));
+        raw_rgb.push(u8::try_from(pixel & 0xff).expect("blue"));
     }
-    file.flush()
+    image::save_buffer_with_format(
+        path,
+        &raw_rgb,
+        width_u32,
+        height_u32,
+        image::ColorType::Rgb8,
+        image::ImageFormat::Png,
+    )
+    .map_err(io::Error::other)
 }
 
-fn render_to_ppm(
+fn render_to_png(
     shell: &ProductShell,
     out_dir: &Path,
     filename: &str,
@@ -36,7 +42,7 @@ fn render_to_ppm(
     let model = presentation_for(shell);
     let mut pixels = vec![0_u32; width * height];
     render_shell(&mut pixels, width, height, &model);
-    save_ppm(&out_dir.join(filename), &pixels, width, height)
+    save_png(&out_dir.join(filename), &pixels, width, height)
 }
 
 fn main() -> io::Result<()> {
@@ -53,35 +59,35 @@ fn main() -> io::Result<()> {
     // The locked design must retain Connect + Share + Remote Display at
     // typical compact and full-size desktop resolutions.
     for (name, width, height) in [
-        ("01_remote_access_small.ppm", 800, 600),
-        ("02_remote_access_iconrail.ppm", 960, 640),
-        ("03_remote_access_compact.ppm", 1419, 611),
-        ("10_remote_access_laptop.ppm", 1280, 800),
-        ("11_remote_access_wide.ppm", 1920, 1080),
+        ("01_remote_access_small.png", 800, 600),
+        ("02_remote_access_iconrail.png", 960, 640),
+        ("03_remote_access_compact.png", 1419, 611),
+        ("10_remote_access_laptop.png", 1280, 800),
+        ("11_remote_access_wide.png", 1920, 1080),
     ] {
-        render_to_ppm(&shell, &out_dir, name, width, height)?;
+        render_to_png(&shell, &out_dir, name, width, height)?;
     }
 
     for (name, tab) in [
-        ("04_sessions.ppm", NavTab::Connections),
-        ("05_file_transfer.ppm", NavTab::FileTransfer),
-        ("06_remote_actions.ppm", NavTab::RemoteActions),
-        ("07_automation.ppm", NavTab::Automation),
-        ("08_security_center.ppm", NavTab::Security),
-        ("09_preferences.ppm", NavTab::Settings),
+        ("04_sessions.png", NavTab::Connections),
+        ("05_file_transfer.png", NavTab::FileTransfer),
+        ("06_remote_actions.png", NavTab::RemoteActions),
+        ("07_automation.png", NavTab::Automation),
+        ("08_security_center.png", NavTab::Security),
+        ("09_preferences.png", NavTab::Settings),
     ] {
         shell.set_nav_tab(tab);
-        render_to_ppm(&shell, &out_dir, name, 1419, 800)?;
+        render_to_png(&shell, &out_dir, name, 1419, 800)?;
     }
 
     let mut receipt = BufWriter::new(File::create(out_dir.join("RECEIPT.txt"))?);
-    writeln!(receipt, "KMJ_OMNIDESK_V5_CAPTURE_TYPE=OFFLINE_NATIVE_RENDER_BUFFER")?;
+    writeln!(receipt, "KMJ_OMNIDESK_V5_CAPTURE_TYPE=OFFLINE_NATIVE_RENDER_BUFFER_PNG")?;
     writeln!(receipt, "VERIFIED_NETWORK_SESSION=NO")?;
     writeln!(receipt, "CONNECTED_DESKTOP_CAPTURE=NO")?;
     writeln!(receipt, "WINDOWS_EXE_SCREENSHOT=NO")?;
     writeln!(receipt, "SCREEN_COUNT=11")?;
     writeln!(receipt, "BROWSER_MOCKUP=NO")?;
     receipt.flush()?;
-    println!("V5 offline Rust renderer captures: {}", out_dir.display());
+    println!("V5 offline Rust renderer PNG captures: {}", out_dir.display());
     Ok(())
 }
