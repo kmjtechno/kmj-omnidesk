@@ -23,6 +23,7 @@ const V5_COPY_ID_NODE: NodeId = NodeId(10_004);
 const V5_SHOW_PASSWORD_NODE: NodeId = NodeId(10_005);
 const V5_COPY_PASSWORD_NODE: NodeId = NodeId(10_006);
 const V5_ROTATE_PASSWORD_NODE: NodeId = NodeId(10_007);
+const V5_REMOTE_REVEAL_NODE: NodeId = NodeId(10_008);
 const V5_NAV_FIRST_NODE: u64 = 11_001;
 
 #[must_use]
@@ -42,9 +43,19 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
         }
     }
     if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() == NavTab::Devices {
+        if (node_id == V5_REMOTE_REVEAL_NODE
+            && shell.remote_password_input().is_empty())
+            || (node_id == V5_CONNECT_NODE
+                && !presentation_for(shell).remote_access_form_ready)
+            || (matches!(node_id, V5_SHOW_PASSWORD_NODE | V5_COPY_PASSWORD_NODE)
+                && shell.password_manager().raw_password().is_none())
+        {
+            return None;
+        }
         let form_action = match node_id {
             V5_REMOTE_ID_NODE => Some(DesktopAction::FocusRemoteIdInput),
             V5_REMOTE_PASSWORD_NODE => Some(DesktopAction::FocusRemotePasswordInput),
+            V5_REMOTE_REVEAL_NODE => Some(DesktopAction::ToggleRemotePasswordReveal),
             V5_CONNECT_NODE => Some(DesktopAction::ConnectRemoteId),
             V5_COPY_ID_NODE => Some(DesktopAction::CopyYourId),
             V5_SHOW_PASSWORD_NODE => Some(DesktopAction::ToggleYourPasswordReveal),
@@ -199,6 +210,12 @@ pub fn build_accesskit_tree_at_size(
                     layout.remote_password_status_rect(),
                 ),
                 (
+                    V5_REMOTE_REVEAL_NODE,
+                    Role::Button,
+                    "Show or hide remote session password",
+                    layout.remote_password_reveal_btn_rect(),
+                ),
+                (
                     V5_CONNECT_NODE,
                     Role::Button,
                     "Connect securely",
@@ -234,7 +251,19 @@ pub fn build_accesskit_tree_at_size(
                 node.set_label(label);
                 node.set_bounds(dashboard_bounds(bounds));
                 node.add_action(Action::Focus);
-                node.add_action(Action::Click);
+                let enabled = match id {
+                    V5_REMOTE_REVEAL_NODE => !shell.remote_password_input().is_empty(),
+                    V5_CONNECT_NODE => presentation.remote_access_form_ready,
+                    V5_SHOW_PASSWORD_NODE | V5_COPY_PASSWORD_NODE => {
+                        shell.password_manager().raw_password().is_some()
+                    }
+                    _ => true,
+                };
+                if enabled {
+                    node.add_action(Action::Click);
+                } else {
+                    node.set_disabled();
+                }
                 child_ids.push(id);
                 nodes.push((id, node));
             }
@@ -312,7 +341,7 @@ mod tests {
         );
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
         // Root + at most three visible trusted-device tiles.
-        assert_eq!(tree.nodes.len(), 18);
+        assert_eq!(tree.nodes.len(), 19);
         assert_eq!(tree.focus, V5_REMOTE_ID_NODE);
         assert_eq!(tree.nodes[0].1.bounds(), Some(Rect {
             x0: 0.0, y0: 0.0, x1: 1419.0, y1: 611.0,
@@ -353,6 +382,27 @@ mod tests {
         assert_eq!(
             desktop_action_for_node(&shell, NodeId(V5_NAV_FIRST_NODE + 99)),
             None
+        );
+    }
+
+    #[test]
+    fn v5_remote_password_reveal_node_never_contains_the_secret() {
+        let mut shell = ProductShell::new();
+        let empty = build_accesskit_tree_at_size(&shell, None, 1419, 611);
+        let (_, disabled) = empty.nodes.iter()
+            .find(|(id, _)| *id == V5_REMOTE_REVEAL_NODE).unwrap();
+        assert!(disabled.is_disabled());
+        assert_eq!(desktop_action_for_node(&shell, V5_REMOTE_REVEAL_NODE), None);
+
+        shell.set_remote_password_input("do-not-leak-to-screen-reader");
+        let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
+        let (_, show) = tree.nodes.iter()
+            .find(|(id, _)| *id == V5_REMOTE_REVEAL_NODE).unwrap();
+        assert!(!show.is_disabled());
+        assert_eq!(show.value(), None);
+        assert_eq!(
+            desktop_action_for_node(&shell, V5_REMOTE_REVEAL_NODE),
+            Some(DesktopAction::ToggleRemotePasswordReveal)
         );
     }
 
