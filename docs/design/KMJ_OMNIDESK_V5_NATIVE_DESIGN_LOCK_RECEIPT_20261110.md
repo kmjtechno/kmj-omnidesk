@@ -68,10 +68,16 @@
 
 1. Use a **fresh isolated checkout** of the branch, never reset/clean the dirty shared `E:\KMJ\KMJ OmniDesk`.
 2. With reviewed toolchain/lockfile, run `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`, `cargo test --locked --workspace --all-targets --all-features`.
-3. Generate non-network V5 pixel-buffer receipts: `cargo run --locked -p omnidesk-desktop --example capture_v5_screens -- target/v5_captures`; compare the 11 PPM captures with the approved V5 `index.html` layout.
+3. Generate non-network V5 Rust-renderer captures: `cargo run --locked -p omnidesk-desktop --example capture_v5_screens -- target/v5_captures`. The current example writes **11 PNG images** and a receipt, rather than raw PPM files; compare them with the approved V5 `index.html`. These are actual renderer pixel buffers, **not Windows desktop screenshots or live sessions**.
 4. Build and run the isolated Windows preview: `scripts/Build-V5-Windows-Preview.ps1`. Capture **real running Windows executable** at 800x600, 960x640, 1024x768, 1419x611, 1280x800, 1920x1080 and 100%/125%/150% DPI. The native PPM images are not a substitute for this.
 5. Verify click alignment, Tab navigation, accessibility, password visual masking, stable output, screenshot comparison and *no invented session status*. Record binary SHA and QA exit codes.
 6. Only after the design is visually accepted, finish **real** encrypted/verified ID+Password session, media/control protocol, file transfer, multi-monitor and two-PC QA. Never unblock unsafe plaintext login to make the UI seem complete.
+
+## Zero-cost preview build workflow (new)
+
+`scripts/Build-V5-Windows-Preview.ps1` now accepts optional `-ExpectedSha <full-40-hex>`, refuses a mismatched GitHub checkout, runs Cargo formatting/lint/tests/release build, then generates and checks 11 real Rust-rendered PNG captures under the isolated preview folder. The generated receipt includes source SHA, executable SHA256, and explicitly marks physical Windows screenshot and secure remote access as **NOT VERIFIED**. It never overwrites the installed OmniDesk application.
+
+Actual isolated P520 command execution remains blocked by the current CodeBridge profile; the script is committed and ready for an authorized local operator/Antigravity runtime, but **it has not been run in this chat**.
 
 ## Current remaining blocker
 
