@@ -744,6 +744,7 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
         }
         DesktopAction::CopyYourId => {
             shell.set_remote_id_focused(false);
+            shell.set_remote_password_focused(false);
             let id = shell.local_device_id().to_owned();
             if id.is_empty() {
                 shell.set_error("Device identity not initialized yet");
@@ -1707,6 +1708,18 @@ mod tests {
             action_at_point(&shell, 1419, 611, input.x + 5, input.y + 5),
             Some(DesktopAction::FocusRemoteIdInput)
         );
+    }
+
+    #[test]
+    fn v5_copy_device_id_does_not_leave_password_keyboard_focus_active() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        shell.set_remote_password_input("temporary-ui-secret");
+        shell.focus_remote_password();
+        shell.toggle_remote_password_reveal();
+        apply_action(&mut shell, DesktopAction::CopyYourId);
+        assert!(!shell.is_remote_password_focused());
+        assert!(!shell.is_remote_password_revealed());
     }
 
     #[test]
