@@ -479,7 +479,7 @@ impl LockedDashboardLayout {
             x: self.remote_screen.x + 18,
             y: self.remote_screen.y + 18,
             width: self.remote_screen.width.saturating_sub(36),
-            height: 94,
+            height: 135,
         }
     }
 
@@ -494,13 +494,26 @@ impl LockedDashboardLayout {
         }
     }
 
+    /// Status row for the local session password. Do not expose any credential
+    /// until a real native host secret lifecycle has been provisioned.
+    #[must_use]
+    pub const fn your_password_status_rect(&self) -> DashboardRect {
+        let card = self.your_id_card_rect();
+        DashboardRect {
+            x: card.x + 16,
+            y: card.y + 96,
+            width: card.width.saturating_sub(32),
+            height: 23,
+        }
+    }
+
     #[must_use]
     pub const fn remote_id_card_rect(&self) -> DashboardRect {
         DashboardRect {
             x: self.remote_screen.x + 18,
-            y: self.remote_screen.y + 126,
+            y: self.remote_screen.y + 164,
             width: self.remote_screen.width.saturating_sub(36),
-            height: 104,
+            height: 156,
         }
     }
 
@@ -509,9 +522,9 @@ impl LockedDashboardLayout {
         let card = self.remote_id_card_rect();
         DashboardRect {
             x: card.x + 16,
-            y: card.y + 50,
+            y: card.y + 49,
             width: card.width.saturating_sub(146),
-            height: 38,
+            height: 36,
         }
     }
 
@@ -522,7 +535,20 @@ impl LockedDashboardLayout {
             x: input.x + input.width + 10,
             y: input.y,
             width: 104,
-            height: 38,
+            height: 36,
+        }
+    }
+
+    /// A non-interactive password readiness row. Never hit-test this as a
+    /// password field until authenticated credential verification is wired.
+    #[must_use]
+    pub const fn remote_password_status_rect(&self) -> DashboardRect {
+        let card = self.remote_id_card_rect();
+        DashboardRect {
+            x: card.x + 16,
+            y: card.y + 100,
+            width: card.width.saturating_sub(32),
+            height: 35,
         }
     }
 
@@ -571,6 +597,25 @@ mod locked_dashboard_tests {
                     .contains(l.device_row(0).x, l.device_row(0).y)
             );
             assert!(!l.device_row(0).contains(l.navigation.x, l.device_row(0).y));
+        }
+    }
+
+    #[test]
+    fn v5_password_status_rows_are_visible_without_overlapping_remote_id() {
+        for (width, height) in [(1180, 600), (1419, 611), (1920, 1080)] {
+            let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+            let own = layout.your_id_card_rect();
+            let own_status = layout.your_password_status_rect();
+            let remote = layout.remote_id_card_rect();
+            let remote_status = layout.remote_password_status_rect();
+            let connect = layout.remote_id_connect_btn_rect();
+            assert!(own_status.y >= own.y);
+            assert!(own_status.y + own_status.height <= own.y + own.height);
+            assert!(remote.y >= own.y + own.height);
+            assert!(remote_status.y >= remote.y);
+            assert!(remote_status.y + remote_status.height <= remote.y + remote.height);
+            assert!(connect.y + connect.height <= remote_status.y);
+            assert!(remote.y + remote.height <= layout.remote_screen.y + layout.remote_screen.height);
         }
     }
 
