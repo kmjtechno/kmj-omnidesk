@@ -1813,14 +1813,17 @@ mod tests {
         let connect_rect = layout.remote_id_connect_btn_rect();
         let connect_action =
             action_at_point(&shell, 1419, 611, connect_rect.x + 5, connect_rect.y + 5);
-        assert_eq!(connect_action, Some(DesktopAction::ConnectRemoteId));
-        apply_action(&mut shell, connect_action.unwrap());
+        assert_eq!(connect_action, None, "disabled V5 CTA cannot be clicked");
+        apply_action(&mut shell, DesktopAction::ConnectRemoteId);
         assert!(shell.selected_device().is_none());
         assert!(shell.last_error().unwrap().contains("remote session password"));
 
         // A password-shaped input alone is not a verified remote connection,
         // but it permits the shell to begin the guarded request.
         shell.set_remote_password_input("local-qa-only");
+        let connect_action =
+            action_at_point(&shell, 1419, 611, connect_rect.x + 5, connect_rect.y + 5);
+        assert_eq!(connect_action, Some(DesktopAction::ConnectRemoteId));
         apply_action(&mut shell, connect_action.unwrap());
         assert_eq!(shell.selected_device(), Some("KMJ-987-654-321"));
         assert!(!shell.is_remote_id_focused());
@@ -1828,6 +1831,7 @@ mod tests {
         // 6. Refuse self-connection
         shell.disconnect();
         shell.set_remote_id_input("123-456-789");
+        shell.set_remote_password_input("local-qa-only");
         apply_action(&mut shell, DesktopAction::ConnectRemoteId);
         assert!(
             shell
