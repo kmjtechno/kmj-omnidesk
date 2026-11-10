@@ -332,31 +332,26 @@ impl LockedDashboardLayout {
         if width < 1180 || height < 600 {
             return None;
         }
+        // V5: remote access is the primary task, not a four-column
+        // directory dashboard. Give the viewer the entire center column.
         let top = 70;
-        let navigation_width = (width / 100 * 12).clamp(160, 198);
-        let devices_width = (width / 100 * 19).clamp(238, 315);
-        let inspector_width = (width / 100 * 20).clamp(254, 320);
+        let navigation_width = (width / 100 * 15).clamp(182, 220);
+        let inspector_width = (width / 100 * 19).clamp(240, 288);
         let nav = DashboardRect {
-            x: 4,
-            y: top + 4,
+            x: 6,
+            y: top + 6,
             width: navigation_width,
-            height: height - top - 10,
-        };
-        let devices = DashboardRect {
-            x: nav.x + nav.width + 6,
-            y: nav.y,
-            width: devices_width,
-            height: nav.height,
+            height: height - top - 12,
         };
         let inspector = DashboardRect {
-            x: width - inspector_width - 6,
+            x: width.saturating_sub(inspector_width + 7),
             y: nav.y,
             width: inspector_width,
             height: nav.height,
         };
-        let viewer_x = devices.x + devices.width + 6;
-        let viewer_width = inspector.x.saturating_sub(viewer_x + 6);
-        if viewer_width < 350 {
+        let viewer_x = nav.x + nav.width + 8;
+        let viewer_width = inspector.x.saturating_sub(viewer_x + 8);
+        if viewer_width < 640 {
             return None;
         }
         let viewer = DashboardRect {
@@ -365,18 +360,25 @@ impl LockedDashboardLayout {
             width: viewer_width,
             height: nav.height,
         };
-        let toolbar_y = viewer.y + viewer.height - 76;
+        // The device directory becomes a concise strip under the actual
+        // remote display, retaining discoverability without stealing a column.
+        let devices = DashboardRect {
+            x: viewer.x + 10,
+            y: viewer.y + viewer.height.saturating_sub(164),
+            width: viewer.width.saturating_sub(20),
+            height: 85,
+        };
         let remote_screen = DashboardRect {
             x: viewer.x + 10,
-            y: viewer.y + 62,
-            width: viewer.width - 20,
-            height: viewer.height.saturating_sub(150),
+            y: viewer.y + 78,
+            width: viewer.width.saturating_sub(20),
+            height: viewer.height.saturating_sub(255),
         };
         let session_toolbar = DashboardRect {
             x: viewer.x + 10,
-            y: toolbar_y,
-            width: viewer.width - 20,
-            height: 58,
+            y: viewer.y + viewer.height.saturating_sub(70),
+            width: viewer.width.saturating_sub(20),
+            height: 56,
         };
         Some(Self {
             top_bar_height: top,
@@ -386,18 +388,19 @@ impl LockedDashboardLayout {
             inspector,
             remote_screen,
             session_toolbar,
-            first_device_row_y: devices.y + 93,
+            first_device_row_y: devices.y + 34,
             device_row_step: 55,
         })
     }
 
     #[must_use]
     pub const fn device_row(&self, index: usize) -> DashboardRect {
+        let tile_width = self.devices.width.saturating_sub(28) / 3;
         DashboardRect {
-            x: self.devices.x + 8,
-            y: self.first_device_row_y + index.saturating_mul(self.device_row_step),
-            width: self.devices.width.saturating_sub(16),
-            height: 49,
+            x: self.devices.x + 10 + (index % 3) * (tile_width + 4),
+            y: self.first_device_row_y + (index / 3) * self.device_row_step,
+            width: tile_width,
+            height: 45,
         }
     }
 
@@ -436,8 +439,8 @@ impl LockedDashboardLayout {
     #[must_use]
     pub const fn filter_all_rect(&self) -> DashboardRect {
         DashboardRect {
-            x: self.devices.x + 15,
-            y: self.devices.y + 70,
+            x: self.devices.x + 175,
+            y: self.devices.y + 9,
             width: 45,
             height: 22,
         }
@@ -446,8 +449,8 @@ impl LockedDashboardLayout {
     #[must_use]
     pub const fn filter_online_rect(&self) -> DashboardRect {
         DashboardRect {
-            x: self.devices.x + 68,
-            y: self.devices.y + 70,
+            x: self.devices.x + 228,
+            y: self.devices.y + 9,
             width: 65,
             height: 22,
         }
@@ -456,8 +459,8 @@ impl LockedDashboardLayout {
     #[must_use]
     pub const fn filter_offline_rect(&self) -> DashboardRect {
         DashboardRect {
-            x: self.devices.x + 140,
-            y: self.devices.y + 70,
+            x: self.devices.x + 302,
+            y: self.devices.y + 9,
             width: 70,
             height: 22,
         }
@@ -483,7 +486,11 @@ impl LockedDashboardLayout {
     #[must_use]
     pub const fn your_id_card_rect(&self) -> DashboardRect {
         DashboardRect {
-            x: self.remote_screen.x + 18,
+            x: if self.access_cards_wide() {
+                self.remote_screen.x + 36 + self.remote_screen.width.saturating_sub(54) / 2
+            } else {
+                self.remote_screen.x + 18
+            },
             y: self.remote_screen.y + 18,
             width: if self.access_cards_wide() {
                 self.remote_screen.width.saturating_sub(54) / 2
@@ -553,10 +560,9 @@ impl LockedDashboardLayout {
 
     #[must_use]
     pub const fn remote_id_card_rect(&self) -> DashboardRect {
-        let own = self.your_id_card_rect();
         DashboardRect {
             x: if self.access_cards_wide() {
-                own.x + own.width + 18
+                self.remote_screen.x + 18
             } else {
                 self.remote_screen.x + 18
             },
@@ -647,11 +653,12 @@ mod locked_dashboard_tests {
     use super::*;
 
     #[test]
-    fn matches_locked_four_column_hierarchy() {
+    fn v5_layout_uses_three_primary_columns() {
         let l = LockedDashboardLayout::for_window(1419, 611).unwrap();
-        assert!(l.navigation.x + l.navigation.width < l.devices.x);
-        assert!(l.devices.x + l.devices.width < l.viewer.x);
+        assert!(l.navigation.x + l.navigation.width < l.viewer.x);
         assert!(l.viewer.x + l.viewer.width < l.inspector.x);
+        assert!(l.devices.x >= l.viewer.x);
+        assert!(l.devices.x + l.devices.width <= l.viewer.x + l.viewer.width);
         assert!(l.inspector.x + l.inspector.width <= 1419);
         assert!(l.remote_screen.y >= l.viewer.y);
         assert!(l.session_toolbar.y > l.remote_screen.y + l.remote_screen.height);
@@ -692,7 +699,7 @@ mod locked_dashboard_tests {
             assert!(own_status.y + own_status.height <= own.y + own.height);
             if layout.access_cards_wide() {
                 assert_eq!(remote.y, own.y);
-                assert!(remote.x >= own.x + own.width);
+                assert!(own.x >= remote.x + remote.width);
             } else {
                 assert!(remote.y >= own.y + own.height);
             }
@@ -731,7 +738,7 @@ mod locked_dashboard_tests {
             // workspaces retain a collision-free vertical flow.
             if l.access_cards_wide() {
                 assert_eq!(remote_id.y, your_id.y);
-                assert!(remote_id.x >= your_id.x + your_id.width);
+                assert!(your_id.x >= remote_id.x + remote_id.width);
             } else {
                 assert!(remote_id.y >= your_id.y + your_id.height);
             }
