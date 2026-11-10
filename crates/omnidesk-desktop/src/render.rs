@@ -831,20 +831,18 @@ fn draw_locked_navigation(
 ) {
     let nav = layout.navigation;
     let nav_labels = [
-        "Remote Access",
+        "Remote access",
+        "Trusted devices",
         "Sessions",
-        "File Transfer",
-        "Remote Actions",
-        "Automation",
-        "Security Center",
+        "File transfer",
+        "Security center",
         "Preferences",
     ];
     let nav_tabs = [
         omnidesk_core::product_shell::NavTab::Devices,
+        omnidesk_core::product_shell::NavTab::TrustedDevices,
         omnidesk_core::product_shell::NavTab::Connections,
         omnidesk_core::product_shell::NavTab::FileTransfer,
-        omnidesk_core::product_shell::NavTab::RemoteActions,
-        omnidesk_core::product_shell::NavTab::Automation,
         omnidesk_core::product_shell::NavTab::Security,
         omnidesk_core::product_shell::NavTab::Settings,
     ];
@@ -856,6 +854,24 @@ fn draw_locked_navigation(
         "WORKSPACE",
         p.muted,
     );
+    // The owner's locked V5 reference has a distinct Protection section.
+    let compact_rail = nav.width < 120;
+    canvas.h_line(
+        nav.x + 14,
+        nav.y + 226,
+        nav.width.saturating_sub(28),
+        p.border,
+    );
+    if !compact_rail {
+        locked_label(
+            canvas,
+            nav.x + 14,
+            nav.y + 244,
+            nav.width.saturating_sub(28),
+            "PROTECTION",
+            p.muted,
+        );
+    }
     for (index, label) in nav_labels.iter().enumerate() {
         let rect = layout.nav_tab_rect(index);
         let active = nav_tabs[index] == presentation.nav_tab;
@@ -1019,6 +1035,9 @@ fn draw_locked_devices(
         draw_locked_device_rows(canvas, presentation, layout, p);
     } else {
         let status = match presentation.nav_tab {
+            omnidesk_core::product_shell::NavTab::TrustedDevices => {
+                "Manage only enrolled trusted peers"
+            }
             omnidesk_core::product_shell::NavTab::Connections => "Sessions require a verified peer",
             omnidesk_core::product_shell::NavTab::FileTransfer => {
                 "File transfer requires an authorized session"
@@ -1544,6 +1563,73 @@ fn draw_locked_dual_role_cards(
     }
 }
 
+/// Actual enrolled device directory, never fictional demo peers.
+///
+/// The control list is derived from the current ProductShell device catalog,
+/// with enabled = online, and its rectangles are shared with pointer/a11y
+/// activation. No "connected" badge is shown before verification.
+fn draw_locked_trusted_devices_page(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let frame = layout.remote_screen;
+    canvas.fill_rect(frame.x, frame.y, frame.width, frame.height, p.background);
+    canvas.stroke_rect(frame.x, frame.y, frame.width, frame.height, 1, p.border);
+    canvas.fill_rect(
+        frame.x + 1, frame.y + 1,
+        frame.width.saturating_sub(2), 38, p.surface,
+    );
+    canvas.fill_rect(frame.x + 1, frame.y + 1, 3, 38, p.accent);
+    locked_label(
+        canvas, frame.x + 18, frame.y + 14,
+        frame.width.saturating_sub(36), "TRUSTED DEVICES", p.accent,
+    );
+    canvas.text_clipped(
+        frame.x + 18, frame.y + 56,
+        "Your computers", 2,
+        frame.width.saturating_sub(36), p.foreground,
+    );
+    locked_label(
+        canvas, frame.x + 18, frame.y + 102,
+        frame.width.saturating_sub(36),
+        "Only enrolled device identities appear here. Access still requires authorization.",
+        p.muted,
+    );
+
+    let mut shown = 0;
+    for (index, control) in presentation.controls.iter().enumerate().take(9) {
+        if !matches!(control.action, crate::DesktopAction::ConnectDevice(_, _)) {
+            continue;
+        }
+        let tile = layout.trusted_device_tile_rect(index);
+        canvas.fill_rect(tile.x, tile.y, tile.width, tile.height, p.surface);
+        canvas.stroke_rect(tile.x, tile.y, tile.width, tile.height, 1, p.border);
+        canvas.dot(
+            tile.x + 13,
+            tile.y + 20,
+            4,
+            if control.enabled { VERIFIED_GREEN } else { p.muted },
+        );
+        locked_label(
+            canvas, tile.x + 24, tile.y + 15,
+            tile.width.saturating_sub(32),
+            &control.label, p.foreground,
+        );
+        shown += 1;
+    }
+    if shown == 0 {
+        locked_label(
+            canvas,
+            frame.x + 22, frame.y + 170,
+            frame.width.saturating_sub(44),
+            "No trusted devices enrolled. Connect to a verified device first.",
+            p.muted,
+        );
+    }
+}
+
 /// V5 sidebar pages must not all render the same Remote Access form.
 ///
 /// The source of truth for these states remains `ProductShell`. These are
@@ -1559,6 +1645,7 @@ fn draw_locked_feature_page(
     use omnidesk_core::product_shell::NavTab;
 
     let (category, heading, explanation, cards) = match presentation.nav_tab {
+        NavTab::TrustedDevices => return,
         NavTab::Connections => (
             "SESSION MANAGEMENT",
             "Sessions & history",
@@ -1723,6 +1810,7 @@ fn draw_locked_remote_view(
     );
     let page_title = match presentation.nav_tab {
         omnidesk_core::product_shell::NavTab::Devices => "Remote control, reimagined.",
+        omnidesk_core::product_shell::NavTab::TrustedDevices => "Trusted devices",
         omnidesk_core::product_shell::NavTab::Connections => "Sessions & history",
         omnidesk_core::product_shell::NavTab::FileTransfer => "File transfer",
         omnidesk_core::product_shell::NavTab::RemoteActions => "Remote actions",
@@ -1757,11 +1845,14 @@ fn draw_locked_remote_view(
     canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
     canvas.fill_rect(screen.x + 1, screen.y + 1, screen.width - 2, 3, p.border);
 
-    if !matches!(
-        presentation.nav_tab,
-        omnidesk_core::product_shell::NavTab::Devices
-    ) && presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices
+    if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices
         && !presentation.help_open
+        && presentation.nav_tab == omnidesk_core::product_shell::NavTab::TrustedDevices
+    {
+        draw_locked_trusted_devices_page(canvas, presentation, layout, p);
+    } else if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices
+        && !presentation.help_open
+        && presentation.nav_tab != omnidesk_core::product_shell::NavTab::Devices
     {
         draw_locked_feature_page(canvas, presentation, layout, p);
     } else if presentation.help_open {
