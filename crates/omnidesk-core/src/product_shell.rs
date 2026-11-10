@@ -569,8 +569,12 @@ impl ProductShell {
         self.remote_password_focused
     }
 
-    pub const fn set_remote_password_focused(&mut self, focused: bool) {
+    pub fn set_remote_password_focused(&mut self, focused: bool) {
         self.remote_password_focused = focused;
+        // Explicit reveal never persists when the secret input loses focus.
+        if !focused {
+            self.remote_password_revealed = false;
+        }
     }
 
     pub fn focus_remote_id(&mut self) {
@@ -959,6 +963,18 @@ mod tests {
             Err(ConnectError::DeviceOffline)
         );
         assert!(shell.last_error().unwrap().contains("offline"));
+    }
+
+    #[test]
+    fn password_visibility_is_reset_when_the_field_blurs() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("ui-only");
+        shell.focus_remote_password();
+        shell.toggle_remote_password_reveal();
+        assert!(shell.is_remote_password_revealed());
+        shell.set_remote_password_focused(false);
+        assert!(!shell.is_remote_password_revealed());
+        assert!(!shell.is_remote_password_focused());
     }
 
     #[test]
