@@ -136,10 +136,14 @@ impl<T: Transport> TransportSessionAdapter<T> {
         matches!(self.session.state(), SessionState::Active)
     }
 
-    /// Whether control operations are cryptographically authorized.
+    /// Whether control is authorized on a verified confidential channel.
+    /// An Ed25519 proof alone does not encrypt transport frames.
     #[must_use]
-    pub const fn is_control_authorized(&self) -> bool {
-        self.session.control_authorized() && matches!(self.session.state(), SessionState::Active)
+    pub fn is_control_authorized(&self) -> bool {
+        self.transport.is_peer_authenticated_and_encrypted()
+            && self.authenticated_device_id.is_some()
+            && self.session.control_authorized()
+            && matches!(self.session.state(), SessionState::Active)
     }
 
     /// Initiates session negotiation with a verified peer identity.
@@ -205,12 +209,19 @@ impl<T: Transport> TransportSessionAdapter<T> {
         Ok(record.clone())
     }
 
-    /// Authorizes remote session control once authentication has succeeded.
+    /// Authorizes remote session control only after BOTH verified device
+    /// authentication and an independently authenticated encrypted channel.
     ///
     /// # Errors
     ///
-    /// Returns [`TransportSessionError`] if the session is not awaiting authorization.
+    /// Returns [`TransportSessionError::UnverifiedControlBlocked`] if the
+    /// underlying channel is unverified; otherwise returns session errors.
     pub fn authorize_session(&mut self) -> Result<(), TransportSessionError> {
+        if self.authenticated_device_id.is_none()
+            || !self.transport.is_peer_authenticated_and_encrypted()
+        {
+            return Err(TransportSessionError::UnverifiedControlBlocked);
+        }
         self.session
             .authorize_control()
             .map_err(TransportSessionError::Session)
