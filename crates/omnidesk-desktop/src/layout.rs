@@ -453,9 +453,30 @@ impl LockedDashboardLayout {
     pub const fn nav_tab_rect(&self, index: usize) -> DashboardRect {
         DashboardRect {
             x: self.navigation.x + 6,
-            y: self.navigation.y + 34 + index.saturating_mul(44),
+            y: self.navigation.y
+                + 34
+                + index.saturating_mul(44)
+                + if index >= 4 { 60 } else { 0 },
             width: self.navigation.width.saturating_sub(12),
             height: 36,
+        }
+    }
+
+    /// Positions verified-device tiles on the separate Trusted Devices page.
+    /// The same rectangles are shared by rendering, pointer hit tests and
+    /// assistive technology; the Remote Access quick strip is unaffected.
+    #[must_use]
+    pub const fn trusted_device_tile_rect(&self, index: usize) -> DashboardRect {
+        let frame = self.remote_screen;
+        let gutter = 18;
+        let gap = 10;
+        let columns = 3;
+        let tile_width = frame.width.saturating_sub(gutter * 2 + gap * 2) / columns;
+        DashboardRect {
+            x: frame.x + gutter + (index % columns) * (tile_width + gap),
+            y: frame.y + 146 + (index / columns) * 57,
+            width: tile_width,
+            height: 48,
         }
     }
 
@@ -819,6 +840,25 @@ mod locked_dashboard_tests {
                 assert!(btn.x >= card.x);
                 assert!(btn.y + btn.height <= card.y + card.height);
                 assert!(btn.x + btn.width <= card.x + card.width);
+            }
+        }
+    }
+
+    #[test]
+    fn v5_locked_sidebar_has_four_workspace_and_two_protection_items() {
+        for (width, height) in [(800, 600), (1419, 611), (1920, 1080)] {
+            let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+            let fourth = layout.nav_tab_rect(3);
+            let protection = layout.nav_tab_rect(4);
+            let settings = layout.nav_tab_rect(5);
+            assert!(protection.y >= fourth.y + fourth.height + 30);
+            assert!(settings.y >= protection.y + protection.height);
+            assert!(settings.y + settings.height < layout.navigation.y + layout.navigation.height - 69);
+            for i in 0..9 {
+                let tile = layout.trusted_device_tile_rect(i);
+                assert!(tile.x >= layout.remote_screen.x);
+                assert!(tile.x + tile.width <= layout.remote_screen.x + layout.remote_screen.width);
+                assert!(tile.y + tile.height <= layout.remote_screen.y + layout.remote_screen.height);
             }
         }
     }
