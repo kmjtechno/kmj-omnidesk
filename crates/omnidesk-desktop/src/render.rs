@@ -1104,7 +1104,13 @@ fn draw_locked_your_id_card(
         1,
         p.border,
     );
-    canvas.fill_rect(your_id_card.x + 1, your_id_card.y + 1, your_id_card.width.saturating_sub(2), 2, p.border);
+    canvas.fill_rect(
+        your_id_card.x + 1,
+        your_id_card.y + 1,
+        your_id_card.width.saturating_sub(2),
+        2,
+        p.border,
+    );
     locked_label(
         canvas,
         your_id_card.x + 16,
@@ -1155,8 +1161,20 @@ fn draw_locked_your_id_card(
 
     // No demo credential is shown until a real host password lifecycle exists.
     let password = layout.your_password_status_rect();
-    canvas.h_line(password.x, password.y.saturating_sub(12), password.width, p.border);
-    locked_label(canvas, password.x, password.y, password.width, "YOUR PASSWORD", p.muted);
+    canvas.h_line(
+        password.x,
+        password.y.saturating_sub(12),
+        password.width,
+        p.border,
+    );
+    locked_label(
+        canvas,
+        password.x,
+        password.y,
+        password.width,
+        "YOUR PASSWORD",
+        p.muted,
+    );
     locked_label(
         canvas,
         password.x + password.width / 2,
@@ -1253,7 +1271,13 @@ fn draw_locked_remote_id_card(
         1,
         p.border,
     );
-    canvas.fill_rect(remote_id_card.x + 1, remote_id_card.y + 1, remote_id_card.width.saturating_sub(2), 2, p.accent);
+    canvas.fill_rect(
+        remote_id_card.x + 1,
+        remote_id_card.y + 1,
+        remote_id_card.width.saturating_sub(2),
+        2,
+        p.accent,
+    );
     locked_label(
         canvas,
         remote_id_card.x + 16,
@@ -1288,7 +1312,11 @@ fn draw_locked_remote_id_card(
         connect_btn.y + 11,
         connect_btn.width.saturating_sub(36),
         "CONNECT",
-        if connect_enabled { p.foreground } else { p.muted },
+        if connect_enabled {
+            p.foreground
+        } else {
+            p.muted
+        },
     );
     // A password-shaped UI slot is never authentication. The actual
     // connection path remains the existing verified-peer + permission flow.
@@ -1315,7 +1343,8 @@ fn draw_locked_dual_role_cards(
     draw_locked_remote_id_card(canvas, presentation, layout, p);
 
     let screen = layout.remote_screen;
-    let guidance_y = screen.y + if layout.access_cards_wide() { 245 } else { 333 };
+    let guidance_offset = if layout.access_cards_wide() { 245 } else { 333 };
+    let guidance_y = screen.y + guidance_offset;
     locked_label(
         canvas,
         screen.x + 22,
@@ -1330,7 +1359,12 @@ fn draw_locked_dual_role_cards(
     let display_min_height = if layout.access_cards_wide() { 355 } else { 450 };
     if screen.height > display_min_height {
         let display_y = guidance_y + 34;
-        canvas.h_line(screen.x + 18, display_y, screen.width.saturating_sub(36), p.border);
+        canvas.h_line(
+            screen.x + 18,
+            display_y,
+            screen.width.saturating_sub(36),
+            p.border,
+        );
         locked_label(
             canvas,
             screen.x + 22,
@@ -1762,7 +1796,10 @@ mod tests {
         let border = packed_rgb(presentation.visual.border_rgb);
         assert_eq!(pixels[remote.y * width + remote.x], border);
         assert!(own.y + own.height <= layout.remote_id_card_rect().y);
-        assert!(remote.y + remote.height <= layout.remote_id_card_rect().y + layout.remote_id_card_rect().height);
+        assert!(
+            remote.y + remote.height
+                <= layout.remote_id_card_rect().y + layout.remote_id_card_rect().height
+        );
     }
 
     #[test]
