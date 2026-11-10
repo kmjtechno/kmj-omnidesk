@@ -481,7 +481,19 @@ impl DesktopHost {
     fn handle_accesskit_action(&mut self, request: &accesskit::ActionRequest) {
         match request.action {
             Action::Focus => {
-                if desktop_action_for_node(&self.shell, request.target_node).is_some() {
+                if let Some(action) =
+                    desktop_action_for_node(&self.shell, request.target_node)
+                {
+                    // Assistive-tech focus on an editable ID/password field
+                    // must also move the actual keyboard input focus. Never
+                    // copy/read the secret into accessibility node values.
+                    if matches!(
+                        action,
+                        DesktopAction::FocusRemoteIdInput
+                            | DesktopAction::FocusRemotePasswordInput
+                    ) {
+                        self.dispatch_action(action);
+                    }
                     self.accessibility_focus = Some(request.target_node);
                     self.update_accessibility_tree();
                 }
