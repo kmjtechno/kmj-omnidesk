@@ -368,23 +368,26 @@ impl LockedDashboardLayout {
         };
         // The device directory becomes a concise strip under the actual
         // remote display, retaining discoverability without stealing a column.
+        // Short windows need smaller workflow cards, but MUST still show
+        // a separately framed Remote Display stage rather than only text.
+        let compact_height = viewer.height < 700;
         let devices = DashboardRect {
             x: viewer.x + 10,
-            y: viewer.y + viewer.height.saturating_sub(164),
+            y: viewer.y + viewer.height.saturating_sub(if compact_height { 132 } else { 164 }),
             width: viewer.width.saturating_sub(20),
-            height: 85,
+            height: if compact_height { 64 } else { 85 },
         };
         let remote_screen = DashboardRect {
             x: viewer.x + 10,
-            y: viewer.y + 78,
+            y: viewer.y + if compact_height { 62 } else { 78 },
             width: viewer.width.saturating_sub(20),
-            height: viewer.height.saturating_sub(255),
+            height: viewer.height.saturating_sub(if compact_height { 208 } else { 255 }),
         };
         let session_toolbar = DashboardRect {
             x: viewer.x + 10,
-            y: viewer.y + viewer.height.saturating_sub(70),
+            y: viewer.y + viewer.height.saturating_sub(if compact_height { 60 } else { 70 }),
             width: viewer.width.saturating_sub(20),
-            height: 56,
+            height: if compact_height { 48 } else { 56 },
         };
         Some(Self {
             top_bar_height: top,
@@ -394,8 +397,8 @@ impl LockedDashboardLayout {
             inspector,
             remote_screen,
             session_toolbar,
-            first_device_row_y: devices.y + 34,
-            device_row_step: 55,
+            first_device_row_y: devices.y + if compact_height { 28 } else { 34 },
+            device_row_step: if compact_height { 33 } else { 55 },
         })
     }
 
@@ -406,7 +409,7 @@ impl LockedDashboardLayout {
             x: self.devices.x + 10 + (index % 3) * (tile_width + 4),
             y: self.first_device_row_y + (index / 3) * self.device_row_step,
             width: tile_width,
-            height: 45,
+            height: if self.compact_height() { 30 } else { 45 },
         }
     }
 
@@ -482,6 +485,24 @@ impl LockedDashboardLayout {
         }
     }
 
+    /// Compact-height windows keep the remote-display stage visible.
+    #[must_use]
+    pub const fn compact_height(&self) -> bool {
+        self.viewer.height < 700
+    }
+
+    /// A separate video/stage area below Connect and Share cards.
+    #[must_use]
+    pub const fn remote_stage_rect(&self) -> DashboardRect {
+        let offset = if self.compact_height() { 193 } else { 245 };
+        DashboardRect {
+            x: self.remote_screen.x + 18,
+            y: self.remote_screen.y + offset,
+            width: self.remote_screen.width.saturating_sub(36),
+            height: self.remote_screen.height.saturating_sub(offset + 11),
+        }
+    }
+
     /// Show separate share/connect panels side by side when there is enough
     /// actual viewer width, retaining the stacked layout on smaller desktops.
     #[must_use]
@@ -503,7 +524,7 @@ impl LockedDashboardLayout {
             } else {
                 self.remote_screen.width.saturating_sub(36)
             },
-            height: if self.access_cards_wide() { 205 } else { 135 },
+            height: if self.compact_height() { 173 } else { 205 },
         }
     }
 
@@ -582,7 +603,7 @@ impl LockedDashboardLayout {
             } else {
                 self.remote_screen.width.saturating_sub(36)
             },
-            height: 205,
+            height: if self.compact_height() { 173 } else { 205 },
         }
     }
 
@@ -603,9 +624,9 @@ impl LockedDashboardLayout {
         // V5 order: Remote ID → Session Password → Connect.
         DashboardRect {
             x: card.x + 16,
-            y: card.y + 150,
-            width: 156,
-            height: 36,
+            y: card.y + if self.compact_height() { 136 } else { 150 },
+            width: 166,
+            height: if self.compact_height() { 30 } else { 36 },
         }
     }
 
@@ -614,9 +635,9 @@ impl LockedDashboardLayout {
         let card = self.remote_id_card_rect();
         DashboardRect {
             x: card.x + 16,
-            y: card.y + 100,
+            y: card.y + if self.compact_height() { 92 } else { 100 },
             width: card.width.saturating_sub(32),
-            height: 35,
+            height: if self.compact_height() { 32 } else { 35 },
         }
     }
 
@@ -716,6 +737,22 @@ mod locked_dashboard_tests {
             assert!(
                 remote.y + remote.height <= layout.remote_screen.y + layout.remote_screen.height
             );
+        }
+    }
+
+    #[test]
+    fn v5_locked_remote_stage_is_visible_on_compact_and_large_windows() {
+        for (width, height) in [(1024, 768), (1180, 600), (1419, 611), (1920, 1080)] {
+            let l = LockedDashboardLayout::for_window(width, height).unwrap();
+            let stage = l.remote_stage_rect();
+            let own = l.your_id_card_rect();
+            let connect = l.remote_id_card_rect();
+            assert!(stage.height >= 95, "remote stage hidden at {width}x{height}");
+            assert!(stage.y >= own.y + own.height);
+            assert!(stage.y >= connect.y + connect.height);
+            assert!(stage.y + stage.height <= l.remote_screen.y + l.remote_screen.height);
+            assert!(stage.y + stage.height < l.devices.y);
+            assert!(l.devices.y + l.devices.height < l.session_toolbar.y);
         }
     }
 
