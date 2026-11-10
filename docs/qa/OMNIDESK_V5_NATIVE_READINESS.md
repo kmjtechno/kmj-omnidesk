@@ -37,6 +37,13 @@ The `Transport` interface now defaults `is_peer_authenticated_and_encrypted()` t
 
 **Input hygiene:** remote session password input is capped consistently at 32 characters, control characters are filtered, and disconnect clears its logical value and focus. `String::clear()` is not a secure memory wipe; secret zeroization and clipboard expiry are still required before handling real production passwords.
 
+## V5 accessibility and dependency security follow-up
+
+- The native AccessKit tree no longer assumes a 960x640 window for all machines; it now derives physical bounds from the actual Windows window size. Hidden trusted-device rows beyond the visible three-tile strip cannot be activated by screen-reader actions.
+- The 7 V5 sidebar actions and the Remote ID, password, Connect, Copy ID, reveal/copy/rotate password controls now have stable accessible node IDs and correct bounding rectangles. The password control uses `Role::PasswordInput`, with **no node value containing the password**. All additions are on the feature branch and still require exact-HEAD Windows accessibility tests.
+- `accesskit` 0.25.2 was released on 2026-10-25 with a security-relevant fix to avoid disclosing password input contents (upstream changelog). The repository's observed lockfile used 0.25.1. **Required before release:** use an isolated Cargo resolution to update that patch version and regenerate `Cargo.lock` with a legitimate checksum, then run locked tests and screen-reader regression checks. Do not manually invent a lockfile checksum or claim this update is installed.
+- The live installed P520 binary and real two-PC remote sessions have not been retested after these changes. Zero paid CI spent.
+
 ## Latest validation status
 
 | Gate | Evidence |
