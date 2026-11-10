@@ -329,14 +329,20 @@ pub struct LockedDashboardLayout {
 impl LockedDashboardLayout {
     #[must_use]
     pub fn for_window(width: usize, height: usize) -> Option<Self> {
-        if width < 1180 || height < 600 {
+        if width < 1024 || height < 600 {
             return None;
         }
         // V5: remote access is the primary task, not a four-column
         // directory dashboard. Give the viewer the entire center column.
         let top = 70;
         let navigation_width = (width / 100 * 15).clamp(182, 220);
-        let inspector_width = (width / 100 * 19).clamp(240, 288);
+        // At laptop widths, drop the inspector instead of crushing the
+        // access cards. The status is still available in the workspace.
+        let inspector_width = if width < 1180 {
+            0
+        } else {
+            (width / 100 * 19).clamp(240, 288)
+        };
         let nav = DashboardRect {
             x: 6,
             y: top + 6,
@@ -665,10 +671,12 @@ mod locked_dashboard_tests {
     }
 
     #[test]
-    fn compact_windows_fall_back_instead_of_overlapping_panels() {
+    fn compact_windows_fall_back_and_laptops_hide_the_inspector() {
         assert!(LockedDashboardLayout::for_window(960, 640).is_none());
         assert!(LockedDashboardLayout::for_window(1419, 560).is_none());
+        assert_eq!(LockedDashboardLayout::for_window(1024, 768).unwrap().inspector.width, 0);
         for (width, height) in [
+            (1024, 768),
             (1180, 600),
             (1200, 800),
             (1419, 611),
