@@ -1466,6 +1466,134 @@ fn draw_locked_dual_role_cards(
     }
 }
 
+/// V5 sidebar pages must not all render the same Remote Access form.
+///
+/// The source of truth for these states remains ProductShell. These are
+/// dedicated, clearly labelled feature views, not fake device data or
+/// actionable features that require a verified remote connection.
+fn draw_locked_feature_page(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    use omnidesk_core::product_shell::NavTab;
+
+    let (category, heading, explanation, cards) = match presentation.nav_tab {
+        NavTab::Connections => (
+            "SESSION MANAGEMENT",
+            "Sessions & history",
+            "Every remote session must have verified identity and explicit access.",
+            [
+                ("ACTIVE SESSION", "None verified"),
+                ("CONNECTION HISTORY", "No verified sessions to show"),
+                ("ACCESS PERMISSIONS", "Granted only after secure verification"),
+            ],
+        ),
+        NavTab::FileTransfer => (
+            "SECURE TRANSFER",
+            "File transfer",
+            "Send and receive files only within an authorized encrypted session.",
+            [
+                ("TRANSFER QUEUE", "No active transfers"),
+                ("RECENT ACTIVITY", "No verified transfer records"),
+                ("ACCESS CONTROL", "Remote file access unavailable offline"),
+            ],
+        ),
+        NavTab::RemoteActions => (
+            "REMOTE OPERATIONS",
+            "Remote actions",
+            "Keyboard, clipboard and device actions are permission-gated.",
+            [
+                ("KEYBOARD & MOUSE", "Requires verified remote control"),
+                ("CLIPBOARD", "Synchronization unavailable offline"),
+                ("SYSTEM ACTIONS", "Explicit authorization required"),
+            ],
+        ),
+        NavTab::Automation => (
+            "AUTOMATION WORKSPACE",
+            "Automation",
+            "Unattended work must be separately approved and access-scoped.",
+            [
+                ("ACTIVE TASKS", "No verified remote tasks"),
+                ("UNATTENDED ACCESS", "Not authorized in this session"),
+                ("SECURITY POLICY", "No automatic elevation of privilege"),
+            ],
+        ),
+        NavTab::Security => (
+            "TRUST & ACCESS",
+            "Security center",
+            "Peer verification, session passwords and explicit permissions.",
+            [
+                ("PEER IDENTITY", "Authenticated transport required"),
+                ("SESSION PASSWORD", "Configure in your device panel"),
+                ("REMOTE PERMISSIONS", "Fail closed until authorized"),
+            ],
+        ),
+        NavTab::Settings => (
+            "WORKSPACE SETTINGS",
+            "Preferences",
+            "Customize your local experience without relaxing security.",
+            [
+                ("DISPLAY QUALITY", "Configurable after session verification"),
+                ("ACCESSIBILITY", "Keyboard and screen reader enabled"),
+                ("NETWORK", "No secure remote channel established"),
+            ],
+        ),
+        NavTab::Devices => return,
+    };
+    let frame = layout.remote_screen;
+    canvas.fill_rect(frame.x, frame.y, frame.width, frame.height, p.background);
+    canvas.stroke_rect(frame.x, frame.y, frame.width, frame.height, 1, p.border);
+    canvas.fill_rect(frame.x + 1, frame.y + 1, frame.width.saturating_sub(2), 38, p.surface);
+    canvas.fill_rect(frame.x + 1, frame.y + 1, 3, 38, p.accent);
+    locked_label(
+        canvas, frame.x + 18, frame.y + 14,
+        frame.width.saturating_sub(36), category, p.accent,
+    );
+    canvas.text_clipped(
+        frame.x + 18, frame.y + 60, heading, 2,
+        frame.width.saturating_sub(36), p.foreground,
+    );
+    locked_label(
+        canvas, frame.x + 18, frame.y + 105,
+        frame.width.saturating_sub(36), explanation, p.muted,
+    );
+    let gap = 10;
+    let gutter = 18;
+    let width = frame.width.saturating_sub(gutter * 2 + gap * 2) / 3;
+    let tile_height = if layout.compact_height() { 92 } else { 132 };
+    for (index, (title, message)) in cards.iter().enumerate() {
+        let x = frame.x + gutter + index * (width + gap);
+        let y = frame.y + 145;
+        canvas.fill_rect(x, y, width, tile_height, p.surface);
+        canvas.stroke_rect(x, y, width, tile_height, 1, p.border);
+        canvas.fill_rect(x + 11, y + 13, 3, 12, p.accent);
+        locked_label(
+            canvas, x + 23, y + 15,
+            width.saturating_sub(32), title, p.foreground,
+        );
+        locked_label(
+            canvas, x + 12, y + 48,
+            width.saturating_sub(24), message, p.muted,
+        );
+    }
+    if frame.height > 350 {
+        canvas.h_line(
+            frame.x + gutter,
+            frame.y + 145 + tile_height + 24,
+            frame.width.saturating_sub(gutter * 2),
+            p.border,
+        );
+        locked_label(
+            canvas, frame.x + gutter, frame.y + 145 + tile_height + 46,
+            frame.width.saturating_sub(gutter * 2),
+            "No remote operation is available until identity, transport and permissions are verified.",
+            p.muted,
+        );
+    }
+}
+
 fn draw_locked_remote_view(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -1483,11 +1611,21 @@ fn draw_locked_remote_view(
         "KMJ TECHNO  /  OMNIDESK  /  ACCESS DESK",
         p.muted,
     );
-    canvas.text(
+    let page_title = match presentation.nav_tab {
+        omnidesk_core::product_shell::NavTab::Devices => "Remote control, reimagined.",
+        omnidesk_core::product_shell::NavTab::Connections => "Sessions & history",
+        omnidesk_core::product_shell::NavTab::FileTransfer => "File transfer",
+        omnidesk_core::product_shell::NavTab::RemoteActions => "Remote actions",
+        omnidesk_core::product_shell::NavTab::Automation => "Automation",
+        omnidesk_core::product_shell::NavTab::Security => "Security center",
+        omnidesk_core::product_shell::NavTab::Settings => "Preferences",
+    };
+    canvas.text_clipped(
         viewer.x + 18,
         viewer.y + 35,
-        "Remote control, reimagined.",
+        page_title,
         2,
+        viewer.width.saturating_sub(36),
         p.foreground,
     );
     locked_label(
@@ -1509,7 +1647,14 @@ fn draw_locked_remote_view(
     canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
     canvas.fill_rect(screen.x + 1, screen.y + 1, screen.width - 2, 3, p.border);
 
-    if presentation.help_open {
+    if !matches!(
+        presentation.nav_tab,
+        omnidesk_core::product_shell::NavTab::Devices
+    ) && presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices
+        && !presentation.help_open
+    {
+        draw_locked_feature_page(canvas, presentation, layout, p);
+    } else if presentation.help_open {
         locked_label(
             canvas,
             screen.x + 22,
