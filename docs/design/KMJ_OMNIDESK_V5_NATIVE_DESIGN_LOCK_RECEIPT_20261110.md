@@ -52,6 +52,18 @@
 
 **QA distinction:** these are GitHub source commits with static audit receipts, not proof that the new Windows preview compiled or passed tests. Exact feature-branch local build and fresh Windows screenshots remain mandatory.
 
+## Continued source-level V5 regression fixes — 2026-11-10
+
+- Repaired old four-column pointer regression: File Transfer is checked against the actual V5 sidebar rectangle, not the moved trusted-device row
+- Repaired incorrect side-by-side test: compare actual Connect/Share card bounds rather than a password label's y position
+- Help replaces the central Remote Access canvas; pointer actions can no longer click through to invisible Remote ID, password, reveal, Connect or Copy ID
+- Help opening blurs both remote credential fields and re-masks the password; screen-reader tree omits hidden credential nodes and their actions
+- The Help and Preferences top-bar buttons now have accessible roles, real-window rectangles and tested focus; when Help is open, accessible default focus moves to its visible toggle
+- Sidebar selection closes Help so the requested page becomes visible; the existing password clearing and focus reset remain in force
+- New tests document help-click isolation, screen-reader node omission, topbar focus, and sidebar overlay dismissal
+
+**Verification boundary:** all fixes above are committed Rust source/tests, but neither exact-branch Cargo execution nor an actual P520 native Windows screenshot was available through the current authorized execution lane. Source inspection does not count as a passing build. Do not overwrite the installed executable.
+
 ## Exact-head local acceptance on P520
 
 1. Use a **fresh isolated checkout** of the branch, never reset/clean the dirty shared `E:\KMJ\KMJ OmniDesk`.
