@@ -82,8 +82,27 @@ try {
     if ($pngFiles.Count -ne 12) {
         throw "Native renderer expected exactly 12 PNG files, found $($pngFiles.Count)"
     }
+    # Pin the locked design's actual capture matrix, not merely a PNG count.
+    # PNG IHDR stores width and height as unsigned big-endian 32-bit values.
+    $expectedPng = @{
+        '01_remote_access_small.png' = @(800, 600)
+        '02_remote_access_iconrail.png' = @(960, 640)
+        '04_remote_access_1024.png' = @(1024, 768)
+        '03_remote_access_compact.png' = @(1419, 611)
+        '10_remote_access_laptop.png' = @(1280, 800)
+        '11_remote_access_wide.png' = @(1920, 1080)
+        '06_trusted_devices.png' = @(1419, 800)
+        '07_sessions.png' = @(1419, 800)
+        '08_file_transfer.png' = @(1419, 800)
+        '09_security_center.png' = @(1419, 800)
+        '10_preferences.png' = @(1419, 800)
+        '11_trusted_compact.png' = @(960, 640)
+    }
     $pngReceipts = @()
     foreach ($image in ($pngFiles | Sort-Object Name)) {
+        if (-not $expectedPng.ContainsKey($image.Name)) {
+            throw "Unexpected native renderer PNG: $($image.Name)"
+        }
         if ($image.Length -le 100) {
             throw "Empty or corrupt PNG capture: $($image.Name)"
         }
@@ -92,6 +111,18 @@ try {
             [System.BitConverter]::ToString($fileBytes, 0, 8) -ne '89-50-4E-47-0D-0A-1A-0A') {
             throw "Invalid PNG signature: $($image.Name)"
         }
+        if ([System.Text.Encoding]::ASCII.GetString($fileBytes, 12, 4) -ne 'IHDR') {
+            throw "Missing PNG IHDR: $($image.Name)"
+        }
+        [array]::Reverse($fileBytes, 16, 4)
+        [array]::Reverse($fileBytes, 20, 4)
+        $actualWidth = [System.BitConverter]::ToUInt32($fileBytes, 16)
+        $actualHeight = [System.BitConverter]::ToUInt32($fileBytes, 20)
+        $expectedSize = $expectedPng[$image.Name]
+        if ($actualWidth -ne $expectedSize[0] -or $actualHeight -ne $expectedSize[1]) {
+            throw "Wrong PNG dimensions: $($image.Name) got ${actualWidth}x${actualHeight} expected $($expectedSize[0])x$($expectedSize[1])"
+        }
+        $pngReceipts += "PNG_DIMENSIONS=$($image.Name) ${actualWidth}x${actualHeight}"
         $pngSha = (Get-FileHash -LiteralPath $image.FullName -Algorithm SHA256).Hash
         $pngReceipts += ("PNG_SHA256=" + $pngSha + "  " + $image.Name)
     }
