@@ -647,6 +647,18 @@ impl LockedDashboardLayout {
         }
     }
 
+    /// Small Show/Hide action inside the remote password input.
+    #[must_use]
+    pub const fn remote_password_reveal_btn_rect(&self) -> DashboardRect {
+        let field = self.remote_password_status_rect();
+        DashboardRect {
+            x: field.x + field.width.saturating_sub(51),
+            y: field.y + 3,
+            width: 47,
+            height: field.height.saturating_sub(6),
+        }
+    }
+
     #[must_use]
     pub const fn session_toolbar_rect(&self) -> DashboardRect {
         DashboardRect {
@@ -747,6 +759,19 @@ mod locked_dashboard_tests {
             assert!(
                 remote.y + remote.height <= layout.remote_screen.y + layout.remote_screen.height
             );
+        }
+    }
+
+    #[test]
+    fn v5_remote_password_reveal_is_bounded_inside_the_input_field() {
+        for (width, height) in [(800, 600), (960, 640), (1419, 611), (1920, 1080)] {
+            let l = LockedDashboardLayout::for_window(width, height).unwrap();
+            let field = l.remote_password_status_rect();
+            let reveal = l.remote_password_reveal_btn_rect();
+            assert!(reveal.x > field.x);
+            assert!(reveal.y >= field.y);
+            assert!(reveal.x + reveal.width <= field.x + field.width);
+            assert!(reveal.y + reveal.height <= field.y + field.height);
         }
     }
 
