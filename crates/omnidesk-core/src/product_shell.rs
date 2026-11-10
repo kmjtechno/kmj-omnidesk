@@ -413,6 +413,9 @@ impl ProductShell {
 
     pub fn set_nav_tab(&mut self, tab: NavTab) {
         self.nav_tab = tab;
+        // The Help overlay is page-specific; a sidebar choice must reveal
+        // the selected page rather than leave Help covering the workspace.
+        self.help_open = false;
         // The V5 sidebar switches to a different native page. Never allow a
         // hidden Remote Access input to keep accepting keyboard characters.
         self.remote_id_focused = false;
@@ -976,6 +979,19 @@ mod tests {
             Err(ConnectError::DeviceOffline)
         );
         assert!(shell.last_error().unwrap().contains("offline"));
+    }
+
+    #[test]
+    fn v5_sidebar_navigation_closes_help_overlay_and_shows_selected_page() {
+        let mut shell = ProductShell::new();
+        shell.set_help_open(true);
+        assert!(shell.is_help_open());
+        shell.set_nav_tab(NavTab::Settings);
+        assert_eq!(shell.nav_tab(), NavTab::Settings);
+        assert!(!shell.is_help_open());
+        shell.set_help_open(true);
+        shell.set_nav_tab(NavTab::Devices);
+        assert!(!shell.is_help_open());
     }
 
     #[test]
