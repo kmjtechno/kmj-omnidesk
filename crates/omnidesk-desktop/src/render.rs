@@ -918,7 +918,14 @@ fn draw_locked_device_rows(
             1 => layout.filter_online_rect(),
             _ => layout.filter_offline_rect(),
         };
-        locked_label(canvas, rect.x, rect.y, rect.width, label, if *active { p.foreground } else { p.muted });
+        locked_label(
+            canvas,
+            rect.x,
+            rect.y,
+            rect.width,
+            label,
+            if *active { p.foreground } else { p.muted },
+        );
     }
     let empty = presentation.controls.iter().all(|control| !control.enabled);
     if empty {
@@ -961,24 +968,40 @@ fn draw_locked_devices(
     canvas.fill_rect(area.x, area.y, area.width, area.height, p.surface);
     canvas.stroke_rect(area.x, area.y, area.width, area.height, 1, p.border);
     locked_label(
-        canvas, area.x + 14, area.y + 12, area.width.saturating_sub(28),
-        "TRUSTED DEVICES", p.foreground,
+        canvas,
+        area.x + 14,
+        area.y + 12,
+        area.width.saturating_sub(28),
+        "TRUSTED DEVICES",
+        p.foreground,
     );
     if presentation.nav_tab == omnidesk_core::product_shell::NavTab::Devices {
         draw_locked_device_rows(canvas, presentation, layout, p);
     } else {
         let status = match presentation.nav_tab {
-            omnidesk_core::product_shell::NavTab::Connections => "Sessions require a verified peer",
-            omnidesk_core::product_shell::NavTab::FileTransfer => "File transfer requires an authorized session",
-            omnidesk_core::product_shell::NavTab::RemoteActions => "Remote actions require scoped permission",
+            omnidesk_core::product_shell::NavTab::Connections => {
+                "Sessions require a verified peer"
+            }
+            omnidesk_core::product_shell::NavTab::FileTransfer => {
+                "File transfer requires an authorized session"
+            }
+            omnidesk_core::product_shell::NavTab::RemoteActions => {
+                "Remote actions require scoped permission"
+            }
             omnidesk_core::product_shell::NavTab::Automation => "No verified automation session",
-            omnidesk_core::product_shell::NavTab::Security => "Peer identity must be verified before control",
+            omnidesk_core::product_shell::NavTab::Security => {
+                "Peer identity must be verified before control"
+            }
             omnidesk_core::product_shell::NavTab::Settings => "Local session settings",
             omnidesk_core::product_shell::NavTab::Devices => "No device selected",
         };
         locked_label(
-            canvas, area.x + 14, area.y + 53, area.width.saturating_sub(28),
-            status, p.muted,
+            canvas,
+            area.x + 14,
+            area.y + 53,
+            area.width.saturating_sub(28),
+            status,
+            p.muted,
         );
     }
 }
