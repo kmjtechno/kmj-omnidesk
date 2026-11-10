@@ -182,8 +182,8 @@ impl DesktopHost {
             .and_then(|p| p.parse().ok())
             .unwrap_or(21118);
 
-        if let Ok(listener) = std::net::TcpListener::bind(("0.0.0.0", listen_port))
-            .or_else(|_| std::net::TcpListener::bind(("0.0.0.0", 0)))
+        if let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", listen_port))
+            .or_else(|_| std::net::TcpListener::bind(("127.0.0.1", 0)))
         {
             let _ = listener.set_nonblocking(false);
             let _ = std::thread::Builder::new()
@@ -302,127 +302,15 @@ impl DesktopHost {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
+    /// Refuse raw-TCP password-only access. A password proof without a
+    /// cryptographically authenticated, encrypted peer channel is not remote
+    /// control authorization. The network adapter must explicitly attest
+    /// these properties before this flow can be re-enabled.
     fn try_connect_peer(&mut self) {
-        let mut target_addr: Option<std::net::SocketAddr> = None;
-
-        if let Some(dev) = self.shell.selected_device() {
-            if let Ok(addr) = dev.parse::<std::net::SocketAddr>() {
-                target_addr = Some(addr);
-            }
-        }
-
-        if target_addr.is_none() {
-            if let Ok(env_addr) = std::env::var("OMNIDESK_PEER_ADDR") {
-                if let Ok(addr) = env_addr.parse::<std::net::SocketAddr>() {
-                    target_addr = Some(addr);
-                }
-            }
-        }
-
-        if target_addr.is_none() {
-            if let Some(dev) = self.shell.selected_device() {
-                if dev.starts_with("KMJ-") {
-                    // Default to local OmniDesk host listener for single-machine or loopback pairing
-                    target_addr = "127.0.0.1:21118".parse::<std::net::SocketAddr>().ok();
-                }
-            }
-        }
-
-        let Some(addr) = target_addr else {
-            self.shell.disconnect();
-            self.shell.set_error(
-                "Remote connection unavailable: enter remote IP:port (e.g. 192.168.1.50:21118) or set approved peer endpoint",
-            );
-            return;
-        };
-
-        match HostTransport::connect_tcp(addr, std::time::Duration::from_secs(2)) {
-            Ok(transport) => {
-                let tenant =
-                    std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-                let mut adapter = TransportSessionAdapter::new(transport, tenant.clone());
-
-                let store = match TrustedDeviceStore::load_or_create(&self.store_path) {
-                    Ok(s) => s,
-                    Err(err) => {
-                        self.shell.disconnect();
-                        self.shell
-                            .set_error(format!("Trust store load failed: {err}"));
-                        return;
-                    }
-                };
-
-                let client_id = self.identity.public_id().to_owned();
-                let target_id = self
-                    .shell
-                    .selected_device()
-                    .unwrap_or("remote-host")
-                    .to_owned();
-                let remote_pw = self.shell.remote_password_input().trim().to_owned();
-
-                let auth_result = if remote_pw.is_empty() {
-                    omnidesk_core::transport_adapter::peer_negotiate_and_authenticate_session(
-                        adapter.transport_mut(),
-                        self.identity.signing_key(),
-                        &client_id,
-                        &tenant,
-                    )
-                } else {
-                    omnidesk_core::transport_adapter::peer_negotiate_and_authenticate_with_password(
-                        adapter.transport_mut(),
-                        &client_id,
-                        &target_id,
-                        &remote_pw,
-                        &tenant,
-                    )
-                };
-
-                match auth_result {
-                    Ok(host_device_id) => {
-                        let mut summaries = store.to_device_summaries();
-                        if !summaries.iter().any(|d| d.id == host_device_id) {
-                            summaries.push(DeviceSummary {
-                                id: host_device_id.clone(),
-                                display_name: format!("Remote Desk ({host_device_id})"),
-                                status: DeviceStatus::Online,
-                            });
-                        }
-                        for device in &mut summaries {
-                            device.status = if device.id == host_device_id {
-                                DeviceStatus::Online
-                            } else {
-                                DeviceStatus::Offline
-                            };
-                        }
-                        self.shell.replace_devices(summaries);
-                        let _ = self.shell.begin_connect(&host_device_id);
-                        self.shell.decide_permission(PermissionDecision::Allow);
-                        self.shell.update_connection_stats(
-                            omnidesk_core::product_shell::ConnectionStats {
-                                latency_ms: 2,
-                                bitrate_kbps: 8400,
-                                fps: 60,
-                            },
-                        );
-                        self.session_adapter = Some(adapter);
-                        self.shell.clear_error();
-                    }
-                    Err(err) => {
-                        adapter.close();
-                        self.session_adapter = None;
-                        self.shell.disconnect();
-                        self.shell
-                            .set_error(format!("Peer authentication failed: {err}"));
-                    }
-                }
-            }
-            Err(err) => {
-                self.shell.disconnect();
-                self.shell
-                    .set_error(format!("Cannot connect to peer at {addr}: {err:?}"));
-            }
-        }
+        self.shell.disconnect();
+        self.shell.set_error(
+            "Secure remote control unavailable: verified encrypted peer transport and target permission are required",
+        );
     }
 
     fn update_accessibility_tree(&mut self) {
@@ -450,79 +338,16 @@ impl DesktopHost {
     }
 
     fn poll_incoming(&mut self) {
-        if self.session_adapter.is_some() {
-            return;
-        }
-
+        // The current listener is loopback-only. Until the native transport
+        // has mutually authenticated encryption and approved session grants,
+        // an incoming password proof is not authorization. Drop the socket.
         while let Ok(incoming) = self.incoming_rx.try_recv() {
-            let Ok(transport) = HostTransport::from_tcp_stream(incoming.stream) else {
-                continue;
-            };
-            let tenant =
-                std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-            let mut adapter = TransportSessionAdapter::new(transport, tenant);
-            let Ok(store) = TrustedDeviceStore::load_or_create(&self.store_path) else {
-                continue;
-            };
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-
-            let record_result =
-                omnidesk_core::transport_adapter::host_negotiate_and_authenticate_session_with_password(
-                    &mut adapter,
-                    &store,
-                    self.identity.public_id(),
-                    Some(self.shell.password_manager_mut()),
-                    now,
-                );
-
-            if let Ok(record) = record_result {
-                let mut summaries = store.to_device_summaries();
-                if !summaries.iter().any(|d| d.id == record.device_id) {
-                    summaries.push(DeviceSummary {
-                        id: record.device_id.clone(),
-                        display_name: record.display_name.clone(),
-                        status: DeviceStatus::Online,
-                    });
-                }
-                for device in &mut summaries {
-                    device.status = if device.id == record.device_id {
-                        DeviceStatus::Online
-                    } else {
-                        DeviceStatus::Offline
-                    };
-                }
-                self.shell.replace_devices(summaries);
-                let _ = self.shell.begin_connect(&record.device_id);
-                if self.shell.unattended_access_enabled()
-                    || record.display_name.starts_with("Password-Auth")
-                {
-                    self.shell.decide_permission(PermissionDecision::Allow);
-                    self.shell.update_connection_stats(
-                        omnidesk_core::product_shell::ConnectionStats {
-                            latency_ms: 2,
-                            bitrate_kbps: 8400,
-                            fps: 60,
-                        },
-                    );
-                }
-            } else {
-                let peer_id = incoming.peer_addr.to_string();
-                let mut summaries = store.to_device_summaries();
-                if !summaries.iter().any(|d| d.id == peer_id) {
-                    summaries.push(DeviceSummary {
-                        id: peer_id.clone(),
-                        display_name: format!("Remote Peer ({})", incoming.peer_addr),
-                        status: DeviceStatus::Online,
-                    });
-                }
-                self.shell.replace_devices(summaries);
-                let _ = self.shell.begin_connect(&peer_id);
-            }
-            self.session_adapter = Some(adapter);
+            let _peer = incoming.peer_addr;
+            drop(incoming.stream);
+            self.shell.set_error(
+                "Incoming session refused: encrypted transport and target authorization are not verified",
+            );
             self.refresh_presentation();
-            break;
         }
     }
 
@@ -592,7 +417,7 @@ impl DesktopHost {
                                     == Some(&record.public_key)
                             })
                     })
-                }) || (peer_id.is_some() && self.session_adapter.is_some());
+                });
                 if !valid {
                     if let Some(mut adapter) = self.session_adapter.take() {
                         adapter.close();
