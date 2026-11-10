@@ -663,9 +663,9 @@ impl LockedDashboardLayout {
         let card = self.remote_id_card_rect();
         DashboardRect {
             x: card.x + 16,
-            y: card.y + if self.compact_height() { 92 } else { 100 },
+            y: card.y + if self.compact_height() { 97 } else { 107 },
             width: card.width.saturating_sub(32),
-            height: if self.compact_height() { 32 } else { 35 },
+            height: if self.compact_height() { 28 } else { 32 },
         }
     }
 
