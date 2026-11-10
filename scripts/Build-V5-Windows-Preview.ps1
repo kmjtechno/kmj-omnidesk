@@ -5,6 +5,7 @@
 param(
     [switch]$Launch,
     [ValidatePattern('^[a-fA-F0-9]{40}$')]
+    [Parameter(Mandatory = $true)]
     [string]$ExpectedSha
 )
 Set-StrictMode -Version Latest
@@ -38,7 +39,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or $sha -notmatch '^[0-9a-f]{40}$') {
         throw 'Cannot attest exact Git commit'
     }
-    if ($ExpectedSha -and $sha -ne $ExpectedSha.ToLowerInvariant()) {
+    if ($sha -ne $ExpectedSha.ToLowerInvariant()) {
         throw "GitHub branch moved or checkout mismatch: expected $ExpectedSha got $sha"
     }
     Write-Host "KMJ_V5_EXACT_GITHUB_SHA=$sha"
