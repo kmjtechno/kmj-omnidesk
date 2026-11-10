@@ -565,15 +565,15 @@ pub fn action_at_point(
         {
             return Some(DesktopAction::ToggleHelp);
         }
-        // Remote ID and own-device credentials remain visible and clickable
-        // across all V5 sidebar views; only the device-directory *rows*
-        // disappear when a secondary tab is selected.
+        // V5 tabs are independent pages. Remote credential fields are
+        // actionable only on Remote Access, where they are actually drawn.
+        // A secondary page must not contain invisible password/copy targets.
         if shell.primary_view() == PrimaryView::Devices {
-            if let Some(action) = locked_dual_role_action(&locked, x, y) {
-                return Some(action);
-            }
             if shell.nav_tab() != NavTab::Devices {
                 return None;
+            }
+            if let Some(action) = locked_dual_role_action(&locked, x, y) {
+                return Some(action);
             }
         } else if shell.primary_view() == PrimaryView::Session {
             if locked.session_tool_btn_rect(0).contains(x, y) {
@@ -1626,6 +1626,39 @@ mod tests {
         assert_eq!(action, Some(DesktopAction::ToggleHelp));
         apply_action(&mut shell, action.unwrap());
         assert!(shell.is_help_open());
+    }
+
+    #[test]
+    fn v5_secondary_pages_do_not_accept_hidden_remote_credential_clicks() {
+        let mut shell = ProductShell::new();
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let fields = [
+            layout.remote_id_input_rect(),
+            layout.remote_password_status_rect(),
+            layout.your_id_copy_btn_rect(),
+            layout.remote_id_connect_btn_rect(),
+        ];
+        for tab in [
+            NavTab::Connections,
+            NavTab::FileTransfer,
+            NavTab::Security,
+            NavTab::Settings,
+        ] {
+            shell.set_nav_tab(tab);
+            for rect in fields {
+                assert_eq!(
+                    action_at_point(&shell, 1419, 611, rect.x + 5, rect.y + 5),
+                    None,
+                    "hidden Remote Access action reachable on {tab:?}"
+                );
+            }
+        }
+        shell.set_nav_tab(NavTab::Devices);
+        let input = layout.remote_id_input_rect();
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, input.x + 5, input.y + 5),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
     }
 
     #[test]
