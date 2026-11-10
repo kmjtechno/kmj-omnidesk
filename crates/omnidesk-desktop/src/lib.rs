@@ -718,15 +718,21 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             // A pointer event can be queued before the user changes tabs or
             // filters. Revalidate the target at dispatch time, not only when
             // hit-testing it, so stale actions cannot select hidden rows.
-            if (shell.nav_tab() == NavTab::Devices && index >= 3)
-                || (shell.nav_tab() == NavTab::TrustedDevices && index >= 9)
-                || !matches!(shell.nav_tab(), NavTab::Devices | NavTab::TrustedDevices)
+            let visible_limit = match shell.nav_tab() {
+                NavTab::Devices => 3,
+                NavTab::TrustedDevices => 9,
+                _ => 0,
+            };
+            if visible_limit == 0
                 || shell.device_revision() != revision
                 || shell.primary_view() != PrimaryView::Devices
-                || !controls_for_shell(shell).iter().any(|control| {
-                    control.enabled
-                        && control.action == DesktopAction::ConnectDevice(index, revision)
-                })
+                || !controls_for_shell(shell)
+                    .iter()
+                    .take(visible_limit)
+                    .any(|control| {
+                        control.enabled
+                            && control.action == DesktopAction::ConnectDevice(index, revision)
+                    })
             {
                 return;
             }
@@ -1638,6 +1644,34 @@ mod tests {
         assert_eq!(shell.device_revision(), revision);
         apply_action(&mut shell, current);
         assert_eq!(shell.selected_device(), Some("second"));
+    }
+
+    #[test]
+    fn trusted_device_filters_preserve_source_indices_without_hidden_selection() {
+        let mut shell = ProductShell::new();
+        let mut peers = (0..12)
+            .map(|i| DeviceSummary {
+                id: format!("offline-{i}"),
+                display_name: format!("Offline {i}"),
+                status: DeviceStatus::Offline,
+            })
+            .collect::<Vec<_>>();
+        peers.push(DeviceSummary {
+            id: "authorized-online".to_owned(),
+            display_name: "Verified online peer".to_owned(),
+            status: DeviceStatus::Online,
+        });
+        shell.replace_devices(peers);
+        shell.set_device_filter(DeviceFilter::Online);
+        shell.set_nav_tab(NavTab::TrustedDevices);
+        let revision = shell.device_revision();
+        let action = DesktopAction::ConnectDevice(12, revision);
+        apply_action(&mut shell, action);
+        assert_eq!(shell.selected_device(), Some("authorized-online"));
+        shell.disconnect();
+        shell.set_nav_tab(NavTab::Devices);
+        apply_action(&mut shell, action);
+        assert_eq!(shell.selected_device(), Some("authorized-online"));
     }
 
     #[test]
