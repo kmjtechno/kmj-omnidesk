@@ -763,6 +763,19 @@ mod locked_dashboard_tests {
     }
 
     #[test]
+    fn v5_compact_form_has_nonoverlapping_credential_fields() {
+        for (width, height) in [(800, 600), (960, 640), (1180, 600), (1419, 611)] {
+            let l = LockedDashboardLayout::for_window(width, height).unwrap();
+            let id = l.remote_id_input_rect();
+            let password = l.remote_password_status_rect();
+            let connect = l.remote_id_connect_btn_rect();
+            assert!(l.compact_height());
+            assert!(id.y + id.height + 10 <= password.y);
+            assert!(password.y + password.height + 10 <= connect.y);
+        }
+    }
+
+    #[test]
     fn v5_remote_password_reveal_is_bounded_inside_the_input_field() {
         for (width, height) in [(800, 600), (960, 640), (1419, 611), (1920, 1080)] {
             let l = LockedDashboardLayout::for_window(width, height).unwrap();
