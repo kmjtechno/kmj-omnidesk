@@ -83,6 +83,14 @@ The Windows preview script `scripts/Build-V5-Windows-Preview.ps1` now:
 
 This provides an actionable zero-additional-cost QA route **when an exact-branch Windows execution profile becomes authorized/available**. The current CodeBridge profiles are limited to the shared checkout or old clean lanes, and this script **has not executed in this chat**. The actual V5 UI remains unverified until a real Windows preview capture and owner visual comparison pass.
 
+## Locked design sidebar parity correction — 2026-11-10
+
+Compared the user-approved **1600×920 V5 screenshot** against the native Rust source. A substantial visual mismatch was confirmed: the old native design had seven sidebar entries with prominent Automation / Remote Actions, whereas V5 locks six grouped entries: Remote access, Trusted devices, Sessions, File transfer / Security center, Preferences.
+
+Source changes now committed: dedicated `NavTab::TrustedDevices`, grouped sidebar with six items, real enrolled-peer tiles with disabled offline states and a11y-matched hit targets, owner-approved Inspector layout (connection status, session tools, verification checklist), plus eleven offline Rust renderer PNG test targets covering the approved navigation.
+
+**Still NOT verified:** exact-head Windows compilation and `cargo fmt/clippy/test` execution, fresh P520 running-app screenshot and visual acceptance, secure encrypted remote peer transport and any two-PC session. The local CodeBridge device is online but presently exposes only old detached worktrees and approved Cargo commands without a feature-branch fetch/build profile. The installed application has not changed.
+
 ## Latest validation status
 
 | Gate | Evidence |
