@@ -161,8 +161,24 @@ working remote sessions, or production acceptance evidence.</p>
 '@
     $galleryHtml = $galleryHeader + ($galleryCards -join "`n") + $galleryFooter
     Set-Content -LiteralPath (Join-Path $previewDir 'index.html') -Value $galleryHtml -Encoding UTF8
-    if (-not (Test-Path -LiteralPath (Join-Path $captureDir 'RECEIPT.txt') -PathType Leaf)) {
+    $nativeReceiptPath = Join-Path $captureDir 'RECEIPT.txt'
+    if (-not (Test-Path -LiteralPath $nativeReceiptPath -PathType Leaf)) {
         throw 'Native renderer receipt missing'
+    }
+    # Cross-check the renderer's own truth boundary. A PNG count alone must
+    # never certify a Windows screenshot or a real remote-control session.
+    $nativeReceiptLines = @(Get-Content -LiteralPath $nativeReceiptPath)
+    $requiredNativeReceipt = @(
+        'KMJ_OMNIDESK_V5_CAPTURE_TYPE=OFFLINE_NATIVE_RENDER_BUFFER_PNG',
+        'SCREEN_COUNT=12',
+        'VERIFIED_NETWORK_SESSION=NO',
+        'CONNECTED_DESKTOP_CAPTURE=NO',
+        'WINDOWS_EXE_SCREENSHOT=NO'
+    )
+    foreach ($requiredLine in $requiredNativeReceipt) {
+        if (@($nativeReceiptLines | Where-Object { $_ -ceq $requiredLine }).Count -ne 1) {
+            throw "Native renderer receipt missing or duplicated: $requiredLine"
+        }
     }
     Write-Host 'KMJ_V5_NATIVE_RENDER_PNG=PASS_COUNT_12'
     $receipt = @(
