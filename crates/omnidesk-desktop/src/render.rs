@@ -1041,8 +1041,16 @@ fn draw_locked_your_id_card(
         your_id_card.x + 16,
         your_id_card.y + 14,
         your_id_card.width.saturating_sub(32),
-        "02  /  SHARE THIS DEVICE  /  YOUR ID",
-        p.muted,
+        "02  /  SHARE THIS DEVICE",
+        p.accent,
+    );
+    locked_label(
+        canvas,
+        your_id_card.x + 16,
+        your_id_card.y + 30,
+        your_id_card.width.saturating_sub(32),
+        "Your ID & password",
+        p.foreground,
     );
 
     let id_str = if presentation.local_device_id.is_empty() {
@@ -1252,10 +1260,27 @@ fn draw_locked_remote_id_card(
         remote_id_card.x + 16,
         remote_id_card.y + 14,
         remote_id_card.width.saturating_sub(32),
-        "01  /  TAKE CONTROL  /  REMOTE ID",
-        p.muted,
+        "01  /  TAKE CONTROL",
+        p.accent,
+    );
+    locked_label(
+        canvas,
+        remote_id_card.x + 16,
+        remote_id_card.y + 29,
+        remote_id_card.width.saturating_sub(32),
+        "Connect to another desktop",
+        p.foreground,
     );
 
+    // Explicit field captions match the locked V5 connection workflow.
+    locked_label(
+        canvas,
+        remote_id_card.x + 16,
+        remote_id_card.y + 40,
+        remote_id_card.width.saturating_sub(32),
+        "REMOTE ID",
+        p.muted,
+    );
     draw_locked_remote_id_input(canvas, presentation, layout.remote_id_input_rect(), p);
 
     let connect_btn = layout.remote_id_connect_btn_rect();
@@ -1281,12 +1306,20 @@ fn draw_locked_remote_id_card(
         connect_btn.x + 18,
         connect_btn.y + 11,
         connect_btn.width.saturating_sub(36),
-        "CONNECT",
+        "CONNECT SECURELY",
         if connect_enabled {
             p.foreground
         } else {
             p.muted
         },
+    );
+    locked_label(
+        canvas,
+        remote_id_card.x + 16,
+        remote_id_card.y + if layout.compact_height() { 82 } else { 88 },
+        remote_id_card.width.saturating_sub(32),
+        "SESSION PASSWORD",
+        p.muted,
     );
     // Remote session password input
     let password = layout.remote_password_status_rect();
@@ -1323,7 +1356,7 @@ fn draw_locked_remote_id_card(
             if presentation.remote_password_focused {
                 "|"
             } else {
-                "SESSION PASSWORD (REQUIRED)"
+                "Enter session password"
             },
             if presentation.remote_password_focused {
                 p.accent
