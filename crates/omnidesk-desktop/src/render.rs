@@ -897,524 +897,51 @@ fn draw_locked_device_rows(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    let devices = layout.devices;
-    let all_color = if presentation.device_filter == omnidesk_core::product_shell::DeviceFilter::All
+    let area = layout.devices;
+    let filter = presentation.device_filter;
+    for (index, (label, active)) in [
+        ("ALL", filter == omnidesk_core::product_shell::DeviceFilter::All),
+        ("ONLINE", filter == omnidesk_core::product_shell::DeviceFilter::Online),
+        ("OFFLINE", filter == omnidesk_core::product_shell::DeviceFilter::Offline),
+    ]
+    .iter()
+    .enumerate()
     {
-        p.foreground
-    } else {
-        p.muted
-    };
-    let online_color =
-        if presentation.device_filter == omnidesk_core::product_shell::DeviceFilter::Online {
-            p.foreground
-        } else {
-            p.muted
+        let rect = match index {
+            0 => layout.filter_all_rect(),
+            1 => layout.filter_online_rect(),
+            _ => layout.filter_offline_rect(),
         };
-    let offline_color =
-        if presentation.device_filter == omnidesk_core::product_shell::DeviceFilter::Offline {
-            p.foreground
-        } else {
-            p.muted
-        };
-
-    locked_label(canvas, devices.x + 15, devices.y + 75, 45, "ALL", all_color);
-    locked_label(
-        canvas,
-        devices.x + 68,
-        devices.y + 75,
-        65,
-        "ONLINE",
-        online_color,
-    );
-    locked_label(
-        canvas,
-        devices.x + 140,
-        devices.y + 75,
-        70,
-        "OFFLINE",
-        offline_color,
-    );
-
-    let empty_directory = presentation.controls.len() == 1
-        && matches!(
-            presentation.controls[0].action,
-            crate::DesktopAction::FocusDevices
-        )
-        && !presentation.controls[0].enabled;
-    if empty_directory {
+        locked_label(canvas, rect.x, rect.y, rect.width, label, if *active { p.foreground } else { p.muted });
+    }
+    let empty = presentation.controls.iter().all(|control| !control.enabled);
+    if empty {
         locked_label(
             canvas,
-            devices.x + 14,
-            devices.y + 112,
-            devices.width - 28,
-            "No online device available",
+            area.x + 14,
+            area.y + 53,
+            area.width.saturating_sub(28),
+            "No enrolled devices. Use Remote ID to request verified access.",
             p.muted,
         );
+        return;
+    }
+    for (index, control) in presentation.controls.iter().take(3).enumerate() {
+        let rect = layout.device_row(index);
+        if !control.enabled {
+            continue;
+        }
+        canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.background);
+        canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.border);
+        canvas.dot(rect.x + 11, rect.y + 21, 4, VERIFIED_GREEN);
         locked_label(
             canvas,
-            devices.x + 14,
-            devices.y + 136,
-            devices.width - 28,
-            "Pair a trusted device first",
-            p.muted,
+            rect.x + 24,
+            rect.y + 18,
+            rect.width.saturating_sub(32),
+            &control.label,
+            p.foreground,
         );
-    }
-    if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices {
-        for (index, control) in presentation.controls.iter().enumerate() {
-            if matches!(control.action, crate::DesktopAction::FocusDevices) && !control.enabled {
-                continue;
-            }
-            let rect = layout.device_row(index);
-            if rect.y + rect.height >= devices.y + devices.height - 12 {
-                break;
-            }
-            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.background);
-            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.border);
-            canvas.dot(
-                rect.x + 14,
-                rect.y + rect.height / 2,
-                4,
-                if control.enabled {
-                    VERIFIED_GREEN
-                } else {
-                    p.muted
-                },
-            );
-            locked_label(
-                canvas,
-                rect.x + 28,
-                rect.y + 18,
-                rect.width.saturating_sub(44),
-                &control.label,
-                if control.enabled {
-                    p.foreground
-                } else {
-                    p.muted
-                },
-            );
-        }
-    }
-}
-
-#[allow(clippy::too_many_lines)]
-fn draw_locked_secondary_tab(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    nav_tab: omnidesk_core::product_shell::NavTab,
-    devices_x: usize,
-    devices_y: usize,
-    devices_width: usize,
-    p: Palette,
-) {
-    let content_x = devices_x + 12;
-    let content_w = devices_width.saturating_sub(24);
-    let start_y = devices_y + 75;
-
-    match nav_tab {
-        omnidesk_core::product_shell::NavTab::Connections => {
-            // Screen 4: Trusted Devices Directory
-            locked_label(
-                canvas,
-                content_x,
-                start_y,
-                content_w,
-                "TRUSTED DIRECTORY",
-                p.foreground,
-            );
-            locked_label(
-                canvas,
-                content_x,
-                start_y + 20,
-                content_w,
-                "Registered and verified peers",
-                p.muted,
-            );
-
-            let row_y = start_y + 50;
-            let peers = [
-                (
-                    "Windows P520 Workstation",
-                    "KMJ-571-752-800",
-                    "ONLINE",
-                    0x0022_c55e,
-                ),
-                (
-                    "Main Engineering Host",
-                    "KMJ-482-731-906",
-                    "ONLINE",
-                    0x0022_c55e,
-                ),
-                (
-                    "Build Infrastructure Server",
-                    "KMJ-913-204-615",
-                    "OFFLINE",
-                    p.muted,
-                ),
-            ];
-
-            for (idx, (name, id, status, status_col)) in peers.iter().enumerate() {
-                let card_y = row_y + idx * 62;
-                canvas.fill_rect(content_x, card_y, content_w, 54, p.surface);
-                canvas.stroke_rect(content_x, card_y, content_w, 54, 1, p.border);
-
-                canvas.fill_rect(content_x + 10, card_y + 12, 6, 6, *status_col);
-                locked_label(
-                    canvas,
-                    content_x + 22,
-                    card_y + 10,
-                    content_w.saturating_sub(75),
-                    name,
-                    p.foreground,
-                );
-                locked_label(
-                    canvas,
-                    content_x + content_w.saturating_sub(55),
-                    card_y + 10,
-                    50,
-                    status,
-                    *status_col,
-                );
-                locked_label(
-                    canvas,
-                    content_x + 22,
-                    card_y + 30,
-                    content_w.saturating_sub(30),
-                    id,
-                    p.muted,
-                );
-            }
-        }
-        omnidesk_core::product_shell::NavTab::RemoteActions => {
-            // Screen 5: Sessions
-            locked_label(
-                canvas,
-                content_x,
-                start_y,
-                content_w,
-                "ACTIVE & PAST SESSIONS",
-                p.foreground,
-            );
-            locked_label(
-                canvas,
-                content_x,
-                start_y + 20,
-                content_w,
-                "Session logs and connection history",
-                p.muted,
-            );
-
-            let row_y = start_y + 50;
-            if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session {
-                canvas.fill_rect(content_x, row_y, content_w, 60, p.surface);
-                canvas.stroke_rect(content_x, row_y, content_w, 60, 1, p.accent);
-                locked_label(
-                    canvas,
-                    content_x + 10,
-                    row_y + 10,
-                    content_w - 20,
-                    "LIVE SESSION ACTIVE",
-                    p.accent,
-                );
-                locked_label(
-                    canvas,
-                    content_x + 10,
-                    row_y + 32,
-                    content_w - 20,
-                    "Latency: 2ms · Loss: 0.0% · 60 FPS",
-                    p.foreground,
-                );
-            } else {
-                canvas.fill_rect(content_x, row_y, content_w, 50, p.surface);
-                canvas.stroke_rect(content_x, row_y, content_w, 50, 1, p.border);
-                locked_label(
-                    canvas,
-                    content_x + 10,
-                    row_y + 18,
-                    content_w - 20,
-                    "No active remote session",
-                    p.muted,
-                );
-            }
-
-            let hist_y = row_y + 70;
-            locked_label(
-                canvas,
-                content_x,
-                hist_y,
-                content_w,
-                "RECENT SESSIONS",
-                p.foreground,
-            );
-            let sessions = [
-                ("KMJ-571-752-800", "Today 15:30", "12m 45s"),
-                ("KMJ-482-731-906", "Today 11:15", "48m 10s"),
-                ("127.0.0.1:21118", "Yesterday", "24m 02s"),
-            ];
-            for (idx, (peer, time, dur)) in sessions.iter().enumerate() {
-                let cy = hist_y + 26 + idx * 48;
-                canvas.fill_rect(content_x, cy, content_w, 42, p.surface);
-                canvas.stroke_rect(content_x, cy, content_w, 42, 1, p.border);
-                locked_label(
-                    canvas,
-                    content_x + 8,
-                    cy + 8,
-                    content_w.saturating_sub(80),
-                    peer,
-                    p.foreground,
-                );
-                locked_label(
-                    canvas,
-                    content_x + content_w.saturating_sub(65),
-                    cy + 8,
-                    60,
-                    dur,
-                    p.muted,
-                );
-                locked_label(
-                    canvas,
-                    content_x + 8,
-                    cy + 24,
-                    content_w - 16,
-                    time,
-                    p.muted,
-                );
-            }
-        }
-        omnidesk_core::product_shell::NavTab::FileTransfer => {
-            // Screen 6: File Transfer
-            locked_label(
-                canvas,
-                content_x,
-                start_y,
-                content_w,
-                "SECURE FILE TRANSFER",
-                p.foreground,
-            );
-            locked_label(
-                canvas,
-                content_x,
-                start_y + 20,
-                content_w,
-                "E2E encrypted file pipeline",
-                p.muted,
-            );
-
-            let row_y = start_y + 50;
-            let transfers = [
-                ("release_v5_binary.exe", "18.4 MB", "100%", 0x0022_c55e),
-                (
-                    "system_diagnostics.log",
-                    "4.2 MB",
-                    "85% (12.4 MB/s)",
-                    p.accent,
-                ),
-                ("workspace_assets.zip", "42.1 MB", "Pending", p.muted),
-            ];
-            for (idx, (fname, size, progress, pcol)) in transfers.iter().enumerate() {
-                let cy = row_y + idx * 64;
-                canvas.fill_rect(content_x, cy, content_w, 56, p.surface);
-                canvas.stroke_rect(content_x, cy, content_w, 56, 1, p.border);
-
-                locked_label(
-                    canvas,
-                    content_x + 10,
-                    cy + 10,
-                    content_w.saturating_sub(80),
-                    fname,
-                    p.foreground,
-                );
-                locked_label(
-                    canvas,
-                    content_x + content_w.saturating_sub(70),
-                    cy + 10,
-                    65,
-                    size,
-                    p.muted,
-                );
-                locked_label(
-                    canvas,
-                    content_x + 10,
-                    cy + 32,
-                    content_w - 20,
-                    progress,
-                    *pcol,
-                );
-            }
-        }
-        omnidesk_core::product_shell::NavTab::Security => {
-            // Screen 7: Security Center
-            locked_label(
-                canvas,
-                content_x,
-                start_y,
-                content_w,
-                "SECURITY CENTER",
-                p.foreground,
-            );
-            locked_label(
-                canvas,
-                content_x,
-                start_y + 20,
-                content_w,
-                "Zero-trust remote access control",
-                p.muted,
-            );
-
-            let row_y = start_y + 50;
-            let sec_items = [
-                (
-                    "Transport Security",
-                    "Ed25519 + ChaCha20-Poly1305",
-                    0x0022_c55e,
-                ),
-                (
-                    "Password Lifecycle",
-                    "8-char CSPRNG · 24h Expiry",
-                    p.foreground,
-                ),
-                (
-                    "Brute-Force Shield",
-                    "Max 5 attempts / 10m lockout",
-                    0x0022_c55e,
-                ),
-                (
-                    "Unattended Access",
-                    if presentation.unattended_access_enabled {
-                        "ENABLED (Protected)"
-                    } else {
-                        "DISABLED (Explicit Consent)"
-                    },
-                    if presentation.unattended_access_enabled {
-                        p.accent
-                    } else {
-                        p.muted
-                    },
-                ),
-            ];
-            for (idx, (title, desc, dcol)) in sec_items.iter().enumerate() {
-                let cy = row_y + idx * 56;
-                canvas.fill_rect(content_x, cy, content_w, 48, p.surface);
-                canvas.stroke_rect(content_x, cy, content_w, 48, 1, p.border);
-
-                locked_label(
-                    canvas,
-                    content_x + 10,
-                    cy + 8,
-                    content_w - 20,
-                    title,
-                    p.muted,
-                );
-                locked_label(canvas, content_x + 10, cy + 26, content_w - 20, desc, *dcol);
-            }
-        }
-        omnidesk_core::product_shell::NavTab::Settings => {
-            // Screen 8: Preferences
-            locked_label(
-                canvas,
-                content_x,
-                start_y,
-                content_w,
-                "PREFERENCES",
-                p.foreground,
-            );
-            locked_label(
-                canvas,
-                content_x,
-                start_y + 20,
-                content_w,
-                "Display and session quality",
-                p.muted,
-            );
-
-            let row_y = start_y + 50;
-            canvas.fill_rect(content_x, row_y, content_w, 80, p.surface);
-            canvas.stroke_rect(content_x, row_y, content_w, 80, 1, p.border);
-            locked_label(
-                canvas,
-                content_x + 10,
-                row_y + 10,
-                content_w - 20,
-                "STREAM QUALITY PRESET",
-                p.muted,
-            );
-
-            let presets = ["BALANCED", "SAVER", "HIGH"];
-            let btn_w = (content_w.saturating_sub(30)) / 3;
-            for (i, pr) in presets.iter().enumerate() {
-                let bx = content_x + 8 + i * (btn_w + 5);
-                let by = row_y + 36;
-                let active = i == 0;
-                canvas.fill_rect(bx, by, btn_w, 28, if active { p.accent } else { p.border });
-                locked_label(
-                    canvas,
-                    bx + 6,
-                    by + 7,
-                    btn_w.saturating_sub(12),
-                    pr,
-                    p.foreground,
-                );
-            }
-
-            let opt_y = row_y + 96;
-            let options = [
-                ("KMJ Signature Theme", "Dark Graphite + KMJ Red"),
-                ("DPI Awareness", "Native 100% / 125% / 150% Auto"),
-                ("AccessKit Accessibility", "Active · Screen Reader Enabled"),
-            ];
-            for (idx, (name, val)) in options.iter().enumerate() {
-                let cy = opt_y + idx * 50;
-                canvas.fill_rect(content_x, cy, content_w, 42, p.surface);
-                canvas.stroke_rect(content_x, cy, content_w, 42, 1, p.border);
-                locked_label(
-                    canvas,
-                    content_x + 8,
-                    cy + 8,
-                    content_w - 16,
-                    name,
-                    p.foreground,
-                );
-                locked_label(canvas, content_x + 8, cy + 24, content_w - 16, val, p.muted);
-            }
-        }
-        omnidesk_core::product_shell::NavTab::Automation => {
-            locked_label(
-                canvas,
-                content_x,
-                start_y,
-                content_w,
-                "AUTOMATION & TASKS",
-                p.foreground,
-            );
-            locked_label(
-                canvas,
-                content_x,
-                start_y + 20,
-                content_w,
-                "Automated remote routines",
-                p.muted,
-            );
-
-            let row_y = start_y + 50;
-            canvas.fill_rect(content_x, row_y, content_w, 56, p.surface);
-            canvas.stroke_rect(content_x, row_y, content_w, 56, 1, p.border);
-            locked_label(
-                canvas,
-                content_x + 10,
-                row_y + 12,
-                content_w - 20,
-                "Nightly Sync & Health Probe",
-                p.foreground,
-            );
-            locked_label(
-                canvas,
-                content_x + 10,
-                row_y + 32,
-                content_w - 20,
-                "Scheduled: 02:00 UTC · Status: READY",
-                0x0022_c55e,
-            );
-        }
-        omnidesk_core::product_shell::NavTab::Devices => {}
     }
 }
 
@@ -1424,45 +951,28 @@ fn draw_locked_devices(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    let devices = layout.devices;
-    let nav_tab = presentation.nav_tab;
-    let col_title = match nav_tab {
-        omnidesk_core::product_shell::NavTab::Devices => "Devices",
-        omnidesk_core::product_shell::NavTab::Connections => "Connections",
-        omnidesk_core::product_shell::NavTab::FileTransfer => "File Transfer",
-        omnidesk_core::product_shell::NavTab::RemoteActions => "Remote Actions",
-        omnidesk_core::product_shell::NavTab::Automation => "Automation",
-        omnidesk_core::product_shell::NavTab::Security => "Security",
-        omnidesk_core::product_shell::NavTab::Settings => "Settings",
-    };
-
+    let area = layout.devices;
+    canvas.fill_rect(area.x, area.y, area.width, area.height, p.surface);
+    canvas.stroke_rect(area.x, area.y, area.width, area.height, 1, p.border);
     locked_label(
-        canvas,
-        devices.x + 14,
-        devices.y + 21,
-        devices.width - 28,
-        col_title,
-        p.foreground,
+        canvas, area.x + 14, area.y + 12, area.width.saturating_sub(28),
+        "TRUSTED DEVICES", p.foreground,
     );
-    canvas.fill_rect(
-        devices.x + 10,
-        devices.y + 60,
-        devices.width - 20,
-        1,
-        p.border,
-    );
-
-    if nav_tab == omnidesk_core::product_shell::NavTab::Devices {
+    if presentation.nav_tab == omnidesk_core::product_shell::NavTab::Devices {
         draw_locked_device_rows(canvas, presentation, layout, p);
     } else {
-        draw_locked_secondary_tab(
-            canvas,
-            presentation,
-            nav_tab,
-            devices.x,
-            devices.y,
-            devices.width,
-            p,
+        let status = match presentation.nav_tab {
+            omnidesk_core::product_shell::NavTab::Connections => "Sessions require a verified peer",
+            omnidesk_core::product_shell::NavTab::FileTransfer => "File transfer requires an authorized session",
+            omnidesk_core::product_shell::NavTab::RemoteActions => "Remote actions require scoped permission",
+            omnidesk_core::product_shell::NavTab::Automation => "No verified automation session",
+            omnidesk_core::product_shell::NavTab::Security => "Peer identity must be verified before control",
+            omnidesk_core::product_shell::NavTab::Settings => "Local session settings",
+            omnidesk_core::product_shell::NavTab::Devices => "No device selected",
+        };
+        locked_label(
+            canvas, area.x + 14, area.y + 53, area.width.saturating_sub(28),
+            status, p.muted,
         );
     }
 }
@@ -1870,17 +1380,24 @@ fn draw_locked_remote_view(
     // authenticated frame decoder, never from a screenshot of the reference.
     locked_label(
         canvas,
-        viewer.x + 13,
-        viewer.y + 22,
-        viewer.width - 26,
-        presentation.panel_title,
+        viewer.x + 18,
+        viewer.y + 13,
+        viewer.width.saturating_sub(36),
+        "KMJ TECHNO  /  OMNIDESK  /  ACCESS DESK",
+        p.muted,
+    );
+    canvas.text(
+        viewer.x + 18,
+        viewer.y + 35,
+        "Remote control, reimagined.",
+        2,
         p.foreground,
     );
     locked_label(
         canvas,
-        viewer.x + 13,
-        viewer.y + 43,
-        viewer.width - 26,
+        viewer.x + 18,
+        viewer.y + 66,
+        viewer.width.saturating_sub(36),
         presentation.status,
         p.muted,
     );
@@ -2345,16 +1862,15 @@ fn draw_locked_dashboard(
     draw_locked_header(canvas, presentation, layout, p);
     for rect in [
         layout.navigation,
-        layout.devices,
         layout.viewer,
         layout.inspector,
     ] {
         locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
     }
     draw_locked_navigation(canvas, presentation, layout, p);
-    draw_locked_devices(canvas, presentation, layout, p);
     draw_locked_remote_view(canvas, presentation, layout, p);
     draw_locked_session_tiles(canvas, presentation, layout, p);
+    draw_locked_devices(canvas, presentation, layout, p);
     draw_locked_inspector(canvas, layout, p);
 }
 
@@ -2437,7 +1953,13 @@ mod tests {
         let remote = layout.remote_password_status_rect();
         let border = packed_rgb(presentation.visual.border_rgb);
         assert_eq!(pixels[remote.y * width + remote.x], border);
-        assert!(own.y + own.height <= layout.remote_id_card_rect().y);
+        let connect = layout.remote_id_card_rect();
+        if layout.access_cards_wide() {
+            assert_eq!(own.y, connect.y);
+            assert!(own.x >= connect.x + connect.width);
+        } else {
+            assert!(own.y + own.height <= connect.y);
+        }
         assert!(
             remote.y + remote.height
                 <= layout.remote_id_card_rect().y + layout.remote_id_card_rect().height
@@ -2505,12 +2027,12 @@ mod tests {
 
         // The placeholder must not paint a dark row behind the empty-state
         // prompt. A genuine peer row begins at the same y-position.
-        let x = layout.devices.x + 9;
+        let x = layout.devices.x + 3;
         let y = layout.device_row(0).y + 20;
         assert_eq!(
             pixels[y * width + x],
             packed_rgb(model.visual.surface_rgb),
-            "the fake placeholder row obscured the truthful empty-state text"
+            "a disabled placeholder must not paint a fake device tile"
         );
     }
 
