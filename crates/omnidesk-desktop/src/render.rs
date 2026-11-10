@@ -745,23 +745,27 @@ fn draw_locked_header(
     canvas.text(
         70,
         45,
-        "OMNIDESK  /  INNOVATE  |  BUILD  |  SCALE",
+        "INNOVATE  |  BUILD  |  SCALE",
         1,
         p.muted,
     );
 
-    let search_x = canvas.width / 3;
-    let search_w = canvas.width / 3;
-    canvas.fill_rect(search_x, 15, search_w, 37, p.background);
-    canvas.stroke_rect(search_x, 15, search_w, 37, 1, p.border);
-    locked_label(
-        canvas,
-        search_x + 14,
-        29,
-        search_w.saturating_sub(28),
-        "SECURE REMOTE ACCESS  /  ONE APP, EVERY DESK",
-        p.muted,
-    );
+    // Hide the decorative command strip on compact windows: it is not
+    // searchable yet and must never overlap the KMJ TECHNO wordmark.
+    if canvas.width >= 1024 {
+        let search_x = canvas.width / 3;
+        let search_w = canvas.width / 3;
+        canvas.fill_rect(search_x, 15, search_w, 37, p.background);
+        canvas.stroke_rect(search_x, 15, search_w, 37, 1, p.border);
+        locked_label(
+            canvas,
+            search_x + 14,
+            29,
+            search_w.saturating_sub(28),
+            "OMNIDESK  /  SECURE REMOTE WORKSPACE",
+            p.muted,
+        );
+    }
 
     let settings_rect = layout.settings_button_rect(canvas.width);
     let help_rect = layout.help_button_rect(canvas.width);
@@ -865,36 +869,58 @@ fn draw_locked_navigation(
             canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.accent);
         }
         let item_color = if active { p.foreground } else { p.muted };
-        draw_locked_nav_icon(canvas, index, rect.x + 7, rect.y + 10, item_color);
-        locked_label(
-            canvas,
-            rect.x + 29,
-            rect.y + 13,
-            rect.width.saturating_sub(34),
-            label,
-            item_color,
-        );
+        let compact_rail = nav.width < 120;
+        let icon_x = if compact_rail {
+            rect.x + rect.width.saturating_sub(16) / 2
+        } else {
+            rect.x + 7
+        };
+        draw_locked_nav_icon(canvas, index, icon_x, rect.y + 10, item_color);
+        if !compact_rail {
+            locked_label(
+                canvas,
+                rect.x + 29,
+                rect.y + 13,
+                rect.width.saturating_sub(34),
+                label,
+                item_color,
+            );
+        }
     }
     let nav_bottom = nav.y + nav.height;
-    canvas.fill_rect(nav.x + 9, nav_bottom - 69, nav.width - 18, 56, p.background);
-    canvas.stroke_rect(nav.x + 9, nav_bottom - 69, nav.width - 18, 56, 1, p.border);
-    canvas.dot(nav.x + 22, nav_bottom - 47, 4, p.muted);
-    locked_label(
-        canvas,
-        nav.x + 32,
-        nav_bottom - 51,
-        nav.width.saturating_sub(48),
-        presentation.status,
-        p.foreground,
+    canvas.fill_rect(
+        nav.x + 9, nav_bottom - 69,
+        nav.width.saturating_sub(18), 56, p.background,
     );
-    locked_label(
-        canvas,
-        nav.x + 17,
-        nav_bottom - 28,
-        nav.width.saturating_sub(28),
-        "Local device",
-        p.muted,
+    canvas.stroke_rect(
+        nav.x + 9, nav_bottom - 69,
+        nav.width.saturating_sub(18), 56, 1, p.border,
     );
+    if nav.width < 120 {
+        canvas.dot(nav.x + nav.width / 2, nav_bottom - 40, 5, p.muted);
+        locked_label(
+            canvas, nav.x + 12, nav_bottom - 24,
+            nav.width.saturating_sub(24), "LOCAL", p.muted,
+        );
+    } else {
+        canvas.dot(nav.x + 22, nav_bottom - 47, 4, p.muted);
+        locked_label(
+            canvas,
+            nav.x + 32,
+            nav_bottom - 51,
+            nav.width.saturating_sub(48),
+            presentation.status,
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            nav.x + 17,
+            nav_bottom - 28,
+            nav.width.saturating_sub(28),
+            "Local device",
+            p.muted,
+        );
+    }
 }
 
 fn draw_locked_device_rows(
