@@ -251,7 +251,11 @@ pub fn build_accesskit_tree_at_size(
     root.set_children(child_ids.clone());
     nodes.insert(0, (ROOT_NODE_ID, root));
 
-    let default_focus = child_ids.first().copied().unwrap_or(ROOT_NODE_ID);
+    let default_focus = if child_ids.contains(&V5_REMOTE_ID_NODE) {
+        V5_REMOTE_ID_NODE
+    } else {
+        child_ids.first().copied().unwrap_or(ROOT_NODE_ID)
+    };
     let focus = requested_focus
         .filter(|id| *id == ROOT_NODE_ID || child_ids.contains(id))
         .unwrap_or(default_focus);
@@ -308,6 +312,7 @@ mod tests {
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
         // Root + at most three visible trusted-device tiles.
         assert_eq!(tree.nodes.len(), 18);
+        assert_eq!(tree.focus, V5_REMOTE_ID_NODE);
         assert_eq!(tree.nodes[0].1.bounds(), Some(Rect {
             x0: 0.0, y0: 0.0, x1: 1419.0, y1: 611.0,
         }));
