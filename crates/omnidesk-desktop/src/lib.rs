@@ -92,13 +92,15 @@ impl VisualSystem {
     #[must_use]
     pub const fn kmj_black_red() -> Self {
         Self {
-            background_rgb: [5, 6, 8],
-            surface_rgb: [15, 17, 21],
-            foreground_rgb: [244, 246, 248],
-            accent_rgb: [232, 18, 37],
-            danger_rgb: [255, 59, 48],
-            muted_rgb: [132, 139, 148],
-            border_rgb: [38, 42, 48],
+            // KMJ Main Platform brand tokens, adapted for remote-control UI.
+            // Keep red for the primary action and use graphite to group work.
+            background_rgb: [7, 13, 19],
+            surface_rgb: [14, 21, 29],
+            foreground_rgb: [244, 246, 250],
+            accent_rgb: [237, 18, 54],
+            danger_rgb: [247, 66, 76],
+            muted_rgb: [156, 171, 191],
+            border_rgb: [40, 55, 68],
         }
     }
 }
