@@ -477,6 +477,8 @@ const fn locked_dual_role_action(
         return Some(DesktopAction::RotateYourPassword);
     }
     if locked.remote_id_connect_btn_rect().contains(x, y) {
+        // The primary V5 ID + password form cannot be activated with only
+        // the ID populated. Transport-level checks remain mandatory.
         return Some(DesktopAction::ConnectRemoteId);
     }
     if locked.remote_password_status_rect().contains(x, y) {
@@ -646,7 +648,8 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             // A pointer event can be queued before the user changes tabs or
             // filters. Revalidate the target at dispatch time, not only when
             // hit-testing it, so stale actions cannot select hidden rows.
-            if shell.device_revision() != revision
+            if index >= 3
+                || shell.device_revision() != revision
                 || shell.primary_view() != PrimaryView::Devices
                 || shell.nav_tab() != NavTab::Devices
                 || !controls_for_shell(shell).iter().any(|control| {
@@ -710,6 +713,12 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             shell.focus_remote_password();
         }
         DesktopAction::ConnectRemoteId => {
+            // Remote ID by itself is never enough for the V5 password
+            // connection form. A validated ID still isn't authentication.
+            if shell.remote_password_input().trim().is_empty() {
+                shell.set_error("Enter the remote session password to request access");
+                return;
+            }
             shell.set_remote_id_focused(false);
             shell.set_remote_password_focused(false);
             let _ = shell.begin_connect_remote_id();
@@ -1491,7 +1500,9 @@ mod tests {
         apply_action(&mut shell, DesktopAction::ConnectDevice(9, revision));
         assert_eq!(shell.selected_device(), None);
         apply_action(&mut shell, DesktopAction::ConnectDevice(8, revision));
-        assert_eq!(shell.selected_device(), Some("desk-8"));
+        assert_eq!(shell.selected_device(), None);
+        apply_action(&mut shell, DesktopAction::ConnectDevice(2, revision));
+        assert_eq!(shell.selected_device(), Some("desk-2"));
     }
 
     #[test]
@@ -1664,6 +1675,13 @@ mod tests {
         let connect_action =
             action_at_point(&shell, 1419, 611, connect_rect.x + 5, connect_rect.y + 5);
         assert_eq!(connect_action, Some(DesktopAction::ConnectRemoteId));
+        apply_action(&mut shell, connect_action.unwrap());
+        assert!(shell.selected_device().is_none());
+        assert!(shell.last_error().unwrap().contains("remote session password"));
+
+        // A password-shaped input alone is not a verified remote connection,
+        // but it permits the shell to begin the guarded request.
+        shell.set_remote_password_input("local-qa-only");
         apply_action(&mut shell, connect_action.unwrap());
         assert_eq!(shell.selected_device(), Some("KMJ-987-654-321"));
         assert!(!shell.is_remote_id_focused());
