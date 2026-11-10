@@ -99,7 +99,7 @@ try {
         '<figure><img src="native-render-png/' + $safe + '" alt="' +
         $safe + '" loading="lazy"><figcaption>' + $safe + '</figcaption></figure>'
     })
-    $galleryHtml = @'
+    $galleryHeader = @'
 <!doctype html>
 <html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -118,10 +118,12 @@ figcaption{font-size:13px;color:#b8c2cf;padding:10px}
 receipt.txt. These images are <strong>not</strong> Windows desktop captures,
 working remote sessions, or production acceptance evidence.</p>
 <main>
-'@ + ($galleryCards -join "`n") + @'
+'@
+    $galleryFooter = @'
 </main>
 </html>
 '@
+    $galleryHtml = $galleryHeader + ($galleryCards -join "`n") + $galleryFooter
     Set-Content -LiteralPath (Join-Path $previewDir 'index.html') -Value $galleryHtml -Encoding UTF8
     if (-not (Test-Path -LiteralPath (Join-Path $captureDir 'RECEIPT.txt') -PathType Leaf)) {
         throw 'Native renderer receipt missing'
