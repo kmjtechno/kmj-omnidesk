@@ -60,6 +60,7 @@ fn main() -> io::Result<()> {
     for (name, width, height) in [
         ("01_remote_access_small.png", 800, 600),
         ("02_remote_access_iconrail.png", 960, 640),
+        ("04_remote_access_1024.png", 1024, 768),
         ("03_remote_access_compact.png", 1419, 611),
         ("10_remote_access_laptop.png", 1280, 800),
         ("11_remote_access_wide.png", 1920, 1080),
@@ -89,7 +90,7 @@ fn main() -> io::Result<()> {
     writeln!(receipt, "VERIFIED_NETWORK_SESSION=NO")?;
     writeln!(receipt, "CONNECTED_DESKTOP_CAPTURE=NO")?;
     writeln!(receipt, "WINDOWS_EXE_SCREENSHOT=NO")?;
-    writeln!(receipt, "SCREEN_COUNT=11")?;
+    writeln!(receipt, "SCREEN_COUNT=12")?;
     writeln!(receipt, "BROWSER_MOCKUP=NO")?;
     receipt.flush()?;
     println!(
