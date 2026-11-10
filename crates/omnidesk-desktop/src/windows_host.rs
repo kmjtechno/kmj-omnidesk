@@ -21,7 +21,7 @@ use winit::{
 
 use crate::{
     AccessibilityNode, DesktopAction, accessibility_snapshot,
-    accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
+    accesskit_tree::{build_accesskit_tree_at_size, desktop_action_for_node},
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
     controls_for_shell,
@@ -314,7 +314,18 @@ impl DesktopHost {
     }
 
     fn update_accessibility_tree(&mut self) {
-        let update = build_accesskit_tree_with_focus(&self.shell, self.accessibility_focus);
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let size = window.inner_size();
+        let width = usize::try_from(size.width).unwrap_or(usize::MAX);
+        let height = usize::try_from(size.height).unwrap_or(usize::MAX);
+        let update = build_accesskit_tree_at_size(
+            &self.shell,
+            self.accessibility_focus,
+            width,
+            height,
+        );
         if let Some(adapter) = self.adapter.as_mut() {
             adapter.update_if_active(|| update);
         }
