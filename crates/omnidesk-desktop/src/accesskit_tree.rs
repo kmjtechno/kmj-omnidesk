@@ -23,9 +23,24 @@ const V5_COPY_ID_NODE: NodeId = NodeId(10_004);
 const V5_SHOW_PASSWORD_NODE: NodeId = NodeId(10_005);
 const V5_COPY_PASSWORD_NODE: NodeId = NodeId(10_006);
 const V5_ROTATE_PASSWORD_NODE: NodeId = NodeId(10_007);
+const V5_NAV_FIRST_NODE: u64 = 11_001;
 
 #[must_use]
 pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<DesktopAction> {
+    const NAV: [NavTab; 7] = [
+        NavTab::Devices,
+        NavTab::Connections,
+        NavTab::FileTransfer,
+        NavTab::RemoteActions,
+        NavTab::Automation,
+        NavTab::Security,
+        NavTab::Settings,
+    ];
+    if let Some(index) = node_id.0.checked_sub(V5_NAV_FIRST_NODE) {
+        if let Some(tab) = NAV.get(usize::try_from(index).ok()?) {
+            return Some(DesktopAction::SelectNav(*tab));
+        }
+    }
     if shell.primary_view() == PrimaryView::Devices {
         let form_action = match node_id {
             V5_REMOTE_ID_NODE => Some(DesktopAction::FocusRemoteIdInput),
@@ -137,6 +152,32 @@ pub fn build_accesskit_tree_at_size(
             node.set_disabled();
         }
         nodes.push((id, node));
+    }
+
+    // Native V5 sidebar is a keyboard/screen-reader navigation region.
+    // Keep the same tab order and rectangles as the renderer and hit tester.
+    if let Some(layout) = LockedDashboardLayout::for_window(width, height) {
+        for (index, label) in [
+            "Remote Access",
+            "Sessions",
+            "File Transfer",
+            "Remote Actions",
+            "Automation",
+            "Security Center",
+            "Preferences",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let id = NodeId(V5_NAV_FIRST_NODE + u64::try_from(index).unwrap_or(0));
+            let mut node = Node::new(Role::Button);
+            node.set_label(*label);
+            node.set_bounds(dashboard_bounds(layout.nav_tab_rect(index)));
+            node.add_action(Action::Focus);
+            node.add_action(Action::Click);
+            child_ids.push(id);
+            nodes.push((id, node));
+        }
     }
 
     // Expose the actual V5 fields to screen readers, without ever storing
@@ -266,7 +307,7 @@ mod tests {
         );
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
         // Root + at most three visible trusted-device tiles.
-        assert_eq!(tree.nodes.len(), 11);
+        assert_eq!(tree.nodes.len(), 18);
         assert_eq!(tree.nodes[0].1.bounds(), Some(Rect {
             x0: 0.0, y0: 0.0, x1: 1419.0, y1: 611.0,
         }));
@@ -276,6 +317,22 @@ mod tests {
         // A11y activation on a secondary tab cannot select hidden peers.
         shell.set_nav_tab(NavTab::Security);
         assert_eq!(desktop_action_for_node(&shell, NodeId(1)), None);
+    }
+
+    #[test]
+    fn v5_sidebar_accessibility_actions_match_native_tabs() {
+        let shell = ProductShell::new();
+        let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
+        let nav_node = NodeId(V5_NAV_FIRST_NODE + 5);
+        assert!(tree.nodes.iter().any(|(id, _)| *id == nav_node));
+        assert_eq!(
+            desktop_action_for_node(&shell, nav_node),
+            Some(DesktopAction::SelectNav(NavTab::Security))
+        );
+        assert_eq!(
+            desktop_action_for_node(&shell, NodeId(V5_NAV_FIRST_NODE + 99)),
+            None
+        );
     }
 
     #[test]
