@@ -79,8 +79,8 @@ try {
         '--example','capture_v5_screens','--',$captureDir
     )
     $pngFiles = @(Get-ChildItem -LiteralPath $captureDir -Filter '*.png' -File)
-    if ($pngFiles.Count -ne 11) {
-        throw "Native renderer expected exactly 11 PNG files, found $($pngFiles.Count)"
+    if ($pngFiles.Count -ne 12) {
+        throw "Native renderer expected exactly 12 PNG files, found $($pngFiles.Count)"
     }
     $pngReceipts = @()
     foreach ($image in ($pngFiles | Sort-Object Name)) {
@@ -132,7 +132,7 @@ working remote sessions, or production acceptance evidence.</p>
     if (-not (Test-Path -LiteralPath (Join-Path $captureDir 'RECEIPT.txt') -PathType Leaf)) {
         throw 'Native renderer receipt missing'
     }
-    Write-Host 'KMJ_V5_NATIVE_RENDER_PNG=PASS_COUNT_11'
+    Write-Host 'KMJ_V5_NATIVE_RENDER_PNG=PASS_COUNT_12'
     $receipt = @(
         "SOURCE_SHA=$sha",
         "BINARY_SHA256=$digest",
@@ -140,7 +140,7 @@ working remote sessions, or production acceptance evidence.</p>
         "CLIPPY=PASS",
         "TESTS=PASS",
         "BUILD=PASS",
-        "NATIVE_RENDER_PNG_COUNT=11",
+        "NATIVE_RENDER_PNG_COUNT=12",
         "NATIVE_RENDER_TYPE=OFFLINE_RUST_PIXEL_BUFFER",
         "PHYSICAL_WINDOWS_SCREENSHOT=NOT_VERIFIED",
         "RELEASE=NOT_APPROVED",
