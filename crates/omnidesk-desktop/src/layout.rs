@@ -436,7 +436,7 @@ impl LockedDashboardLayout {
     pub const fn nav_tab_rect(&self, index: usize) -> DashboardRect {
         DashboardRect {
             x: self.navigation.x + 6,
-            y: self.navigation.y + 9 + index.saturating_mul(44),
+            y: self.navigation.y + 34 + index.saturating_mul(44),
             width: self.navigation.width.saturating_sub(12),
             height: 36,
         }
@@ -582,7 +582,7 @@ impl LockedDashboardLayout {
             } else {
                 self.remote_screen.width.saturating_sub(36)
             },
-            height: if self.access_cards_wide() { 205 } else { 156 },
+            height: 205,
         }
     }
 
@@ -592,24 +592,23 @@ impl LockedDashboardLayout {
         DashboardRect {
             x: card.x + 16,
             y: card.y + 49,
-            width: card.width.saturating_sub(146),
+            width: card.width.saturating_sub(32),
             height: 36,
         }
     }
 
     #[must_use]
     pub const fn remote_id_connect_btn_rect(&self) -> DashboardRect {
-        let input = self.remote_id_input_rect();
+        let card = self.remote_id_card_rect();
+        // V5 order: Remote ID → Session Password → Connect.
         DashboardRect {
-            x: input.x + input.width + 10,
-            y: input.y,
-            width: 104,
+            x: card.x + 16,
+            y: card.y + 150,
+            width: 156,
             height: 36,
         }
     }
 
-    /// A non-interactive password readiness row. Never hit-test this as a
-    /// password field until authenticated credential verification is wired.
     #[must_use]
     pub const fn remote_password_status_rect(&self) -> DashboardRect {
         let card = self.remote_id_card_rect();
@@ -713,7 +712,7 @@ mod locked_dashboard_tests {
             }
             assert!(remote_status.y >= remote.y);
             assert!(remote_status.y + remote_status.height <= remote.y + remote.height);
-            assert!(connect.y + connect.height <= remote_status.y);
+            assert!(connect.y >= remote_status.y + remote_status.height);
             assert!(
                 remote.y + remote.height <= layout.remote_screen.y + layout.remote_screen.height
             );
@@ -768,8 +767,11 @@ mod locked_dashboard_tests {
             assert!(connect_btn.x + connect_btn.width <= remote_id.x + remote_id.width);
             assert!(connect_btn.y + connect_btn.height <= remote_id.y + remote_id.height);
 
-            // Input and Connect button do not horizontally overlap
-            assert!(connect_btn.x >= input.x + input.width);
+            // The form flows from ID, to password, to connect without
+            // overlapping interactive targets.
+            let password = l.remote_password_status_rect();
+            assert!(password.y >= input.y + input.height);
+            assert!(connect_btn.y >= password.y + password.height);
         }
     }
 }
