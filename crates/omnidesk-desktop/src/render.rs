@@ -2203,9 +2203,9 @@ mod tests {
 
     #[test]
     fn quick_connect_identity_caption_stays_in_its_own_column() {
-        // Quick-connect belongs to the compact fallback. At >=1180px the
-        // locked four-column dashboard intentionally replaces this view.
-        let width = 960;
+        // The legacy layout remains only for windows narrower than 800px.
+        // V5 owns compact desktop widths without the old dashboard layout.
+        let width = 700;
         let height = 800;
         let shell = ProductShell::new();
         let presentation = presentation_for(&shell);
@@ -2303,14 +2303,14 @@ mod tests {
             role: crate::AccessibleRole::Button,
             enabled: true,
         }];
-        let mut pixels = vec![0_u32; 960 * 800];
-        render_shell(&mut pixels, 960, 800, &presentation);
+        let mut pixels = vec![0_u32; 760 * 800];
+        render_shell(&mut pixels, 760, 800, &presentation);
 
         // The panel starts at panel_x; nothing of the row may land there.
-        let Some(layout) = ShellLayout::for_window(960, 800) else {
-            panic!("layout should resolve at 960x800");
+        let Some(layout) = ShellLayout::for_window(760, 800) else {
+            panic!("layout should resolve at 760x800");
         };
-        let Some(rect) = crate::control_rects_for(&presentation, 960, 800)
+        let Some(rect) = crate::control_rects_for(&presentation, 760, 800)
             .first()
             .copied()
         else {
@@ -2319,7 +2319,7 @@ mod tests {
         let row_y = rect.y;
         for y in row_y..row_y + rect.height {
             for x in layout.panel_x..layout.panel_x + layout.panel_width {
-                let pixel = pixels[y * 960 + x];
+                let pixel = pixels[y * 760 + x];
                 assert_ne!(
                     pixel,
                     packed_rgb(presentation.visual.foreground_rgb),
