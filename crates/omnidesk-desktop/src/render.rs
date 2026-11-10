@@ -828,6 +828,7 @@ fn draw_locked_nav_icon(canvas: &mut Canvas<'_>, index: usize, x: usize, y: usiz
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn draw_locked_navigation(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -1570,7 +1571,7 @@ fn draw_locked_dual_role_cards(
 
 /// Actual enrolled device directory, never fictional demo peers.
 ///
-/// The control list is derived from the current ProductShell device catalog,
+/// The control list is derived from the current `ProductShell` device catalog,
 /// with enabled = online, and its rectangles are shared with pointer/a11y
 /// activation. No "connected" badge is shown before verification.
 fn draw_locked_trusted_devices_page(
@@ -1670,7 +1671,6 @@ fn draw_locked_feature_page(
     use omnidesk_core::product_shell::NavTab;
 
     let (category, heading, explanation, cards) = match presentation.nav_tab {
-        NavTab::TrustedDevices => return,
         NavTab::Connections => (
             "SESSION MANAGEMENT",
             "Sessions & history",
@@ -1734,7 +1734,7 @@ fn draw_locked_feature_page(
                 ("NETWORK", "No secure remote channel established"),
             ],
         ),
-        NavTab::Devices => return,
+        NavTab::TrustedDevices | NavTab::Devices => return,
     };
     let frame = layout.remote_screen;
     canvas.fill_rect(frame.x, frame.y, frame.width, frame.height, p.background);
@@ -1816,6 +1816,7 @@ fn draw_locked_feature_page(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn draw_locked_remote_view(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -2178,6 +2179,7 @@ fn draw_locked_action_buttons(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn draw_locked_inspector(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
