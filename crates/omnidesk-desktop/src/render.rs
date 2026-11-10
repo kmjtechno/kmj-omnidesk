@@ -1394,12 +1394,12 @@ fn draw_locked_remote_id_card(
         },
         pw_border_color,
     );
-    if presentation.remote_password_input_masked.is_empty() {
+    if presentation.remote_password_display.is_empty() {
         locked_label(
             canvas,
             password.x + 10,
             password.y + 11,
-            password.width.saturating_sub(20),
+            password.width.saturating_sub(76),
             if presentation.remote_password_focused {
                 "|"
             } else {
@@ -1413,19 +1413,39 @@ fn draw_locked_remote_id_card(
         );
     } else {
         let text = if presentation.remote_password_focused {
-            format!("{}|", presentation.remote_password_input_masked)
+            format!("{}|", presentation.remote_password_display)
         } else {
-            presentation.remote_password_input_masked.clone()
+            presentation.remote_password_display.clone()
         };
         locked_label(
             canvas,
             password.x + 10,
             password.y + 11,
-            password.width.saturating_sub(20),
+            password.width.saturating_sub(76),
             &text,
             p.foreground,
         );
     }
+    let reveal = layout.remote_password_reveal_btn_rect();
+    canvas.fill_rect(
+        reveal.x, reveal.y, reveal.width, reveal.height, p.surface,
+    );
+    canvas.stroke_rect(
+        reveal.x, reveal.y, reveal.width, reveal.height, 1, p.border,
+    );
+    locked_label(
+        canvas,
+        reveal.x + 6,
+        reveal.y + 7,
+        reveal.width.saturating_sub(12),
+        if presentation.remote_password_revealed { "HIDE" } else { "SHOW" },
+        if presentation.remote_password_display.is_empty() {
+            p.muted
+        } else {
+            p.foreground
+        },
+    );
+
 }
 
 fn draw_locked_dual_role_cards(
