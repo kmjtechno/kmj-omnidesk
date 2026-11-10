@@ -443,14 +443,25 @@ pub fn control_rects_for(
             .enumerate()
             .map(|(index, _)| {
                 let rect = match presentation.primary_view {
-                    PrimaryView::Devices => locked.device_row(index),
+                    PrimaryView::Devices => {
+                        if presentation.nav_tab == NavTab::TrustedDevices {
+                            locked.trusted_device_tile_rect(index)
+                        } else {
+                            locked.device_row(index)
+                        }
+                    },
                     PrimaryView::PermissionPrompt => locked.permission_button(index),
                     PrimaryView::Session => locked.session_button(index, count),
                 };
                 // The V5 quick device strip visibly displays at most three
                 // trusted peers. No invisible row is allowed to accept input
                 // behind the remote display or session toolbar.
-                let visible = presentation.primary_view != PrimaryView::Devices || index < 3;
+                let visible = presentation.primary_view != PrimaryView::Devices
+                    || match presentation.nav_tab {
+                        NavTab::Devices => index < 3,
+                        NavTab::TrustedDevices => index < 9,
+                        _ => false,
+                    };
                 ControlRect {
                     x: rect.x,
                     y: rect.y,
@@ -525,13 +536,12 @@ pub fn action_at_point(
     y: usize,
 ) -> Option<DesktopAction> {
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
-        // Navigation items (all 7 tabs respond to clicks)
-        const NAV_TABS: [NavTab; 7] = [
+        // Six visible destinations, matching the locked V5 sidebar.
+        const NAV_TABS: [NavTab; 6] = [
             NavTab::Devices,
+            NavTab::TrustedDevices,
             NavTab::Connections,
             NavTab::FileTransfer,
-            NavTab::RemoteActions,
-            NavTab::Automation,
             NavTab::Security,
             NavTab::Settings,
         ];
@@ -598,10 +608,20 @@ pub fn action_at_point(
             return None;
         }
 
-        // V5 tabs are independent pages. Remote credential fields are
-        // actionable only on Remote Access, where they are actually drawn.
-        // A secondary page must not contain invisible password/copy targets.
+        // Trusted Devices has real, permission-gated peer tiles. Other
+        // pages must not expose hidden Connect or credential actions.
         if shell.primary_view() == PrimaryView::Devices {
+            if shell.nav_tab() == NavTab::TrustedDevices {
+                let model = presentation_for(shell);
+                for (index, control) in model.controls.iter().enumerate().take(9) {
+                    if control.enabled
+                        && locked.trusted_device_tile_rect(index).contains(x, y)
+                    {
+                        return Some(control.action);
+                    }
+                }
+                return None;
+            }
             if shell.nav_tab() != NavTab::Devices {
                 return None;
             }
@@ -698,10 +718,11 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             // A pointer event can be queued before the user changes tabs or
             // filters. Revalidate the target at dispatch time, not only when
             // hit-testing it, so stale actions cannot select hidden rows.
-            if index >= 3
+            if (shell.nav_tab() == NavTab::Devices && index >= 3)
+                || (shell.nav_tab() == NavTab::TrustedDevices && index >= 9)
+                || !matches!(shell.nav_tab(), NavTab::Devices | NavTab::TrustedDevices)
                 || shell.device_revision() != revision
                 || shell.primary_view() != PrimaryView::Devices
-                || shell.nav_tab() != NavTab::Devices
                 || !controls_for_shell(shell).iter().any(|control| {
                     control.enabled
                         && control.action == DesktopAction::ConnectDevice(index, revision)
@@ -866,7 +887,8 @@ pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
     }
     let key = key.to_ascii_lowercase();
     let control_match =
-        if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() != NavTab::Devices {
+        if shell.primary_view() == PrimaryView::Devices
+            && !matches!(shell.nav_tab(), NavTab::Devices | NavTab::TrustedDevices) {
             None // Do not activate hidden device rows via numeric shortcuts.
         } else {
             controls_for_shell(shell)
@@ -891,6 +913,7 @@ pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
     if shell.primary_view() == PrimaryView::Devices {
         let nav_action = match key {
             'd' => Some(DesktopAction::SelectNav(NavTab::Devices)),
+            'v' => Some(DesktopAction::SelectNav(NavTab::TrustedDevices)),
             'c' => Some(DesktopAction::SelectNav(NavTab::Connections)),
             'f' => Some(DesktopAction::SelectNav(NavTab::FileTransfer)),
             'm' => Some(DesktopAction::SelectNav(NavTab::Automation)),
@@ -1021,7 +1044,7 @@ mod tests {
             Some(DesktopAction::ConnectDevice(0, shell.device_revision()))
         );
         let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
-        let file_transfer = layout.nav_tab_rect(2);
+        let file_transfer = layout.nav_tab_rect(3);
         assert_eq!(
             action_at_point(
                 &shell,
@@ -1618,12 +1641,52 @@ mod tests {
     }
 
     #[test]
+    fn v5_trusted_devices_page_uses_real_online_peer_actions() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "trusted-1".to_owned(),
+                display_name: "Owner laptop".to_owned(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "trusted-2".to_owned(),
+                display_name: "Offline peer".to_owned(),
+                status: DeviceStatus::Offline,
+            },
+        ]);
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let nav = layout.nav_tab_rect(1);
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, nav.x + 8, nav.y + 8),
+            Some(DesktopAction::SelectNav(NavTab::TrustedDevices))
+        );
+        shell.set_nav_tab(NavTab::TrustedDevices);
+        assert_eq!(presentation_for(&shell).nav_tab, NavTab::TrustedDevices);
+        let first = layout.trusted_device_tile_rect(0);
+        let offline = layout.trusted_device_tile_rect(1);
+        assert!(matches!(
+            action_at_point(&shell, 1419, 611, first.x + 6, first.y + 6),
+            Some(DesktopAction::ConnectDevice(0, _))
+        ));
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, offline.x + 6, offline.y + 6),
+            None
+        );
+        let hidden = layout.remote_id_input_rect();
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, hidden.x + 6, hidden.y + 6),
+            None
+        );
+    }
+
+    #[test]
     fn navigation_tabs_and_filters_are_hit_testable() {
         let mut shell = ProductShell::new();
         let layout = LockedDashboardLayout::for_window(1419, 611).expect("layout fits");
 
         // 1. Navigation items hit testing
-        let conn_rect = layout.nav_tab_rect(1);
+        let conn_rect = layout.nav_tab_rect(2);
         let action = action_at_point(&shell, 1419, 611, conn_rect.x + 10, conn_rect.y + 10);
         assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::Connections)));
 
@@ -1632,11 +1695,11 @@ mod tests {
         let presentation = presentation_for(&shell);
         assert_eq!(presentation.nav_tab, NavTab::Connections);
 
-        let ft_rect = layout.nav_tab_rect(2);
+        let ft_rect = layout.nav_tab_rect(3);
         let action = action_at_point(&shell, 1419, 611, ft_rect.x + 10, ft_rect.y + 10);
         assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::FileTransfer)));
 
-        let sec_rect = layout.nav_tab_rect(5);
+        let sec_rect = layout.nav_tab_rect(4);
         let action = action_at_point(&shell, 1419, 611, sec_rect.x + 10, sec_rect.y + 10);
         assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::Security)));
 
