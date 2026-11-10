@@ -1,5 +1,5 @@
 use accesskit::{Action, Node, NodeId, Rect, Role, TreeId, TreeInfo, TreeUpdate};
-use omnidesk_core::product_shell::ProductShell;
+use omnidesk_core::product_shell::{NavTab, PrimaryView, ProductShell};
 
 use crate::{DesktopAction, control_rects_for, controls_for_shell, presentation_for};
 
@@ -14,7 +14,14 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
     controls_for_shell(shell)
         .into_iter()
         .enumerate()
-        .find(|(index, control)| control.enabled && control_node_id(*index) == node_id)
+        .find(|(index, control)| {
+            // A11y activation must never bypass the exact same V5 visibility
+            // restrictions as pointer hit-testing. Only three device tiles
+            // are shown in the compact trusted-device strip.
+            let visible = shell.primary_view() != PrimaryView::Devices
+                || (shell.nav_tab() == NavTab::Devices && *index < 3);
+            visible && control.enabled && control_node_id(*index) == node_id
+        })
         .map(|(_, control)| control.action)
 }
 
@@ -22,9 +29,9 @@ fn accessibility_coordinate(value: usize) -> f64 {
     f64::from(u32::try_from(value).unwrap_or(u32::MAX))
 }
 
-fn control_bounds(shell: &ProductShell, index: usize) -> Rect {
+fn control_bounds(shell: &ProductShell, index: usize, width: usize, height: usize) -> Rect {
     let presentation = presentation_for(shell);
-    let rect = control_rects_for(&presentation, 960, 640)
+    let rect = control_rects_for(&presentation, width, height)
         .get(index)
         .copied()
         .unwrap_or(crate::ControlRect {
@@ -53,18 +60,37 @@ pub fn build_accesskit_tree_with_focus(
     shell: &ProductShell,
     requested_focus: Option<NodeId>,
 ) -> TreeUpdate {
+    // Compatibility wrapper for tests and non-window consumers.
+    build_accesskit_tree_at_size(shell, requested_focus, 960, 640)
+}
+
+/// Builds the accessibility tree using the actual physical window size.
+///
+/// This geometry must match the native renderer and pointer hit-testing.
+#[must_use]
+pub fn build_accesskit_tree_at_size(
+    shell: &ProductShell,
+    requested_focus: Option<NodeId>,
+    width: usize,
+    height: usize,
+) -> TreeUpdate {
     let presentation = presentation_for(shell);
     let controls = controls_for_shell(shell);
     let mut child_ids = Vec::with_capacity(controls.len());
     let mut nodes = Vec::with_capacity(controls.len() + 1);
 
     for (index, control) in controls.iter().enumerate() {
+        if shell.primary_view() == PrimaryView::Devices
+            && (shell.nav_tab() != NavTab::Devices || index >= 3)
+        {
+            continue;
+        }
         let id = control_node_id(index);
         child_ids.push(id);
 
         let mut node = Node::new(Role::Button);
         node.set_label(&control.label);
-        node.set_bounds(control_bounds(shell, index));
+        node.set_bounds(control_bounds(shell, index, width, height));
         node.add_action(Action::Focus);
         if control.enabled {
             node.add_action(Action::Click);
@@ -79,8 +105,8 @@ pub fn build_accesskit_tree_with_focus(
     root.set_bounds(Rect {
         x0: 0.0,
         y0: 0.0,
-        x1: 960.0,
-        y1: 640.0,
+        x1: accessibility_coordinate(width),
+        y1: accessibility_coordinate(height),
     });
     root.set_children(child_ids.clone());
     nodes.insert(0, (ROOT_NODE_ID, root));
@@ -125,6 +151,32 @@ mod tests {
 
         let invalid = build_accesskit_tree_with_focus(&shell, Some(NodeId(99)));
         assert_eq!(invalid.focus, NodeId(1));
+    }
+
+    #[test]
+    fn v5_accessibility_uses_actual_window_geometry_and_hides_overflow_rows() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(
+            (0..5)
+                .map(|i| DeviceSummary {
+                    id: format!("peer-{i}"),
+                    display_name: format!("Peer {i}"),
+                    status: DeviceStatus::Online,
+                })
+                .collect(),
+        );
+        let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
+        // Root + at most three visible trusted-device tiles.
+        assert_eq!(tree.nodes.len(), 4);
+        assert_eq!(tree.nodes[0].1.bounds(), Some(Rect {
+            x0: 0.0, y0: 0.0, x1: 1419.0, y1: 611.0,
+        }));
+        assert_eq!(desktop_action_for_node(&shell, NodeId(4)), None);
+        assert_eq!(desktop_action_for_node(&shell, NodeId(5)), None);
+
+        // A11y activation on a secondary tab cannot select hidden peers.
+        shell.set_nav_tab(NavTab::Security);
+        assert_eq!(desktop_action_for_node(&shell, NodeId(1)), None);
     }
 
     #[test]
