@@ -41,7 +41,7 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
             return Some(DesktopAction::SelectNav(*tab));
         }
     }
-    if shell.primary_view() == PrimaryView::Devices {
+    if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() == NavTab::Devices {
         let form_action = match node_id {
             V5_REMOTE_ID_NODE => Some(DesktopAction::FocusRemoteIdInput),
             V5_REMOTE_PASSWORD_NODE => Some(DesktopAction::FocusRemotePasswordInput),
@@ -182,7 +182,7 @@ pub fn build_accesskit_tree_at_size(
 
     // Expose the actual V5 fields to screen readers, without ever storing
     // or announcing either local or remote password contents in node values.
-    if shell.primary_view() == PrimaryView::Devices {
+    if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() == NavTab::Devices {
         if let Some(layout) = LockedDashboardLayout::for_window(width, height) {
             let fields = [
                 (
@@ -322,6 +322,21 @@ mod tests {
         // A11y activation on a secondary tab cannot select hidden peers.
         shell.set_nav_tab(NavTab::Security);
         assert_eq!(desktop_action_for_node(&shell, NodeId(1)), None);
+    }
+
+    #[test]
+    fn v5_accessibility_omits_credential_nodes_on_secondary_pages() {
+        let mut shell = ProductShell::new();
+        shell.set_nav_tab(NavTab::Security);
+        let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
+        assert!(!tree.nodes.iter().any(|(id, _)| *id == V5_REMOTE_PASSWORD_NODE));
+        assert!(!tree.nodes.iter().any(|(id, _)| *id == V5_CONNECT_NODE));
+        assert_eq!(desktop_action_for_node(&shell, V5_REMOTE_PASSWORD_NODE), None);
+        assert_eq!(desktop_action_for_node(&shell, V5_COPY_ID_NODE), None);
+        assert_eq!(
+            desktop_action_for_node(&shell, NodeId(V5_NAV_FIRST_NODE + 5)),
+            Some(DesktopAction::SelectNav(NavTab::Security))
+        );
     }
 
     #[test]
