@@ -411,8 +411,15 @@ impl ProductShell {
         self.nav_tab
     }
 
-    pub const fn set_nav_tab(&mut self, tab: NavTab) {
+    pub fn set_nav_tab(&mut self, tab: NavTab) {
         self.nav_tab = tab;
+        // The V5 sidebar switches to a different native page. Never allow a
+        // hidden Remote Access input to keep accepting keyboard characters.
+        self.remote_id_focused = false;
+        self.set_remote_password_focused(false);
+        if tab != NavTab::Devices {
+            self.clear_remote_password();
+        }
     }
 
     #[must_use]
@@ -963,6 +970,23 @@ mod tests {
             Err(ConnectError::DeviceOffline)
         );
         assert!(shell.last_error().unwrap().contains("offline"));
+    }
+
+    #[test]
+    fn v5_sidebar_transition_clears_hidden_password_and_keyboard_focus() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("temporary-secret");
+        shell.focus_remote_password();
+        shell.toggle_remote_password_reveal();
+        assert!(shell.is_remote_password_focused());
+        assert!(shell.is_remote_password_revealed());
+        shell.set_nav_tab(NavTab::Security);
+        assert_eq!(shell.nav_tab(), NavTab::Security);
+        assert!(shell.remote_password_input().is_empty());
+        assert!(!shell.is_remote_password_focused());
+        assert!(!shell.is_remote_password_revealed());
+        shell.set_nav_tab(NavTab::Devices);
+        assert!(!shell.is_remote_password_focused());
     }
 
     #[test]
