@@ -473,13 +473,24 @@ impl LockedDashboardLayout {
         }
     }
 
+    /// Show separate share/connect panels side by side when there is enough
+    /// actual viewer width, retaining the stacked layout on smaller desktops.
+    #[must_use]
+    pub const fn access_cards_wide(&self) -> bool {
+        self.remote_screen.width >= 680
+    }
+
     #[must_use]
     pub const fn your_id_card_rect(&self) -> DashboardRect {
         DashboardRect {
             x: self.remote_screen.x + 18,
             y: self.remote_screen.y + 18,
-            width: self.remote_screen.width.saturating_sub(36),
-            height: 135,
+            width: if self.access_cards_wide() {
+                self.remote_screen.width.saturating_sub(54) / 2
+            } else {
+                self.remote_screen.width.saturating_sub(36)
+            },
+            height: if self.access_cards_wide() { 205 } else { 135 },
         }
     }
 
@@ -509,11 +520,24 @@ impl LockedDashboardLayout {
 
     #[must_use]
     pub const fn remote_id_card_rect(&self) -> DashboardRect {
+        let own = self.your_id_card_rect();
         DashboardRect {
-            x: self.remote_screen.x + 18,
-            y: self.remote_screen.y + 164,
-            width: self.remote_screen.width.saturating_sub(36),
-            height: 156,
+            x: if self.access_cards_wide() {
+                own.x + own.width + 18
+            } else {
+                self.remote_screen.x + 18
+            },
+            y: if self.access_cards_wide() {
+                self.remote_screen.y + 18
+            } else {
+                self.remote_screen.y + 164
+            },
+            width: if self.access_cards_wide() {
+                self.remote_screen.width.saturating_sub(54) / 2
+            } else {
+                self.remote_screen.width.saturating_sub(36)
+            },
+            height: if self.access_cards_wide() { 205 } else { 156 },
         }
     }
 
@@ -611,7 +635,12 @@ mod locked_dashboard_tests {
             let connect = layout.remote_id_connect_btn_rect();
             assert!(own_status.y >= own.y);
             assert!(own_status.y + own_status.height <= own.y + own.height);
-            assert!(remote.y >= own.y + own.height);
+            if layout.access_cards_wide() {
+                assert_eq!(remote.y, own.y);
+                assert!(remote.x >= own.x + own.width);
+            } else {
+                assert!(remote.y >= own.y + own.height);
+            }
             assert!(remote_status.y >= remote.y);
             assert!(remote_status.y + remote_status.height <= remote.y + remote.height);
             assert!(connect.y + connect.height <= remote_status.y);
@@ -641,8 +670,14 @@ mod locked_dashboard_tests {
             assert!(remote_id.x + remote_id.width <= screen.x + screen.width);
             assert!(remote_id.y + remote_id.height <= screen.y + screen.height);
 
-            // Your ID card and Remote ID card do not vertically overlap
-            assert!(remote_id.y >= your_id.y + your_id.height);
+            // Wider workspaces keep share/connect side by side; compact
+            // workspaces retain a collision-free vertical flow.
+            if l.access_cards_wide() {
+                assert_eq!(remote_id.y, your_id.y);
+                assert!(remote_id.x >= your_id.x + your_id.width);
+            } else {
+                assert!(remote_id.y >= your_id.y + your_id.height);
+            }
 
             // Copy button is inside Your ID card
             assert!(copy_btn.x >= your_id.x);
