@@ -2195,13 +2195,16 @@ mod tests {
         let remote = layout.remote_password_status_rect();
         let border = packed_rgb(presentation.visual.border_rgb);
         assert_eq!(pixels[remote.y * width + remote.x], border);
-        let connect = layout.remote_id_card_rect();
+        let own_card = layout.your_id_card_rect();
+        let connect_card = layout.remote_id_card_rect();
         if layout.access_cards_wide() {
-            assert_eq!(own.y, connect.y);
-            assert!(own.x >= connect.x + connect.width);
+            assert_eq!(own_card.y, connect_card.y);
+            assert!(own_card.x >= connect_card.x + connect_card.width);
         } else {
-            assert!(own.y + own.height <= connect.y);
+            assert!(own_card.y + own_card.height <= connect_card.y);
         }
+        assert!(own.y >= own_card.y);
+        assert!(own.y + own.height <= own_card.y + own_card.height);
         assert!(
             remote.y + remote.height
                 <= layout.remote_id_card_rect().y + layout.remote_id_card_rect().height
