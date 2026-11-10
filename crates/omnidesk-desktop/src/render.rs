@@ -741,8 +741,8 @@ fn draw_locked_header(
             &mark.rgba,
         );
     }
-    canvas.text(70, 19, "KMJ OmniDesk", 2, p.foreground);
-    canvas.text(70, 45, "INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
+    canvas.text(70, 19, "KMJ TECHNO", 2, p.foreground);
+    canvas.text(70, 45, "OMNIDESK  /  INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
 
     let search_x = canvas.width / 3;
     let search_w = canvas.width / 3;
@@ -753,7 +753,7 @@ fn draw_locked_header(
         search_x + 14,
         29,
         search_w.saturating_sub(28),
-        "SEARCH UNAVAILABLE UNTIL DEVICE SYNC",
+        "REMOTE WORKSPACE  /  DEVICE DIRECTORY",
         p.muted,
     );
 
@@ -827,8 +827,8 @@ fn draw_locked_navigation(
 ) {
     let nav = layout.navigation;
     let nav_labels = [
-        "Devices",
-        "Connections",
+        "Remote Access",
+        "Sessions",
         "File Transfer",
         "Remote Actions",
         "Automation",
@@ -1109,7 +1109,7 @@ fn draw_locked_your_id_card(
         your_id_card.x + 16,
         your_id_card.y + 14,
         your_id_card.width.saturating_sub(32),
-        "THIS DESKTOP  ·  YOUR ID",
+        "SHARE THIS DEVICE   /   YOUR ID",
         p.muted,
     );
 
@@ -1149,6 +1149,19 @@ fn draw_locked_your_id_card(
         copy_btn.y + 10,
         copy_btn.width.saturating_sub(28),
         "COPY ID",
+        p.foreground,
+    );
+
+    // No demo credential is shown until a real host password lifecycle exists.
+    let password = layout.your_password_status_rect();
+    canvas.h_line(password.x, password.y.saturating_sub(12), password.width, p.border);
+    locked_label(canvas, password.x, password.y, password.width, "YOUR PASSWORD", p.muted);
+    locked_label(
+        canvas,
+        password.x + password.width / 2,
+        password.y,
+        password.width / 2,
+        "NOT CONFIGURED",
         p.foreground,
     );
 }
@@ -1244,7 +1257,7 @@ fn draw_locked_remote_id_card(
         remote_id_card.x + 16,
         remote_id_card.y + 14,
         remote_id_card.width.saturating_sub(32),
-        "REMOTE DESK  ·  ENTER REMOTE ID",
+        "CONTROL A REMOTE DESK   /   REMOTE ID",
         p.muted,
     );
 
@@ -1273,11 +1286,20 @@ fn draw_locked_remote_id_card(
         connect_btn.y + 11,
         connect_btn.width.saturating_sub(36),
         "CONNECT",
-        if connect_enabled {
-            p.foreground
-        } else {
-            p.muted
-        },
+        if connect_enabled { p.foreground } else { p.muted },
+    );
+    // A password-shaped UI slot is never authentication. The actual
+    // connection path remains the existing verified-peer + permission flow.
+    let password = layout.remote_password_status_rect();
+    canvas.fill_rect(password.x, password.y, password.width, password.height, p.background);
+    canvas.stroke_rect(password.x, password.y, password.width, password.height, 1, p.border);
+    locked_label(
+        canvas,
+        password.x + 10,
+        password.y + 11,
+        password.width.saturating_sub(20),
+        "SESSION PASSWORD  /  NOT CONFIGURED",
+        p.muted,
     );
 }
 
@@ -1296,7 +1318,7 @@ fn draw_locked_dual_role_cards(
         screen.x + 22,
         screen.y + 248,
         screen.width.saturating_sub(44),
-        "Direct E2E encrypted · Ed25519 identity · LAN & Relay ready",
+        "Connection requires verified peer identity and target permission",
         p.muted,
     );
 }
@@ -1698,6 +1720,22 @@ mod tests {
             lower_pixels, upper_pixels,
             "lowercase navigation must remain lowercase"
         );
+    }
+
+    #[test]
+    fn v5_offline_password_slots_are_neutral_and_never_show_fake_secrets() {
+        let presentation = presentation_for(&ProductShell::new());
+        let width = 1419;
+        let height = 611;
+        let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+        let mut pixels = vec![0_u32; width * height];
+        render_shell(&mut pixels, width, height, &presentation);
+        let own = layout.your_password_status_rect();
+        let remote = layout.remote_password_status_rect();
+        let border = packed_rgb(presentation.visual.border_rgb);
+        assert_eq!(pixels[remote.y * width + remote.x], border);
+        assert!(own.y + own.height <= layout.remote_id_card_rect().y);
+        assert!(remote.y + remote.height <= layout.remote_id_card_rect().y + layout.remote_id_card_rect().height);
     }
 
     #[test]
