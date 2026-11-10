@@ -33,7 +33,9 @@ The `Transport` interface now defaults `is_peer_authenticated_and_encrypted()` t
 
 **These are committed source changes, not executed Windows QA evidence.** The source is intentionally not production functional for ID+Password remote control at present.
 
-**Remaining protocol-level blocker:** The signed-key `TransportSessionAdapter::authorize_session` / `send` / `receive` path also needs independent encryption/channel-binding admission before real remote input or screen data may be enabled. It must not be considered safe solely because an Ed25519 challenge passes. Do not implement secure-channel capability as a hardcoded `true` on raw TCP, LAN, or relay.
+**Signed-key control path also guarded:** `TransportSessionAdapter::authorize_session` now refuses unverified channels, and `is_control_authorized`, `send` and `receive` all require an authenticated encrypted transport and verified peer identity. Positive plain TCP/loopback control tests have been replaced by explicit denial tests. No current transport implementation advertises this capability, so remote control remains blocked until an independently audited encrypted transport exists. Do not implement secure-channel capability as a hardcoded `true` on raw TCP, LAN, or relay.
+
+**Input hygiene:** remote session password input is capped consistently at 32 characters, control characters are filtered, and disconnect clears its logical value and focus. `String::clear()` is not a secure memory wipe; secret zeroization and clipboard expiry are still required before handling real production passwords.
 
 ## Latest validation status
 
