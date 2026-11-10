@@ -838,8 +838,8 @@ fn draw_locked_navigation(
         "File Transfer",
         "Remote Actions",
         "Automation",
-        "Security",
-        "Settings",
+        "Security Center",
+        "Preferences",
     ];
     let nav_tabs = [
         omnidesk_core::product_shell::NavTab::Devices,
@@ -850,13 +850,19 @@ fn draw_locked_navigation(
         omnidesk_core::product_shell::NavTab::Security,
         omnidesk_core::product_shell::NavTab::Settings,
     ];
+    locked_label(
+        canvas,
+        nav.x + 14,
+        nav.y + 12,
+        nav.width.saturating_sub(28),
+        "WORKSPACE",
+        p.muted,
+    );
     for (index, label) in nav_labels.iter().enumerate() {
         let rect = layout.nav_tab_rect(index);
         let active = nav_tabs[index] == presentation.nav_tab;
         if active {
-            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, 0x6a_14_1d);
-            canvas.fill_rect(rect.x, rect.y, 3, rect.height, p.accent);
-            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.danger);
+            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.accent);
         }
         let item_color = if active { p.foreground } else { p.muted };
         draw_locked_nav_icon(canvas, index, rect.x + 7, rect.y + 10, item_color);
@@ -1012,7 +1018,7 @@ fn draw_locked_your_id_card(
         your_id_card.x + 16,
         your_id_card.y + 14,
         your_id_card.width.saturating_sub(32),
-        "SHARE THIS DEVICE   /   YOUR ID",
+        "02  /  SHARE THIS DEVICE  /  YOUR ID",
         p.muted,
     );
 
@@ -1223,14 +1229,15 @@ fn draw_locked_remote_id_card(
         remote_id_card.x + 16,
         remote_id_card.y + 14,
         remote_id_card.width.saturating_sub(32),
-        "CONTROL A REMOTE DESK   /   REMOTE ID",
+        "01  /  TAKE CONTROL  /  REMOTE ID",
         p.muted,
     );
 
     draw_locked_remote_id_input(canvas, presentation, layout.remote_id_input_rect(), p);
 
     let connect_btn = layout.remote_id_connect_btn_rect();
-    let connect_enabled = !presentation.remote_id_input.is_empty();
+    let connect_enabled = !presentation.remote_id_input.is_empty()
+        && !presentation.remote_password_input_masked.is_empty();
     canvas.fill_rect(
         connect_btn.x,
         connect_btn.y,
@@ -1293,7 +1300,7 @@ fn draw_locked_remote_id_card(
             if presentation.remote_password_focused {
                 "|"
             } else {
-                "SESSION PASSWORD (OPTIONAL)"
+                "SESSION PASSWORD (REQUIRED)"
             },
             if presentation.remote_password_focused {
                 p.accent
