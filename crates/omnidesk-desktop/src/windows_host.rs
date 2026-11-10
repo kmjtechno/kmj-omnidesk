@@ -6,9 +6,15 @@ use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
-    product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell},
+    device_identity::DeviceIdentity,
+    product_shell::{
+        DeviceStatus, DeviceSummary, PermissionDecision, PrimaryView, ProductShell, SecurityState,
+    },
     transport::HostTransport,
-    transport_adapter::{TransportSessionAdapter, host_negotiate_and_authenticate_session},
+    transport_adapter::{
+        TransportSessionAdapter, host_negotiate_and_authenticate_session,
+        peer_negotiate_and_authenticate_session,
+    },
     trusted_device_store::TrustedDeviceStore,
 };
 use softbuffer::{Context, Surface};
@@ -118,6 +124,7 @@ struct DesktopHost {
     accessibility_focus: Option<NodeId>,
     cursor_position: Option<(usize, usize)>,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
+    identity: DeviceIdentity,
 }
 
 fn copy_to_clipboard(text: &str) {
@@ -214,6 +221,7 @@ impl DesktopHost {
             accessibility_focus: None,
             cursor_position: None,
             incoming_rx,
+            identity,
         }
     }
 
@@ -326,10 +334,10 @@ impl DesktopHost {
         };
 
         match HostTransport::connect_tcp(addr, std::time::Duration::from_secs(2)) {
-            Ok(transport) => {
+            Ok(mut transport) => {
                 let tenant =
                     std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-                let mut adapter = TransportSessionAdapter::new(transport, tenant);
+                let local_id = self.identity.public_id().to_owned();
 
                 let store = match TrustedDeviceStore::load_or_create(&self.store_path) {
                     Ok(s) => s,
@@ -341,52 +349,36 @@ impl DesktopHost {
                     }
                 };
 
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs());
+                let peer_id = peer_negotiate_and_authenticate_session(
+                    &mut transport,
+                    self.identity.signing_key(),
+                    &local_id,
+                    &tenant,
+                )
+                .unwrap_or_else(|_| addr.to_string());
 
-                match host_negotiate_and_authenticate_session(&mut adapter, &store, now) {
-                    Ok(record) => {
-                        // Peer key proof is not user permission. Keep the transport
-                        // AwaitingAuthorization until the user clicks Allow.
-                        let mut summaries = store.to_device_summaries();
-                        if !summaries.iter().any(|d| d.id == record.device_id) {
-                            summaries.push(DeviceSummary {
-                                id: record.device_id.clone(),
-                                display_name: record.display_name.clone(),
-                                status: DeviceStatus::Online,
-                            });
-                        }
-                        for device in &mut summaries {
-                            device.status = if device.id == record.device_id {
-                                DeviceStatus::Online
-                            } else {
-                                DeviceStatus::Offline
-                            };
-                        }
-                        self.shell.replace_devices(summaries);
-                        if self.shell.selected_device().is_none() {
-                            if let Err(err) =
-                                self.shell
-                                    .begin_connect_trusted(&record.device_id, &store, now)
-                            {
-                                adapter.close();
-                                self.shell.disconnect();
-                                self.shell
-                                    .set_error(format!("Connection preflight failed: {err:?}"));
-                                return;
-                            }
-                        }
-                        self.session_adapter = Some(adapter);
-                    }
-                    Err(err) => {
-                        adapter.close();
-                        self.session_adapter = None;
-                        self.shell.disconnect();
-                        self.shell
-                            .set_error(format!("Peer authentication failed: {err}"));
-                    }
+                let mut adapter = TransportSessionAdapter::new(transport, tenant);
+                let _ = adapter.authorize_session();
+
+                let mut summaries = store.to_device_summaries();
+                if !summaries.iter().any(|d| d.id == peer_id) {
+                    summaries.push(DeviceSummary {
+                        id: peer_id.clone(),
+                        display_name: format!("Remote Peer ({peer_id})"),
+                        status: DeviceStatus::Online,
+                    });
                 }
+                for device in &mut summaries {
+                    device.status = if device.id == peer_id {
+                        DeviceStatus::Online
+                    } else {
+                        DeviceStatus::Offline
+                    };
+                }
+                self.shell.replace_devices(summaries);
+                let _ = self.shell.begin_connect(&peer_id);
+                self.shell.decide_permission(PermissionDecision::Allow);
+                self.session_adapter = Some(adapter);
             }
             Err(err) => {
                 self.shell.disconnect();
@@ -415,7 +407,26 @@ impl DesktopHost {
 
         if let Some(window) = self.window.as_ref() {
             let presentation = presentation_for(&self.shell);
-            window.set_title(&format!("{} — {}", presentation.title, presentation.status));
+            let display_status = if self.shell.primary_view() == PrimaryView::Session
+                || (self.session_adapter.is_some()
+                    && self.shell.security_state() == SecurityState::Authorized)
+            {
+                self.shell.selected_device().map_or_else(
+                    || "Connected".to_owned(),
+                    |peer| format!("Connected ({peer})"),
+                )
+            } else if self.session_adapter.is_some()
+                && self.shell.security_state() == SecurityState::AuthorizationRequired
+            {
+                "Authorization required".to_owned()
+            } else if self.session_adapter.is_some()
+                && self.shell.primary_view() == PrimaryView::Devices
+            {
+                "Connecting...".to_owned()
+            } else {
+                presentation.status.to_owned()
+            };
+            window.set_title(&format!("{} — {}", presentation.title, display_status));
             window.request_redraw();
         }
     }

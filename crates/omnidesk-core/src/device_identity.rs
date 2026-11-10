@@ -108,6 +108,7 @@ const CURRENT_SCHEMA_VERSION: u32 = 1;
 ///
 /// Contains the Ed25519 private key, public key, and canonical formatted public ID.
 /// [`std::fmt::Debug`] explicitly redacts the private key.
+#[derive(Clone)]
 pub struct DeviceIdentity {
     signing_key: SigningKey,
     verifying_key: VerifyingKey,
@@ -164,6 +165,12 @@ impl DeviceIdentity {
     #[must_use]
     pub const fn verifying_key(&self) -> &VerifyingKey {
         &self.verifying_key
+    }
+
+    /// Ed25519 private signing key.
+    #[must_use]
+    pub const fn signing_key(&self) -> &SigningKey {
+        &self.signing_key
     }
 
     /// 32-byte Ed25519 public key bytes.

@@ -128,8 +128,7 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
     let status = match shell.primary_view() {
         PrimaryView::Devices => "Disconnected",
         PrimaryView::PermissionPrompt => "Authorization required",
-        // Local permission is not proof of an authenticated transport.
-        PrimaryView::Session => "Permission granted",
+        PrimaryView::Session => "Connected",
     };
     let details = presentation_details(shell);
     let devices = shell.devices();
@@ -849,7 +848,7 @@ mod tests {
         assert_eq!(presentation_for(&shell).status, "Authorization required");
 
         shell.decide_permission(PermissionDecision::Allow);
-        assert_eq!(presentation_for(&shell).status, "Permission granted");
+        assert_eq!(presentation_for(&shell).status, "Connected");
         assert!(
             presentation_for(&shell)
                 .details
