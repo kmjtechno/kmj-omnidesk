@@ -180,6 +180,22 @@ working remote sessions, or production acceptance evidence.</p>
             throw "Native renderer receipt missing or duplicated: $requiredLine"
         }
     }
+    # Cargo's --locked mode protects dependency resolution, but a tool or build
+    # script could still mutate tracked source. Re-attest the exact tree before
+    # publishing a PASS receipt; never silently certify a changed checkout.
+    $postBuildSha = (& git rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $postBuildSha -cne $sha) {
+        throw "Source HEAD changed during QA: expected $sha got $postBuildSha"
+    }
+    & git diff --quiet --exit-code
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Tracked source changed during V5 QA; refusing PASS receipt'
+    }
+    & git diff --cached --quiet --exit-code
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Staged source changed during V5 QA; refusing PASS receipt'
+    }
+    Write-Host 'KMJ_V5_POST_BUILD_SOURCE_ATTEST=PASS'
     Write-Host 'KMJ_V5_NATIVE_RENDER_PNG=PASS_COUNT_12'
     $receipt = @(
         "SOURCE_SHA=$sha",
