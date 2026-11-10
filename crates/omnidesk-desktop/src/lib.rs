@@ -38,6 +38,7 @@ pub enum DesktopAction {
     ToggleYourPasswordReveal,
     RotateYourPassword,
     FocusRemotePasswordInput,
+    ToggleRemotePasswordReveal,
     ToggleRemoteInput,
     ToggleFullscreen,
     NextMonitor,
@@ -136,8 +137,9 @@ pub struct PresentationModel {
     pub remote_id_focused: bool,
     pub local_password_display: String,
     pub local_password_revealed: bool,
-    pub remote_password_input_masked: String,
+    pub remote_password_display: String,
     pub remote_password_focused: bool,
+    pub remote_password_revealed: bool,
     /// Enables the Connect CTA only with a valid, non-self Remote ID and
     /// a nonempty password. This is UI readiness, NOT authentication.
     pub remote_access_form_ready: bool,
@@ -193,7 +195,13 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
             local_id,
         ).is_ok()
             && !shell.remote_password_input().trim().is_empty();
-    let remote_pw_masked = "•".repeat(shell.remote_password_input().chars().count());
+    // A plaintext display copy exists only for an explicit local reveal.
+    // It must never be logged, persisted or sent to accessibility nodes.
+    let remote_pw_display = if shell.is_remote_password_revealed() {
+        shell.remote_password_input().to_owned()
+    } else {
+        "•".repeat(shell.remote_password_input().chars().count())
+    };
     PresentationModel {
         primary_view: shell.primary_view(),
         nav_tab: shell.nav_tab(),
@@ -211,8 +219,9 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         remote_id_focused: shell.is_remote_id_focused(),
         local_password_display: shell.password_manager().display_text(),
         local_password_revealed: shell.password_manager().is_revealed(),
-        remote_password_input_masked: remote_pw_masked,
+        remote_password_display: remote_pw_display,
         remote_password_focused: shell.is_remote_password_focused(),
+        remote_password_revealed: shell.is_remote_password_revealed(),
         remote_access_form_ready,
         remote_input_enabled: shell.remote_input_enabled(),
         fullscreen_enabled: shell.fullscreen_enabled(),
@@ -496,6 +505,9 @@ const fn locked_dual_role_action(
         // the ID populated. Transport-level checks remain mandatory.
         return Some(DesktopAction::ConnectRemoteId);
     }
+    if locked.remote_password_reveal_btn_rect().contains(x, y) {
+        return Some(DesktopAction::ToggleRemotePasswordReveal);
+    }
     if locked.remote_password_status_rect().contains(x, y) {
         return Some(DesktopAction::FocusRemotePasswordInput);
     }
@@ -598,6 +610,11 @@ pub fn action_at_point(
                     DesktopAction::CopyYourPassword
                         | DesktopAction::ToggleYourPasswordReveal
                 ) && shell.password_manager().raw_password().is_none()
+                {
+                    return None;
+                }
+                if action == DesktopAction::ToggleRemotePasswordReveal
+                    && shell.remote_password_input().is_empty()
                 {
                     return None;
                 }
@@ -739,6 +756,9 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
         }
         DesktopAction::FocusRemotePasswordInput => {
             shell.focus_remote_password();
+        }
+        DesktopAction::ToggleRemotePasswordReveal => {
+            shell.toggle_remote_password_reveal();
         }
         DesktopAction::ConnectRemoteId => {
             // Remote ID by itself is never enough for the V5 password
@@ -1687,6 +1707,29 @@ mod tests {
             action_at_point(&shell, 1419, 611, input.x + 5, input.y + 5),
             Some(DesktopAction::FocusRemoteIdInput)
         );
+    }
+
+    #[test]
+    fn v5_remote_password_reveal_is_explicit_and_never_default() {
+        let mut shell = ProductShell::new();
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let button = layout.remote_password_reveal_btn_rect();
+        let hit = |shell: &ProductShell| {
+            action_at_point(shell, 1419, 611, button.x + 5, button.y + 5)
+        };
+        assert_eq!(hit(&shell), None);
+        shell.set_remote_password_input("secret-only-for-ui-test");
+        let hidden = presentation_for(&shell);
+        assert!(!hidden.remote_password_revealed);
+        assert!(!hidden.remote_password_display.contains("secret"));
+        assert_eq!(hit(&shell), Some(DesktopAction::ToggleRemotePasswordReveal));
+        apply_action(&mut shell, DesktopAction::ToggleRemotePasswordReveal);
+        let shown = presentation_for(&shell);
+        assert!(shown.remote_password_revealed);
+        assert_eq!(shown.remote_password_display, "secret-only-for-ui-test");
+        shell.disconnect();
+        assert!(!presentation_for(&shell).remote_password_revealed);
+        assert!(presentation_for(&shell).remote_password_display.is_empty());
     }
 
     #[test]
