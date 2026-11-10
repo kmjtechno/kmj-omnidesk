@@ -2181,6 +2181,58 @@ mod tests {
     }
 
     #[test]
+    fn v5_remote_display_stage_is_drawn_on_all_supported_compact_desktops() {
+        let presentation = presentation_for(&ProductShell::new());
+        let border = packed_rgb(presentation.visual.border_rgb);
+        for (width, height) in [
+            (800, 600),
+            (960, 640),
+            (1024, 768),
+            (1419, 611),
+            (1920, 1080),
+        ] {
+            let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+            let stage = layout.remote_stage_rect();
+            let mut pixels = vec![0_u32; width * height];
+            render_shell(&mut pixels, width, height, &presentation);
+            assert_eq!(
+                pixels[stage.y * width + stage.x],
+                border,
+                "missing locked V5 remote-display border at {width}x{height}"
+            );
+            assert!(stage.height >= 95);
+        }
+    }
+
+    #[test]
+    fn v5_sidebar_pages_are_visually_distinct_from_remote_access() {
+        use omnidesk_core::product_shell::NavTab;
+
+        let mut shell = ProductShell::new();
+        let width = 1419;
+        let height = 611;
+        let mut access = vec![0_u32; width * height];
+        render_shell(&mut access, width, height, &presentation_for(&shell));
+
+        for tab in [
+            NavTab::Connections,
+            NavTab::FileTransfer,
+            NavTab::RemoteActions,
+            NavTab::Automation,
+            NavTab::Security,
+            NavTab::Settings,
+        ] {
+            shell.set_nav_tab(tab);
+            let mut pixels = vec![0_u32; width * height];
+            render_shell(&mut pixels, width, height, &presentation_for(&shell));
+            assert_ne!(
+                pixels, access,
+                "V5 {tab:?} page must not be a copy of the Remote Access form"
+            );
+        }
+    }
+
+    #[test]
     fn renderer_uses_locked_black_red_visual_tokens() {
         let shell = ProductShell::new();
         let presentation = presentation_for(&shell);
