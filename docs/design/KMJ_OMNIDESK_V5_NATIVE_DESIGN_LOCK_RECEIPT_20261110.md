@@ -20,7 +20,9 @@
 | Your ID, password status, Show/Hide, Copy, New | `layout.rs`, `render.rs::draw_locked_your_id_card`, native actions | Committed (no unverified host authentication) |
 | Separate truthful Remote Display stage under forms | `layout.rs::remote_stage_rect`, `render.rs::draw_locked_dual_role_cards` | Committed |
 | Compact trusted-device strip and session toolbar | `layout.rs::{devices,session_toolbar}`, `render.rs` | Committed |
-| Distinct Sessions / File Transfer / Actions / Automation / Security / Preferences pages | `render.rs::draw_locked_feature_page` | Committed truthful empty-state layouts; backend features unverified |
+| Locked six-entry sidebar and grouped Workspace / Protection sections | `layout.rs::nav_tab_rect`, `render.rs::draw_locked_navigation`, `accesskit_tree.rs` | Committed source; Windows visual QA pending |
+| Separate Trusted Devices directory with enrolled peer tiles | `render.rs::draw_locked_trusted_devices_page`, `layout.rs::trusted_device_tile_rect`, `lib.rs` | Committed source; backend trust policy and real peer QA pending |
+| Distinct Sessions / File Transfer / Security / Preferences pages | `render.rs::draw_locked_feature_page` | Committed truthful empty-state layouts; backend features unverified |
 | Premium Session Inspector with real-only connection metrics | `render.rs::draw_locked_inspector` | Committed; no fake latency/FPS/encryption |
 | Compact 800–1023px icon rail without obsolete fallback | `layout.rs::for_window`, `render.rs::draw_locked_navigation` | Committed |
 | Accessibility labels/roles, actual window size, no hidden actions | `accesskit_tree.rs`, `windows_host.rs` | Committed; physical Windows screen-reader QA pending |
@@ -63,6 +65,19 @@
 - New tests document help-click isolation, screen-reader node omission, topbar focus, and sidebar overlay dismissal
 
 **Verification boundary:** all fixes above are committed Rust source/tests, but neither exact-branch Cargo execution nor an actual P520 native Windows screenshot was available through the current authorized execution lane. Source inspection does not count as a passing build. Do not overwrite the installed executable.
+
+## Owner-locked V5 navigation and Session Inspector parity
+
+The approved `preview-desktop.png` design has **four Workspace entries** (Remote access, Trusted devices, Sessions, File transfer) and **two Protection entries** (Security center, Preferences). The earlier native renderer incorrectly used seven navigation entries with prominent Remote Actions / Automation instead of Trusted devices. This has been corrected at source level:
+
+- Added `NavTab::TrustedDevices` to the product shell, with six visible, grouped native sidebar entries and matching accessible roles and keyboard/pointer actions
+- Rendered a real Trusted Devices directory from the locally enrolled peer catalog instead of invented online devices; offline entries are disabled
+- Added shared trusted-device tile rectangles for rendering, pointer hit targets and screen readers, with source-revision and visible-index checks so stale filter rows cannot retarget actions
+- Preserved advanced remote actions/automation in internal application views, rather than adding unapproved top-level navigation items
+- Restructured right-rail Session Inspector into Connection Status, Session Tools, and an explicit three-item Verification Checklist; no made-up FPS, encryption or remote screen is displayed
+- Updated the native offline PNG capture plan to cover all six locked sidebar destinations, including Trusted Devices at compact 960×640
+
+**Evidence limitation:** the feature-branch Rust source has been updated; these exact changes have NOT been successfully compiled into a real Windows executable or visually accepted on P520 yet.
 
 ## Exact-head local acceptance on P520
 
