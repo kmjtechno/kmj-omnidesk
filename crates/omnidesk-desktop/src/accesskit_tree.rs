@@ -1,7 +1,11 @@
 use accesskit::{Action, Node, NodeId, Rect, Role, TreeId, TreeInfo, TreeUpdate};
 use omnidesk_core::product_shell::{NavTab, PrimaryView, ProductShell};
 
-use crate::{DesktopAction, control_rects_for, controls_for_shell, presentation_for};
+use crate::{
+    DesktopAction, control_rects_for, controls_for_shell,
+    layout::{DashboardRect, LockedDashboardLayout},
+    presentation_for,
+};
 
 pub const ROOT_NODE_ID: NodeId = NodeId(0);
 
@@ -10,14 +14,40 @@ fn control_node_id(index: usize) -> NodeId {
 }
 
 #[must_use]
+/// Control IDs for V5's native task-focused fields. Device-list items keep
+/// the existing low IDs, while these remain stable as the directory changes.
+const V5_REMOTE_ID_NODE: NodeId = NodeId(10_001);
+const V5_REMOTE_PASSWORD_NODE: NodeId = NodeId(10_002);
+const V5_CONNECT_NODE: NodeId = NodeId(10_003);
+const V5_COPY_ID_NODE: NodeId = NodeId(10_004);
+const V5_SHOW_PASSWORD_NODE: NodeId = NodeId(10_005);
+const V5_COPY_PASSWORD_NODE: NodeId = NodeId(10_006);
+const V5_ROTATE_PASSWORD_NODE: NodeId = NodeId(10_007);
+
+#[must_use]
 pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<DesktopAction> {
+    if shell.primary_view() == PrimaryView::Devices {
+        let form_action = match node_id {
+            V5_REMOTE_ID_NODE => Some(DesktopAction::FocusRemoteIdInput),
+            V5_REMOTE_PASSWORD_NODE => Some(DesktopAction::FocusRemotePasswordInput),
+            V5_CONNECT_NODE => Some(DesktopAction::ConnectRemoteId),
+            V5_COPY_ID_NODE => Some(DesktopAction::CopyYourId),
+            V5_SHOW_PASSWORD_NODE => Some(DesktopAction::ToggleYourPasswordReveal),
+            V5_COPY_PASSWORD_NODE => Some(DesktopAction::CopyYourPassword),
+            V5_ROTATE_PASSWORD_NODE => Some(DesktopAction::RotateYourPassword),
+            _ => None,
+        };
+        if form_action.is_some() {
+            return form_action;
+        }
+    }
+
     controls_for_shell(shell)
         .into_iter()
         .enumerate()
         .find(|(index, control)| {
-            // A11y activation must never bypass the exact same V5 visibility
-            // restrictions as pointer hit-testing. Only three device tiles
-            // are shown in the compact trusted-device strip.
+            // A11y activation must never bypass pointer hit-testing's
+            // three-visible-tile limit or a secondary tab's hidden directory.
             let visible = shell.primary_view() != PrimaryView::Devices
                 || (shell.nav_tab() == NavTab::Devices && *index < 3);
             visible && control.enabled && control_node_id(*index) == node_id
@@ -27,6 +57,15 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
 
 fn accessibility_coordinate(value: usize) -> f64 {
     f64::from(u32::try_from(value).unwrap_or(u32::MAX))
+}
+
+fn dashboard_bounds(rect: DashboardRect) -> Rect {
+    Rect {
+        x0: accessibility_coordinate(rect.x),
+        y0: accessibility_coordinate(rect.y),
+        x1: accessibility_coordinate(rect.x.saturating_add(rect.width)),
+        y1: accessibility_coordinate(rect.y.saturating_add(rect.height)),
+    }
 }
 
 fn control_bounds(shell: &ProductShell, index: usize, width: usize, height: usize) -> Rect {
@@ -100,6 +139,66 @@ pub fn build_accesskit_tree_at_size(
         nodes.push((id, node));
     }
 
+    // Expose the actual V5 fields to screen readers, without ever storing
+    // or announcing either local or remote password contents in node values.
+    if shell.primary_view() == PrimaryView::Devices {
+        if let Some(layout) = LockedDashboardLayout::for_window(width, height) {
+            let fields = [
+                (
+                    V5_REMOTE_ID_NODE,
+                    Role::TextInput,
+                    "Remote device ID",
+                    layout.remote_id_input_rect(),
+                ),
+                (
+                    V5_REMOTE_PASSWORD_NODE,
+                    Role::PasswordInput,
+                    "Remote session password",
+                    layout.remote_password_status_rect(),
+                ),
+                (
+                    V5_CONNECT_NODE,
+                    Role::Button,
+                    "Connect securely",
+                    layout.remote_id_connect_btn_rect(),
+                ),
+                (
+                    V5_COPY_ID_NODE,
+                    Role::Button,
+                    "Copy your device ID",
+                    layout.your_id_copy_btn_rect(),
+                ),
+                (
+                    V5_SHOW_PASSWORD_NODE,
+                    Role::Button,
+                    "Show or hide your password",
+                    layout.your_password_reveal_btn_rect(),
+                ),
+                (
+                    V5_COPY_PASSWORD_NODE,
+                    Role::Button,
+                    "Copy your password",
+                    layout.your_password_copy_btn_rect(),
+                ),
+                (
+                    V5_ROTATE_PASSWORD_NODE,
+                    Role::Button,
+                    "Generate new device password",
+                    layout.your_password_rotate_btn_rect(),
+                ),
+            ];
+            for (id, role, label, bounds) in fields {
+                let mut node = Node::new(role);
+                node.set_label(label);
+                node.set_bounds(dashboard_bounds(bounds));
+                node.add_action(Action::Focus);
+                node.add_action(Action::Click);
+                child_ids.push(id);
+                nodes.push((id, node));
+            }
+        }
+    }
+
     let mut root = Node::new(Role::Window);
     root.set_label(format!("{} — {}", presentation.title, presentation.status));
     root.set_bounds(Rect {
@@ -167,7 +266,7 @@ mod tests {
         );
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
         // Root + at most three visible trusted-device tiles.
-        assert_eq!(tree.nodes.len(), 4);
+        assert_eq!(tree.nodes.len(), 11);
         assert_eq!(tree.nodes[0].1.bounds(), Some(Rect {
             x0: 0.0, y0: 0.0, x1: 1419.0, y1: 611.0,
         }));
@@ -177,6 +276,30 @@ mod tests {
         // A11y activation on a secondary tab cannot select hidden peers.
         shell.set_nav_tab(NavTab::Security);
         assert_eq!(desktop_action_for_node(&shell, NodeId(1)), None);
+    }
+
+    #[test]
+    fn v5_accessibility_exposes_password_role_without_secret_value() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("do-not-expose-this");
+        let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
+
+        let (_, password_node) = tree.nodes.iter()
+            .find(|(id, _)| *id == V5_REMOTE_PASSWORD_NODE)
+            .expect("V5 password node");
+        assert_eq!(password_node.role(), Role::PasswordInput);
+        assert_eq!(password_node.label(), Some("Remote session password"));
+        assert_eq!(password_node.value(), None);
+
+        assert_eq!(
+            desktop_action_for_node(&shell, V5_REMOTE_PASSWORD_NODE),
+            Some(DesktopAction::FocusRemotePasswordInput)
+        );
+        assert_eq!(
+            desktop_action_for_node(&shell, V5_CONNECT_NODE),
+            Some(DesktopAction::ConnectRemoteId)
+        );
+        assert_eq!(desktop_action_for_node(&shell, NodeId(99_999)), None);
     }
 
     #[test]
