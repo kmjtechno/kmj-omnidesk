@@ -1699,31 +1699,34 @@ mod tests {
         shell.set_local_device_id("KMJ-111-111-111");
         shell.set_remote_id_input("222-222-222");
         shell.set_remote_password_input("offline-ui-test-only");
-        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
-        let connect = layout.remote_id_connect_btn_rect();
-        assert_eq!(
-            action_at_point(&shell, 1419, 611, connect.x + 5, connect.y + 5),
-            Some(DesktopAction::ConnectRemoteId)
-        );
-        shell.set_help_open(true);
-        for rect in [
-            layout.remote_id_input_rect(),
-            layout.remote_password_status_rect(),
-            layout.remote_password_reveal_btn_rect(),
-            layout.remote_id_connect_btn_rect(),
-            layout.your_id_copy_btn_rect(),
-        ] {
+        for (width, height) in [(800, 600), (960, 640), (1419, 611), (1920, 1080)] {
+            shell.set_help_open(false);
+            let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+            let connect = layout.remote_id_connect_btn_rect();
             assert_eq!(
-                action_at_point(&shell, 1419, 611, rect.x + 5, rect.y + 5),
-                None,
-                "Help overlay must not let invisible V5 form actions through"
+                action_at_point(&shell, width, height, connect.x + 5, connect.y + 5),
+                Some(DesktopAction::ConnectRemoteId)
+            );
+            shell.set_help_open(true);
+            for rect in [
+                layout.remote_id_input_rect(),
+                layout.remote_password_status_rect(),
+                layout.remote_password_reveal_btn_rect(),
+                layout.remote_id_connect_btn_rect(),
+                layout.your_id_copy_btn_rect(),
+            ] {
+                assert_eq!(
+                    action_at_point(&shell, width, height, rect.x + 5, rect.y + 5),
+                    None,
+                    "Help overlay must block hidden fields at {width}x{height}"
+                );
+            }
+            let help = layout.help_button_rect(width);
+            assert_eq!(
+                action_at_point(&shell, width, height, help.x + 5, help.y + 5),
+                Some(DesktopAction::ToggleHelp)
             );
         }
-        let help = layout.help_button_rect(1419);
-        assert_eq!(
-            action_at_point(&shell, 1419, 611, help.x + 5, help.y + 5),
-            Some(DesktopAction::ToggleHelp)
-        );
     }
 
     #[test]
