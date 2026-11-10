@@ -114,8 +114,9 @@ pub fn build_accesskit_tree_with_focus(
     shell: &ProductShell,
     requested_focus: Option<NodeId>,
 ) -> TreeUpdate {
-    // Compatibility wrapper for tests and non-window consumers.
-    build_accesskit_tree_at_size(shell, requested_focus, 960, 640)
+    // Legacy offscreen compatibility wrapper. The real Windows host always
+    // uses build_accesskit_tree_at_size with its measured window dimensions.
+    build_accesskit_tree_at_size(shell, requested_focus, 760, 640)
 }
 
 /// Builds the accessibility tree using the actual physical window size.
