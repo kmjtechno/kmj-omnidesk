@@ -78,11 +78,51 @@ try {
     if ($pngFiles.Count -ne 11) {
         throw "Native renderer expected exactly 11 PNG files, found $($pngFiles.Count)"
     }
-    foreach ($image in $pngFiles) {
+    $pngReceipts = @()
+    foreach ($image in ($pngFiles | Sort-Object Name)) {
         if ($image.Length -le 100) {
             throw "Empty or corrupt PNG capture: $($image.Name)"
         }
+        $fileBytes = [System.IO.File]::ReadAllBytes($image.FullName)
+        if ($fileBytes.Length -lt 24 -or
+            [System.BitConverter]::ToString($fileBytes, 0, 8) -ne '89-50-4E-47-0D-0A-1A-0A') {
+            throw "Invalid PNG signature: $($image.Name)"
+        }
+        $pngSha = (Get-FileHash -LiteralPath $image.FullName -Algorithm SHA256).Hash
+        $pngReceipts += ("PNG_SHA256=" + $pngSha + "  " + $image.Name)
     }
+
+    # Owner-reviewable gallery of real, offline Rust-rendered V5 screens.
+    # This is not a screenshot from a running Windows exe or connected peer.
+    $galleryCards = @($pngFiles | Sort-Object Name | ForEach-Object {
+        $safe = [System.Net.WebUtility]::HtmlEncode($_.Name)
+        '<figure><img src="native-render-png/' + $safe + '" alt="' +
+        $safe + '" loading="lazy"><figcaption>' + $safe + '</figcaption></figure>'
+    })
+    $galleryHtml = @'
+<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KMJ OmniDesk V5 — Native Rust Renderer Review</title>
+<style>
+:root{color-scheme:dark;font-family:Segoe UI,Arial,sans-serif}
+body{margin:0;background:#071019;color:#edf1f8;padding:24px}
+h1{margin:0 0 8px}.note{color:#9dacbd;max-width:950px;line-height:1.5}
+main{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:18px}
+figure{margin:0;border:1px solid #24323f;background:#101921;border-radius:12px;padding:8px;overflow:hidden}
+img{display:block;width:100%;height:auto}
+figcaption{font-size:13px;color:#b8c2cf;padding:10px}
+</style>
+<h1>KMJ OmniDesk · Native V5 render review</h1>
+<p class="note">Generated from real Rust renderer pixel buffers at the commit in
+receipt.txt. These images are <strong>not</strong> Windows desktop captures,
+working remote sessions, or production acceptance evidence.</p>
+<main>
+'@ + ($galleryCards -join "`n") + @'
+</main>
+</html>
+'@
+    Set-Content -LiteralPath (Join-Path $previewDir 'index.html') -Value $galleryHtml -Encoding UTF8
     if (-not (Test-Path -LiteralPath (Join-Path $captureDir 'RECEIPT.txt') -PathType Leaf)) {
         throw 'Native renderer receipt missing'
     }
@@ -103,6 +143,7 @@ try {
         "PREVIEW_PATH=$copy",
         "NATIVE_RENDER_PNG_DIR=$captureDir"
     )
+    $receipt += $pngReceipts
     Set-Content -LiteralPath (Join-Path $previewDir 'receipt.txt') -Value $receipt -Encoding UTF8
     $receipt | ForEach-Object { Write-Host $_ }
     if ($Launch) {
