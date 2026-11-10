@@ -592,6 +592,13 @@ pub fn action_at_point(
         {
             return Some(DesktopAction::ToggleHelp);
         }
+        // Help replaces the central workflow surface. Underlying input
+        // fields, connect buttons and session controls must not be clickable
+        // through its visible overlay.
+        if shell.is_help_open() && locked.remote_screen.contains(x, y) {
+            return None;
+        }
+
         // V5 tabs are independent pages. Remote credential fields are
         // actionable only on Remote Access, where they are actually drawn.
         // A secondary page must not contain invisible password/copy targets.
@@ -1684,6 +1691,39 @@ mod tests {
         assert_eq!(action, Some(DesktopAction::ToggleHelp));
         apply_action(&mut shell, action.unwrap());
         assert!(shell.is_help_open());
+    }
+
+    #[test]
+    fn v5_help_overlay_blocks_hidden_connect_and_password_hit_targets() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        shell.set_remote_id_input("222-222-222");
+        shell.set_remote_password_input("offline-ui-test-only");
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let connect = layout.remote_id_connect_btn_rect();
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, connect.x + 5, connect.y + 5),
+            Some(DesktopAction::ConnectRemoteId)
+        );
+        shell.set_help_open(true);
+        for rect in [
+            layout.remote_id_input_rect(),
+            layout.remote_password_status_rect(),
+            layout.remote_password_reveal_btn_rect(),
+            layout.remote_id_connect_btn_rect(),
+            layout.your_id_copy_btn_rect(),
+        ] {
+            assert_eq!(
+                action_at_point(&shell, 1419, 611, rect.x + 5, rect.y + 5),
+                None,
+                "Help overlay must not let invisible V5 form actions through"
+            );
+        }
+        let help = layout.help_button_rect(1419);
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, help.x + 5, help.y + 5),
+            Some(DesktopAction::ToggleHelp)
+        );
     }
 
     #[test]
