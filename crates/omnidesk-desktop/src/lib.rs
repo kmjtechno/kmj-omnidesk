@@ -1629,6 +1629,62 @@ mod tests {
     }
 
     #[test]
+    fn v5_access_form_hit_targets_match_layout_at_real_desktop_sizes() {
+        let shell = ProductShell::new();
+        for (width, height) in [(1024, 768), (1419, 611), (1920, 1080)] {
+            let layout = LockedDashboardLayout::for_window(width, height)
+                .expect("V5 desktop layout");
+            let remote_id = layout.remote_id_input_rect();
+            let remote_password = layout.remote_password_status_rect();
+            let connect = layout.remote_id_connect_btn_rect();
+            let copy_id = layout.your_id_copy_btn_rect();
+
+            for (rect, expected) in [
+                (remote_id, DesktopAction::FocusRemoteIdInput),
+                (remote_password, DesktopAction::FocusRemotePasswordInput),
+                (connect, DesktopAction::ConnectRemoteId),
+                (copy_id, DesktopAction::CopyYourId),
+            ] {
+                let actual = action_at_point(
+                    &shell,
+                    width,
+                    height,
+                    rect.x + rect.width / 2,
+                    rect.y + rect.height / 2,
+                );
+                assert_eq!(
+                    actual,
+                    Some(expected),
+                    "V5 visible field must agree with native hit testing at {width}x{height}"
+                );
+            }
+
+            let trusted = layout.devices;
+            let screen = layout.remote_screen;
+            assert!(trusted.y >= screen.y + screen.height);
+            assert!(trusted.x >= layout.viewer.x);
+            assert!(trusted.x + trusted.width <= layout.viewer.x + layout.viewer.width);
+            assert!(connect.y >= remote_password.y + remote_password.height);
+        }
+    }
+
+    #[test]
+    fn v5_remote_id_alone_cannot_start_password_connection() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        shell.set_remote_id_input("222-222-222");
+        apply_action(&mut shell, DesktopAction::ConnectRemoteId);
+        assert!(shell.selected_device().is_none());
+        assert!(shell.last_error().is_some());
+
+        shell.set_remote_password_input("test-only-secret");
+        apply_action(&mut shell, DesktopAction::ConnectRemoteId);
+        assert_eq!(shell.selected_device(), Some("KMJ-222-222-222"));
+        // A ProductShell request is still not verified remote control.
+        assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+    }
+
+    #[test]
     fn dual_role_cards_pointer_and_keyboard_interaction() {
         let mut shell = ProductShell::new();
         shell.set_local_device_id("KMJ-123-456-789");
