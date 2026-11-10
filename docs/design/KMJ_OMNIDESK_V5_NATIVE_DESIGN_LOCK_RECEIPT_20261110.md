@@ -40,6 +40,18 @@
 
 **All tests above are committed as source. Their exact-feature-branch PASS is NOT YET VERIFIED.**
 
+## Native interaction fixes committed in the current continuation
+
+- Compact Remote ID field height reduced to preserve a visible gap before the Session Password label at 800×600, 960×640, 1180×600 and 1419×611; source geometry regression test added
+- Windows password typing takes precedence over global sidebar shortcuts, so `s/c/f/m/o/d` cannot accidentally switch pages when typed inside the password field
+- Physical keyboard `Tab` switches Remote ID / Password focus; `Backspace`, `Enter`, and `Escape` are handled explicitly while editing either credential
+- Clicking noninteractive window chrome blurs both credential fields; remote-password reveal resets on blur
+- Sidebar transitions clear hidden password state and focus; Copy Device ID releases password focus
+- Copy Your ID and Copy Your Password now invoke the Windows clipboard only on explicit user action and do not report success when OS clipboard execution fails; password content is passed via child stdin, not argv or logs
+- Added source regression tests for shortcut-safe credential input, compact field separation, secret re-masking on blur/navigation, and disabled ghost click behavior
+
+**QA distinction:** these are GitHub source commits with static audit receipts, not proof that the new Windows preview compiled or passed tests. Exact feature-branch local build and fresh Windows screenshots remain mandatory.
+
 ## Exact-head local acceptance on P520
 
 1. Use a **fresh isolated checkout** of the branch, never reset/clean the dirty shared `E:\KMJ\KMJ OmniDesk`.
