@@ -2085,6 +2085,8 @@ fn draw_locked_session_tiles(
     }
 }
 
+/// Only show fields actually established by the live transport. Do not
+/// substitute hard-coded FPS, bitrate or cipher labels in the disconnected UI.
 fn draw_locked_details(
     canvas: &mut Canvas<'_>,
     p: Palette,
@@ -2092,21 +2094,11 @@ fn draw_locked_details(
     info_w: usize,
     details_y: usize,
 ) {
-    locked_label(
-        canvas,
-        info_x,
-        details_y + 18,
-        info_w,
-        "SESSION METRICS",
-        p.foreground,
-    );
     for (index, text) in [
-        "Remote computer     --",
-        "Transport path       Unavailable",
-        "Round-trip latency   --",
-        "Frame rate           --",
-        "Bandwidth            --",
-        "Encryption           Not established",
+        "Remote computer    --",
+        "Transport          Unavailable",
+        "Round-trip delay   --",
+        "Encryption         Not established",
     ]
     .iter()
     .enumerate()
@@ -2114,45 +2106,8 @@ fn draw_locked_details(
         locked_label(
             canvas,
             info_x,
-            details_y + 45 + index * 22,
+            details_y + index * 23,
             info_w,
-            text,
-            p.muted,
-        );
-    }
-}
-
-fn draw_locked_action_buttons(
-    canvas: &mut Canvas<'_>,
-    p: Palette,
-    info_x: usize,
-    info_w: usize,
-    actions_y: usize,
-) {
-    locked_label(
-        canvas,
-        info_x,
-        actions_y + 16,
-        info_w,
-        "SESSION TOOLS  /  LOCKED",
-        p.foreground,
-    );
-    for (index, text) in ["Remote Input", "File Transfer", "Monitors", "Clipboard"]
-        .iter()
-        .enumerate()
-    {
-        let columns = 2;
-        let cell_w = info_w / columns;
-        let x = info_x + index % columns * cell_w + 2;
-        let y = actions_y + 37 + index / columns * 37;
-        let button_width = cell_w.saturating_sub(8);
-        canvas.fill_rect(x, y, button_width, 31, p.background);
-        canvas.stroke_rect(x, y, button_width, 31, 1, p.border);
-        locked_label(
-            canvas,
-            x + 5,
-            y + 12,
-            button_width.saturating_sub(10),
             text,
             p.muted,
         );
@@ -2166,12 +2121,13 @@ fn draw_locked_inspector(
     p: Palette,
 ) {
     let inspector = layout.inspector;
-    // Right cards. Values remain unavailable until verified by transport.
-    let first = inspector.height * 36 / 100;
-    let second = inspector.height * 35 / 100;
+    // Match the locked V5 right rail: connection status, session tools,
+    // then verification checklist. All three fit compact 611px windows.
+    let first = inspector.height * 44 / 100;
+    let second = inspector.height * 25 / 100;
     let status_y = inspector.y + 5;
-    let details_y = status_y + first + 6;
-    let actions_y = details_y + second + 6;
+    let actions_y = status_y + first + 6;
+    let verification_y = actions_y + second + 6;
     locked_frame(
         canvas,
         inspector.x + 6,
@@ -2183,7 +2139,7 @@ fn draw_locked_inspector(
     locked_frame(
         canvas,
         inspector.x + 6,
-        details_y,
+        actions_y,
         inspector.width - 12,
         second,
         p,
@@ -2191,9 +2147,9 @@ fn draw_locked_inspector(
     locked_frame(
         canvas,
         inspector.x + 6,
-        actions_y,
+        verification_y,
         inspector.width - 12,
-        inspector.y + inspector.height - actions_y - 5,
+        inspector.y + inspector.height - verification_y - 5,
         p,
     );
     let info_x = inspector.x + 20;
@@ -2236,16 +2192,44 @@ fn draw_locked_inspector(
         p.muted,
     );
     canvas.h_line(info_x, status_y + 119, info_w, p.border);
+    draw_locked_details(canvas, p, info_x, info_w, status_y + 139);
+    draw_locked_action_buttons(canvas, p, info_x, info_w, actions_y);
+
     locked_label(
         canvas,
         info_x,
-        status_y + 139,
+        verification_y + 16,
         info_w,
-        "Encryption  /  Not established",
-        p.muted,
+        "VERIFICATION CHECKLIST",
+        p.foreground,
     );
-    draw_locked_details(canvas, p, info_x, info_w, details_y);
-    draw_locked_action_buttons(canvas, p, info_x, info_w, actions_y);
+    for (index, (title, status)) in [
+        ("Peer identity", "Awaiting cryptographic proof"),
+        ("Session authorization", "Target permission required"),
+        ("Screen availability", "No desktop stream received"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let y = verification_y + 41 + index * 36;
+        canvas.dot(info_x + 6, y + 5, 4, p.muted);
+        locked_label(
+            canvas,
+            info_x + 18,
+            y,
+            info_w.saturating_sub(18),
+            title,
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            info_x + 18,
+            y + 14,
+            info_w.saturating_sub(18),
+            status,
+            p.muted,
+        );
+    }
 }
 
 fn draw_locked_dashboard(
@@ -2388,6 +2372,33 @@ mod tests {
             );
             assert!(stage.height >= 95);
         }
+    }
+
+    #[test]
+    fn v5_trusted_devices_has_its_own_native_screen() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, NavTab};
+
+        let width = 1419;
+        let height = 611;
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "verified-peer".to_owned(),
+            display_name: "Real trusted workstation".to_owned(),
+            status: DeviceStatus::Online,
+        }]);
+        let mut remote_access = vec![0_u32; width * height];
+        render_shell(&mut remote_access, width, height, &presentation_for(&shell));
+        shell.set_nav_tab(NavTab::TrustedDevices);
+        let mut trusted = vec![0_u32; width * height];
+        render_shell(&mut trusted, width, height, &presentation_for(&shell));
+        assert_ne!(remote_access, trusted);
+        let tile = LockedDashboardLayout::for_window(width, height)
+            .unwrap()
+            .trusted_device_tile_rect(0);
+        assert_eq!(
+            trusted[tile.y * width + tile.x],
+            packed_rgb(presentation_for(&shell).visual.border_rgb)
+        );
     }
 
     #[test]
