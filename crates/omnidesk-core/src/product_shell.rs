@@ -538,11 +538,13 @@ impl ProductShell {
     pub fn append_remote_password_char(&mut self, c: char) {
         if self.remote_password_input.len() < 32 && !c.is_control() {
             self.remote_password_input.push(c);
+            self.remote_password_revealed = false;
         }
     }
 
     pub fn backspace_remote_password(&mut self) {
         self.remote_password_input.pop();
+        self.remote_password_revealed = false;
     }
 
     pub fn clear_remote_password(&mut self) {
@@ -556,7 +558,7 @@ impl ProductShell {
     }
 
     /// Reveal is a conscious local UI choice, never a permission grant.
-    pub const fn toggle_remote_password_reveal(&mut self) {
+    pub fn toggle_remote_password_reveal(&mut self) {
         if !self.remote_password_input.is_empty() {
             self.remote_password_revealed = !self.remote_password_revealed;
         }
@@ -571,9 +573,10 @@ impl ProductShell {
         self.remote_password_focused = focused;
     }
 
-    pub const fn focus_remote_id(&mut self) {
+    pub fn focus_remote_id(&mut self) {
         self.remote_id_focused = true;
         self.remote_password_focused = false;
+        self.remote_password_revealed = false;
     }
 
     pub const fn focus_remote_password(&mut self) {
@@ -956,6 +959,22 @@ mod tests {
             Err(ConnectError::DeviceOffline)
         );
         assert!(shell.last_error().unwrap().contains("offline"));
+    }
+
+    #[test]
+    fn remote_password_reveal_resets_on_edit_or_focus_change() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("preview-only");
+        shell.toggle_remote_password_reveal();
+        assert!(shell.is_remote_password_revealed());
+        shell.append_remote_password_char('!');
+        assert!(!shell.is_remote_password_revealed());
+        shell.toggle_remote_password_reveal();
+        shell.backspace_remote_password();
+        assert!(!shell.is_remote_password_revealed());
+        shell.toggle_remote_password_reveal();
+        shell.focus_remote_id();
+        assert!(!shell.is_remote_password_revealed());
     }
 
     #[test]
