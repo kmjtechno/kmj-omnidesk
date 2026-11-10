@@ -389,6 +389,19 @@ pub fn host_negotiate_and_authenticate_session_with_password<T: Transport>(
             client_id,
             proof,
         } => {
+            // Password knowledge cannot establish the remote host's
+            // identity, confidentiality or integrity of a raw TCP channel.
+            // Never accept an unbound proof as remote-control authorization.
+            if !adapter.transport_mut().is_peer_authenticated_and_encrypted() {
+                let reject = SessionAuthWireMessage::Reject {
+                    reason: "authenticated encrypted channel required".to_owned(),
+                };
+                if let Ok(bytes) = reject.to_bytes() {
+                    let _ = adapter.transport_mut().send(&bytes);
+                }
+                adapter.close();
+                return Err(TransportSessionError::UnverifiedControlBlocked);
+            }
             let res = password_mgr.as_mut().map_or_else(
                 || {
                     Err(TransportSessionError::Protocol(
@@ -551,6 +564,11 @@ pub fn peer_negotiate_and_authenticate_with_password<T: Transport>(
     password: &str,
     tenant: &str,
 ) -> Result<String, TransportSessionError> {
+    // Do not even transmit Hello or a password proof over a channel that has
+    // not independently authenticated the peer and established encryption.
+    if !transport.is_peer_authenticated_and_encrypted() {
+        return Err(TransportSessionError::UnverifiedControlBlocked);
+    }
     let hello = SessionAuthWireMessage::Hello {
         device_id: client_id.to_owned(),
         peer_tenant: tenant.to_owned(),
