@@ -67,17 +67,19 @@ fn main() -> io::Result<()> {
         render_to_png(&shell, &out_dir, name, width, height)?;
     }
 
+    // Match the six *visible* destinations of the approved V5 design.
     for (name, tab) in [
-        ("04_sessions.png", NavTab::Connections),
-        ("05_file_transfer.png", NavTab::FileTransfer),
-        ("06_remote_actions.png", NavTab::RemoteActions),
-        ("07_automation.png", NavTab::Automation),
-        ("08_security_center.png", NavTab::Security),
-        ("09_preferences.png", NavTab::Settings),
+        ("06_trusted_devices.png", NavTab::TrustedDevices),
+        ("07_sessions.png", NavTab::Connections),
+        ("08_file_transfer.png", NavTab::FileTransfer),
+        ("09_security_center.png", NavTab::Security),
+        ("10_preferences.png", NavTab::Settings),
     ] {
         shell.set_nav_tab(tab);
         render_to_png(&shell, &out_dir, name, 1419, 800)?;
     }
+    shell.set_nav_tab(NavTab::TrustedDevices);
+    render_to_png(&shell, &out_dir, "11_trusted_compact.png", 960, 640)?;
 
     let mut receipt = BufWriter::new(File::create(out_dir.join("RECEIPT.txt"))?);
     writeln!(
