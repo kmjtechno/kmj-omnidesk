@@ -1922,16 +1922,16 @@ fn draw_locked_details(
         info_x,
         details_y + 18,
         info_w,
-        "Session Details",
+        "SESSION METRICS",
         p.foreground,
     );
     for (index, text) in [
-        "Duration        --",
-        "Resolution      --",
-        "Frame rate      --",
-        "Bandwidth       --",
-        "Codec           --",
-        "Encryption      --",
+        "Remote computer     --",
+        "Transport path       Unavailable",
+        "Round-trip latency   --",
+        "Frame rate           --",
+        "Bandwidth            --",
+        "Encryption           Not established",
     ]
     .iter()
     .enumerate()
@@ -1959,10 +1959,10 @@ fn draw_locked_action_buttons(
         info_x,
         actions_y + 16,
         info_w,
-        "Actions  /  Unavailable",
+        "SESSION TOOLS  /  LOCKED",
         p.foreground,
     );
-    for (index, text) in ["File Transfer", "Remote Reboot", "Clipboard", "Unattended"]
+    for (index, text) in ["Remote Input", "File Transfer", "Monitors", "Clipboard"]
         .iter()
         .enumerate()
     {
@@ -2028,39 +2028,47 @@ fn draw_locked_inspector(
         info_x,
         status_y + 18,
         info_w,
-        "Connection Status",
+        "SESSION INSPECTOR",
         p.foreground,
     );
-    canvas.dot(info_x + 5, status_y + 47, 4, p.muted);
     locked_label(
         canvas,
-        info_x + 17,
-        status_y + 43,
-        info_w - 17,
-        match presentation.primary_view {
-            omnidesk_core::product_shell::PrimaryView::Devices => "No verified connection",
-            omnidesk_core::product_shell::PrimaryView::PermissionPrompt => "Permission pending",
-            omnidesk_core::product_shell::PrimaryView::Session => "Transport still unverified",
-        },
+        info_x,
+        status_y + 37,
+        info_w,
+        "Connection status",
         p.muted,
     );
-    for (index, text) in [
-        "Path: unavailable",
-        "Latency: unavailable",
-        "Relay: not verified",
-    ]
-    .iter()
-    .enumerate()
-    {
-        locked_label(
-            canvas,
-            info_x,
-            status_y + 72 + index * 25,
-            info_w,
-            text,
-            p.muted,
-        );
-    }
+    canvas.dot(info_x + 7, status_y + 67, 6, p.muted);
+    locked_label(
+        canvas,
+        info_x + 22,
+        status_y + 62,
+        info_w.saturating_sub(22),
+        match presentation.primary_view {
+            omnidesk_core::product_shell::PrimaryView::Devices => "Not connected",
+            omnidesk_core::product_shell::PrimaryView::PermissionPrompt => "Permission pending",
+            omnidesk_core::product_shell::PrimaryView::Session => "Transport unverified",
+        },
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        info_x,
+        status_y + 94,
+        info_w,
+        "Waiting for verified remote access",
+        p.muted,
+    );
+    canvas.h_line(info_x, status_y + 119, info_w, p.border);
+    locked_label(
+        canvas,
+        info_x,
+        status_y + 139,
+        info_w,
+        "Encryption  /  Not established",
+        p.muted,
+    );
     draw_locked_details(canvas, p, info_x, info_w, details_y);
     draw_locked_action_buttons(canvas, p, info_x, info_w, actions_y);
 }
