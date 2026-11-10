@@ -490,11 +490,7 @@ impl LockedDashboardLayout {
             } else {
                 self.remote_screen.width.saturating_sub(36)
             },
-            height: if self.access_cards_wide() {
-                205
-            } else {
-                135
-            },
+            height: if self.access_cards_wide() { 205 } else { 135 },
         }
     }
 
@@ -523,6 +519,39 @@ impl LockedDashboardLayout {
     }
 
     #[must_use]
+    pub const fn your_password_reveal_btn_rect(&self) -> DashboardRect {
+        let status = self.your_password_status_rect();
+        DashboardRect {
+            x: status.x + status.width.saturating_sub(168),
+            y: status.y,
+            width: 50,
+            height: status.height,
+        }
+    }
+
+    #[must_use]
+    pub const fn your_password_copy_btn_rect(&self) -> DashboardRect {
+        let status = self.your_password_status_rect();
+        DashboardRect {
+            x: status.x + status.width.saturating_sub(112),
+            y: status.y,
+            width: 50,
+            height: status.height,
+        }
+    }
+
+    #[must_use]
+    pub const fn your_password_rotate_btn_rect(&self) -> DashboardRect {
+        let status = self.your_password_status_rect();
+        DashboardRect {
+            x: status.x + status.width.saturating_sub(56),
+            y: status.y,
+            width: 54,
+            height: status.height,
+        }
+    }
+
+    #[must_use]
     pub const fn remote_id_card_rect(&self) -> DashboardRect {
         let own = self.your_id_card_rect();
         DashboardRect {
@@ -541,11 +570,7 @@ impl LockedDashboardLayout {
             } else {
                 self.remote_screen.width.saturating_sub(36)
             },
-            height: if self.access_cards_wide() {
-                205
-            } else {
-                156
-            },
+            height: if self.access_cards_wide() { 205 } else { 156 },
         }
     }
 
@@ -581,6 +606,28 @@ impl LockedDashboardLayout {
             y: card.y + 100,
             width: card.width.saturating_sub(32),
             height: 35,
+        }
+    }
+
+    #[must_use]
+    pub const fn session_toolbar_rect(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.remote_screen.x + 16,
+            y: self.remote_screen.y + 12,
+            width: self.remote_screen.width.saturating_sub(32),
+            height: 40,
+        }
+    }
+
+    #[must_use]
+    pub const fn session_tool_btn_rect(&self, index: usize) -> DashboardRect {
+        let bar = self.session_toolbar_rect();
+        let btn_w = 95;
+        DashboardRect {
+            x: bar.x + 10 + index * (btn_w + 8),
+            y: bar.y + 4,
+            width: btn_w,
+            height: 32,
         }
     }
 

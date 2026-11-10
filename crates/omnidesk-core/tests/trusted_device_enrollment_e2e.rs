@@ -21,7 +21,8 @@ use omnidesk_core::{
     transport::{HostTransport, LoopbackTransport, TcpLanTransport, Transport},
     transport_adapter::{
         TransportSessionAdapter, TransportSessionError, host_negotiate_and_authenticate_session,
-        peer_negotiate_and_authenticate_session,
+        host_negotiate_and_authenticate_session_with_password,
+        peer_negotiate_and_authenticate_session, peer_negotiate_and_authenticate_with_password,
     },
     trusted_device_store::{
         DeviceStoreError, PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
@@ -1144,4 +1145,75 @@ fn tcp_lan_full_handshake_expired_peer_rejected() {
     assert!(err.is_err());
 
     server_handle.join().expect("server join");
+}
+
+#[test]
+fn tcp_lan_full_handshake_password_authentication_lifecycle() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let now = 8_000_000_u64;
+
+    let store = TrustedDeviceStore::new();
+    let mut pw_mgr = omnidesk_core::password_auth::SessionPasswordManager::new(now);
+    let valid_pw = pw_mgr.raw_password().expect("password").to_owned();
+
+    let server_handle = thread::spawn(move || {
+        // First connection: valid password
+        let (stream1, _) = listener.accept().expect("server accept 1");
+        let transport1 = HostTransport::from_tcp_stream(stream1).expect("transport 1");
+        let mut adapter1 = TransportSessionAdapter::new(transport1, "kmj-tenant".to_owned());
+        let record1 = host_negotiate_and_authenticate_session_with_password(
+            &mut adapter1,
+            &store,
+            "KMJ-HOST-001",
+            Some(&mut pw_mgr),
+            now,
+        )
+        .expect("host password auth 1 must succeed");
+        assert_eq!(record1.device_id, "client-pc-1");
+
+        // Second connection: invalid password
+        let (stream2, _) = listener.accept().expect("server accept 2");
+        let transport2 = HostTransport::from_tcp_stream(stream2).expect("transport 2");
+        let mut adapter2 = TransportSessionAdapter::new(transport2, "kmj-tenant".to_owned());
+        let err2 = host_negotiate_and_authenticate_session_with_password(
+            &mut adapter2,
+            &store,
+            "KMJ-HOST-001",
+            Some(&mut pw_mgr),
+            now,
+        );
+        assert!(err2.is_err());
+    });
+
+    // Client 1: connects with valid password
+    let client_stream1 = std::net::TcpStream::connect(addr).expect("client connect 1");
+    let mut client_transport1 =
+        HostTransport::from_tcp_stream(client_stream1).expect("client transport 1");
+    let host_id = peer_negotiate_and_authenticate_with_password(
+        &mut client_transport1,
+        "client-pc-1",
+        "KMJ-HOST-001",
+        &valid_pw,
+        "kmj-tenant",
+    )
+    .expect("client password auth must succeed");
+    assert_eq!(host_id, "KMJ-HOST-001");
+
+    // Client 2: connects with wrong password
+    let client_stream2 = std::net::TcpStream::connect(addr).expect("client connect 2");
+    let mut client_transport2 =
+        HostTransport::from_tcp_stream(client_stream2).expect("client transport 2");
+    let err = peer_negotiate_and_authenticate_with_password(
+        &mut client_transport2,
+        "client-pc-2",
+        "KMJ-HOST-001",
+        "wrong-password-999",
+        "kmj-tenant",
+    );
+    assert!(err.is_err());
+
+    server_handle
+        .join()
+        .expect("server thread must exit cleanly");
 }

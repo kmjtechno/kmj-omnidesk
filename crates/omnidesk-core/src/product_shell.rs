@@ -83,6 +83,23 @@ pub enum DeviceFilter {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileTransferItem {
+    pub id: String,
+    pub filename: String,
+    pub size_bytes: u64,
+    pub progress_percent: u8,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecurityAuditItem {
+    pub timestamp_epoch_secs: u64,
+    pub event_type: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ProductShell {
     devices: Vec<DeviceSummary>,
     // Binds queued connect actions to the exact directory snapshot.
@@ -100,6 +117,17 @@ pub struct ProductShell {
     local_device_id: String,
     remote_id_input: String,
     remote_id_focused: bool,
+    password_manager: crate::password_auth::SessionPasswordManager,
+    remote_password_input: String,
+    remote_password_focused: bool,
+    remote_input_enabled: bool,
+    fullscreen_enabled: bool,
+    selected_monitor: usize,
+    total_monitors: usize,
+    clipboard_sync_enabled: bool,
+    unattended_access_enabled: bool,
+    file_transfers: Vec<FileTransferItem>,
+    audit_log: Vec<SecurityAuditItem>,
 }
 
 impl ProductShell {
@@ -121,6 +149,17 @@ impl ProductShell {
             local_device_id: String::new(),
             remote_id_input: String::new(),
             remote_id_focused: false,
+            password_manager: crate::password_auth::SessionPasswordManager::unconfigured(),
+            remote_password_input: String::new(),
+            remote_password_focused: false,
+            remote_input_enabled: true,
+            fullscreen_enabled: false,
+            selected_monitor: 1,
+            total_monitors: 1,
+            clipboard_sync_enabled: true,
+            unattended_access_enabled: false,
+            file_transfers: Vec::new(),
+            audit_log: Vec::new(),
         }
     }
 
@@ -457,6 +496,164 @@ impl ProductShell {
                 self.set_error(msg.clone());
                 Err(ConnectError::UntrustedPeer(msg))
             }
+        }
+    }
+
+    #[must_use]
+    pub const fn password_manager(&self) -> &crate::password_auth::SessionPasswordManager {
+        &self.password_manager
+    }
+
+    pub const fn password_manager_mut(
+        &mut self,
+    ) -> &mut crate::password_auth::SessionPasswordManager {
+        &mut self.password_manager
+    }
+
+    #[must_use]
+    pub fn remote_password_input(&self) -> &str {
+        &self.remote_password_input
+    }
+
+    pub fn set_remote_password_input(&mut self, input: impl Into<String>) {
+        self.remote_password_input = input.into();
+    }
+
+    pub fn append_remote_password_char(&mut self, c: char) {
+        if self.remote_password_input.len() < 32 && !c.is_control() {
+            self.remote_password_input.push(c);
+        }
+    }
+
+    pub fn backspace_remote_password(&mut self) {
+        self.remote_password_input.pop();
+    }
+
+    pub fn clear_remote_password(&mut self) {
+        self.remote_password_input.clear();
+    }
+
+    #[must_use]
+    pub const fn is_remote_password_focused(&self) -> bool {
+        self.remote_password_focused
+    }
+
+    pub const fn set_remote_password_focused(&mut self, focused: bool) {
+        self.remote_password_focused = focused;
+    }
+
+    pub const fn focus_remote_id(&mut self) {
+        self.remote_id_focused = true;
+        self.remote_password_focused = false;
+    }
+
+    pub const fn focus_remote_password(&mut self) {
+        self.remote_id_focused = false;
+        self.remote_password_focused = true;
+    }
+
+    pub const fn toggle_local_password_reveal(&mut self) {
+        self.password_manager.toggle_reveal();
+    }
+
+    pub fn rotate_local_password(&mut self, now_epoch_secs: u64) {
+        self.password_manager.rotate(now_epoch_secs);
+        self.add_audit_event(
+            "PASSWORD_ROTATED",
+            "Local session password rotated",
+            now_epoch_secs,
+        );
+    }
+
+    #[must_use]
+    pub const fn remote_input_enabled(&self) -> bool {
+        self.remote_input_enabled
+    }
+
+    pub const fn toggle_remote_input(&mut self) {
+        self.remote_input_enabled = !self.remote_input_enabled;
+    }
+
+    #[must_use]
+    pub const fn fullscreen_enabled(&self) -> bool {
+        self.fullscreen_enabled
+    }
+
+    pub const fn toggle_fullscreen(&mut self) {
+        self.fullscreen_enabled = !self.fullscreen_enabled;
+    }
+
+    #[must_use]
+    pub const fn selected_monitor(&self) -> usize {
+        self.selected_monitor
+    }
+
+    #[must_use]
+    pub const fn total_monitors(&self) -> usize {
+        self.total_monitors
+    }
+
+    pub fn set_total_monitors(&mut self, total: usize) {
+        self.total_monitors = total.max(1);
+    }
+
+    pub const fn next_monitor(&mut self) {
+        if self.total_monitors > 1 {
+            self.selected_monitor = (self.selected_monitor % self.total_monitors) + 1;
+        }
+    }
+
+    #[must_use]
+    pub const fn clipboard_sync_enabled(&self) -> bool {
+        self.clipboard_sync_enabled
+    }
+
+    pub const fn toggle_clipboard_sync(&mut self) {
+        self.clipboard_sync_enabled = !self.clipboard_sync_enabled;
+    }
+
+    #[must_use]
+    pub const fn unattended_access_enabled(&self) -> bool {
+        self.unattended_access_enabled
+    }
+
+    pub const fn toggle_unattended_access(&mut self) {
+        self.unattended_access_enabled = !self.unattended_access_enabled;
+    }
+
+    #[must_use]
+    pub fn file_transfers(&self) -> &[FileTransferItem] {
+        &self.file_transfers
+    }
+
+    pub fn add_file_transfer(&mut self, item: FileTransferItem) {
+        self.file_transfers.push(item);
+    }
+
+    pub fn cancel_file_transfer(&mut self, id: &str) {
+        if let Some(item) = self.file_transfers.iter_mut().find(|t| t.id == id) {
+            "Cancelled".clone_into(&mut item.status);
+        }
+    }
+
+    #[must_use]
+    pub fn audit_log(&self) -> &[SecurityAuditItem] {
+        &self.audit_log
+    }
+
+    pub fn add_audit_event(
+        &mut self,
+        event_type: impl Into<String>,
+        detail: impl Into<String>,
+        now_epoch_secs: u64,
+    ) {
+        self.audit_log.push(SecurityAuditItem {
+            timestamp_epoch_secs: now_epoch_secs,
+            event_type: event_type.into(),
+            detail: detail.into(),
+        });
+        if self.audit_log.len() > 50 {
+            self.audit_log.remove(0);
         }
     }
 }

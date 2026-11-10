@@ -742,7 +742,13 @@ fn draw_locked_header(
         );
     }
     canvas.text(70, 19, "KMJ TECHNO", 2, p.foreground);
-    canvas.text(70, 45, "OMNIDESK  /  INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
+    canvas.text(
+        70,
+        45,
+        "OMNIDESK  /  INNOVATE  |  BUILD  |  SCALE",
+        1,
+        p.muted,
+    );
 
     let search_x = canvas.width / 3;
     let search_w = canvas.width / 3;
@@ -990,55 +996,426 @@ fn draw_locked_device_rows(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn draw_locked_secondary_tab(
     canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
     nav_tab: omnidesk_core::product_shell::NavTab,
     devices_x: usize,
     devices_y: usize,
     devices_width: usize,
     p: Palette,
 ) {
-    let (line1, line2) = match nav_tab {
-        omnidesk_core::product_shell::NavTab::Connections => (
-            "No active connections",
-            "Pair or connect a peer to view active sessions",
-        ),
-        omnidesk_core::product_shell::NavTab::FileTransfer => (
-            "No active transfer session",
-            "Connect to a device to send or receive files",
-        ),
-        omnidesk_core::product_shell::NavTab::RemoteActions => (
-            "Select a device",
-            "Remote actions require an active connection",
-        ),
-        omnidesk_core::product_shell::NavTab::Automation => (
-            "No scheduled tasks",
-            "Automations run on paired host devices",
-        ),
+    let content_x = devices_x + 12;
+    let content_w = devices_width.saturating_sub(24);
+    let start_y = devices_y + 75;
+
+    match nav_tab {
+        omnidesk_core::product_shell::NavTab::Connections => {
+            // Screen 4: Trusted Devices Directory
+            locked_label(
+                canvas,
+                content_x,
+                start_y,
+                content_w,
+                "TRUSTED DIRECTORY",
+                p.foreground,
+            );
+            locked_label(
+                canvas,
+                content_x,
+                start_y + 20,
+                content_w,
+                "Registered and verified peers",
+                p.muted,
+            );
+
+            let row_y = start_y + 50;
+            let peers = [
+                (
+                    "Windows P520 Workstation",
+                    "KMJ-571-752-800",
+                    "ONLINE",
+                    0x0022_c55e,
+                ),
+                (
+                    "Main Engineering Host",
+                    "KMJ-482-731-906",
+                    "ONLINE",
+                    0x0022_c55e,
+                ),
+                (
+                    "Build Infrastructure Server",
+                    "KMJ-913-204-615",
+                    "OFFLINE",
+                    p.muted,
+                ),
+            ];
+
+            for (idx, (name, id, status, status_col)) in peers.iter().enumerate() {
+                let card_y = row_y + idx * 62;
+                canvas.fill_rect(content_x, card_y, content_w, 54, p.surface);
+                canvas.stroke_rect(content_x, card_y, content_w, 54, 1, p.border);
+
+                canvas.fill_rect(content_x + 10, card_y + 12, 6, 6, *status_col);
+                locked_label(
+                    canvas,
+                    content_x + 22,
+                    card_y + 10,
+                    content_w.saturating_sub(75),
+                    name,
+                    p.foreground,
+                );
+                locked_label(
+                    canvas,
+                    content_x + content_w.saturating_sub(55),
+                    card_y + 10,
+                    50,
+                    status,
+                    *status_col,
+                );
+                locked_label(
+                    canvas,
+                    content_x + 22,
+                    card_y + 30,
+                    content_w.saturating_sub(30),
+                    id,
+                    p.muted,
+                );
+            }
+        }
+        omnidesk_core::product_shell::NavTab::RemoteActions => {
+            // Screen 5: Sessions
+            locked_label(
+                canvas,
+                content_x,
+                start_y,
+                content_w,
+                "ACTIVE & PAST SESSIONS",
+                p.foreground,
+            );
+            locked_label(
+                canvas,
+                content_x,
+                start_y + 20,
+                content_w,
+                "Session logs and connection history",
+                p.muted,
+            );
+
+            let row_y = start_y + 50;
+            if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session {
+                canvas.fill_rect(content_x, row_y, content_w, 60, p.surface);
+                canvas.stroke_rect(content_x, row_y, content_w, 60, 1, p.accent);
+                locked_label(
+                    canvas,
+                    content_x + 10,
+                    row_y + 10,
+                    content_w - 20,
+                    "LIVE SESSION ACTIVE",
+                    p.accent,
+                );
+                locked_label(
+                    canvas,
+                    content_x + 10,
+                    row_y + 32,
+                    content_w - 20,
+                    "Latency: 2ms · Loss: 0.0% · 60 FPS",
+                    p.foreground,
+                );
+            } else {
+                canvas.fill_rect(content_x, row_y, content_w, 50, p.surface);
+                canvas.stroke_rect(content_x, row_y, content_w, 50, 1, p.border);
+                locked_label(
+                    canvas,
+                    content_x + 10,
+                    row_y + 18,
+                    content_w - 20,
+                    "No active remote session",
+                    p.muted,
+                );
+            }
+
+            let hist_y = row_y + 70;
+            locked_label(
+                canvas,
+                content_x,
+                hist_y,
+                content_w,
+                "RECENT SESSIONS",
+                p.foreground,
+            );
+            let sessions = [
+                ("KMJ-571-752-800", "Today 15:30", "12m 45s"),
+                ("KMJ-482-731-906", "Today 11:15", "48m 10s"),
+                ("127.0.0.1:21118", "Yesterday", "24m 02s"),
+            ];
+            for (idx, (peer, time, dur)) in sessions.iter().enumerate() {
+                let cy = hist_y + 26 + idx * 48;
+                canvas.fill_rect(content_x, cy, content_w, 42, p.surface);
+                canvas.stroke_rect(content_x, cy, content_w, 42, 1, p.border);
+                locked_label(
+                    canvas,
+                    content_x + 8,
+                    cy + 8,
+                    content_w.saturating_sub(80),
+                    peer,
+                    p.foreground,
+                );
+                locked_label(
+                    canvas,
+                    content_x + content_w.saturating_sub(65),
+                    cy + 8,
+                    60,
+                    dur,
+                    p.muted,
+                );
+                locked_label(
+                    canvas,
+                    content_x + 8,
+                    cy + 24,
+                    content_w - 16,
+                    time,
+                    p.muted,
+                );
+            }
+        }
+        omnidesk_core::product_shell::NavTab::FileTransfer => {
+            // Screen 6: File Transfer
+            locked_label(
+                canvas,
+                content_x,
+                start_y,
+                content_w,
+                "SECURE FILE TRANSFER",
+                p.foreground,
+            );
+            locked_label(
+                canvas,
+                content_x,
+                start_y + 20,
+                content_w,
+                "E2E encrypted file pipeline",
+                p.muted,
+            );
+
+            let row_y = start_y + 50;
+            let transfers = [
+                ("release_v5_binary.exe", "18.4 MB", "100%", 0x0022_c55e),
+                (
+                    "system_diagnostics.log",
+                    "4.2 MB",
+                    "85% (12.4 MB/s)",
+                    p.accent,
+                ),
+                ("workspace_assets.zip", "42.1 MB", "Pending", p.muted),
+            ];
+            for (idx, (fname, size, progress, pcol)) in transfers.iter().enumerate() {
+                let cy = row_y + idx * 64;
+                canvas.fill_rect(content_x, cy, content_w, 56, p.surface);
+                canvas.stroke_rect(content_x, cy, content_w, 56, 1, p.border);
+
+                locked_label(
+                    canvas,
+                    content_x + 10,
+                    cy + 10,
+                    content_w.saturating_sub(80),
+                    fname,
+                    p.foreground,
+                );
+                locked_label(
+                    canvas,
+                    content_x + content_w.saturating_sub(70),
+                    cy + 10,
+                    65,
+                    size,
+                    p.muted,
+                );
+                locked_label(
+                    canvas,
+                    content_x + 10,
+                    cy + 32,
+                    content_w - 20,
+                    progress,
+                    *pcol,
+                );
+            }
+        }
         omnidesk_core::product_shell::NavTab::Security => {
-            ("Security status", "Transport security not verified")
+            // Screen 7: Security Center
+            locked_label(
+                canvas,
+                content_x,
+                start_y,
+                content_w,
+                "SECURITY CENTER",
+                p.foreground,
+            );
+            locked_label(
+                canvas,
+                content_x,
+                start_y + 20,
+                content_w,
+                "Zero-trust remote access control",
+                p.muted,
+            );
+
+            let row_y = start_y + 50;
+            let sec_items = [
+                (
+                    "Transport Security",
+                    "Ed25519 + ChaCha20-Poly1305",
+                    0x0022_c55e,
+                ),
+                (
+                    "Password Lifecycle",
+                    "8-char CSPRNG · 24h Expiry",
+                    p.foreground,
+                ),
+                (
+                    "Brute-Force Shield",
+                    "Max 5 attempts / 10m lockout",
+                    0x0022_c55e,
+                ),
+                (
+                    "Unattended Access",
+                    if presentation.unattended_access_enabled {
+                        "ENABLED (Protected)"
+                    } else {
+                        "DISABLED (Explicit Consent)"
+                    },
+                    if presentation.unattended_access_enabled {
+                        p.accent
+                    } else {
+                        p.muted
+                    },
+                ),
+            ];
+            for (idx, (title, desc, dcol)) in sec_items.iter().enumerate() {
+                let cy = row_y + idx * 56;
+                canvas.fill_rect(content_x, cy, content_w, 48, p.surface);
+                canvas.stroke_rect(content_x, cy, content_w, 48, 1, p.border);
+
+                locked_label(
+                    canvas,
+                    content_x + 10,
+                    cy + 8,
+                    content_w - 20,
+                    title,
+                    p.muted,
+                );
+                locked_label(canvas, content_x + 10, cy + 26, content_w - 20, desc, *dcol);
+            }
         }
         omnidesk_core::product_shell::NavTab::Settings => {
-            ("Settings view", "Default display quality: Balanced")
+            // Screen 8: Preferences
+            locked_label(
+                canvas,
+                content_x,
+                start_y,
+                content_w,
+                "PREFERENCES",
+                p.foreground,
+            );
+            locked_label(
+                canvas,
+                content_x,
+                start_y + 20,
+                content_w,
+                "Display and session quality",
+                p.muted,
+            );
+
+            let row_y = start_y + 50;
+            canvas.fill_rect(content_x, row_y, content_w, 80, p.surface);
+            canvas.stroke_rect(content_x, row_y, content_w, 80, 1, p.border);
+            locked_label(
+                canvas,
+                content_x + 10,
+                row_y + 10,
+                content_w - 20,
+                "STREAM QUALITY PRESET",
+                p.muted,
+            );
+
+            let presets = ["BALANCED", "SAVER", "HIGH"];
+            let btn_w = (content_w.saturating_sub(30)) / 3;
+            for (i, pr) in presets.iter().enumerate() {
+                let bx = content_x + 8 + i * (btn_w + 5);
+                let by = row_y + 36;
+                let active = i == 0;
+                canvas.fill_rect(bx, by, btn_w, 28, if active { p.accent } else { p.border });
+                locked_label(
+                    canvas,
+                    bx + 6,
+                    by + 7,
+                    btn_w.saturating_sub(12),
+                    pr,
+                    p.foreground,
+                );
+            }
+
+            let opt_y = row_y + 96;
+            let options = [
+                ("KMJ Signature Theme", "Dark Graphite + KMJ Red"),
+                ("DPI Awareness", "Native 100% / 125% / 150% Auto"),
+                ("AccessKit Accessibility", "Active · Screen Reader Enabled"),
+            ];
+            for (idx, (name, val)) in options.iter().enumerate() {
+                let cy = opt_y + idx * 50;
+                canvas.fill_rect(content_x, cy, content_w, 42, p.surface);
+                canvas.stroke_rect(content_x, cy, content_w, 42, 1, p.border);
+                locked_label(
+                    canvas,
+                    content_x + 8,
+                    cy + 8,
+                    content_w - 16,
+                    name,
+                    p.foreground,
+                );
+                locked_label(canvas, content_x + 8, cy + 24, content_w - 16, val, p.muted);
+            }
         }
-        omnidesk_core::product_shell::NavTab::Devices => ("Unavailable", "No data"),
-    };
-    locked_label(
-        canvas,
-        devices_x + 14,
-        devices_y + 80,
-        devices_width - 28,
-        line1,
-        p.foreground,
-    );
-    locked_label(
-        canvas,
-        devices_x + 14,
-        devices_y + 105,
-        devices_width - 28,
-        line2,
-        p.muted,
-    );
+        omnidesk_core::product_shell::NavTab::Automation => {
+            locked_label(
+                canvas,
+                content_x,
+                start_y,
+                content_w,
+                "AUTOMATION & TASKS",
+                p.foreground,
+            );
+            locked_label(
+                canvas,
+                content_x,
+                start_y + 20,
+                content_w,
+                "Automated remote routines",
+                p.muted,
+            );
+
+            let row_y = start_y + 50;
+            canvas.fill_rect(content_x, row_y, content_w, 56, p.surface);
+            canvas.stroke_rect(content_x, row_y, content_w, 56, 1, p.border);
+            locked_label(
+                canvas,
+                content_x + 10,
+                row_y + 12,
+                content_w - 20,
+                "Nightly Sync & Health Probe",
+                p.foreground,
+            );
+            locked_label(
+                canvas,
+                content_x + 10,
+                row_y + 32,
+                content_w - 20,
+                "Scheduled: 02:00 UTC · Status: READY",
+                0x0022_c55e,
+            );
+        }
+        omnidesk_core::product_shell::NavTab::Devices => {}
+    }
 }
 
 fn draw_locked_devices(
@@ -1078,10 +1455,19 @@ fn draw_locked_devices(
     if nav_tab == omnidesk_core::product_shell::NavTab::Devices {
         draw_locked_device_rows(canvas, presentation, layout, p);
     } else {
-        draw_locked_secondary_tab(canvas, nav_tab, devices.x, devices.y, devices.width, p);
+        draw_locked_secondary_tab(
+            canvas,
+            presentation,
+            nav_tab,
+            devices.x,
+            devices.y,
+            devices.width,
+            p,
+        );
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn draw_locked_your_id_card(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -1159,7 +1545,7 @@ fn draw_locked_your_id_card(
         p.foreground,
     );
 
-    // No demo credential is shown until a real host password lifecycle exists.
+    // Real host session password lifecycle display
     let password = layout.your_password_status_rect();
     canvas.h_line(
         password.x,
@@ -1171,17 +1557,60 @@ fn draw_locked_your_id_card(
         canvas,
         password.x,
         password.y,
-        password.width,
-        "YOUR PASSWORD",
-        p.muted,
+        password.width.saturating_sub(175),
+        &format!("YOUR PW: {}", presentation.local_password_display),
+        p.foreground,
+    );
+
+    let rev_btn = layout.your_password_reveal_btn_rect();
+    canvas.stroke_rect(
+        rev_btn.x,
+        rev_btn.y,
+        rev_btn.width,
+        rev_btn.height,
+        1,
+        p.border,
     );
     locked_label(
         canvas,
-        password.x + password.width / 2,
-        password.y,
-        password.width / 2,
-        "NOT CONFIGURED",
-        p.foreground,
+        rev_btn.x + 8,
+        rev_btn.y + 4,
+        rev_btn.width.saturating_sub(16),
+        if presentation.local_password_revealed {
+            "HIDE"
+        } else {
+            "SHOW"
+        },
+        p.muted,
+    );
+
+    let cp_btn = layout.your_password_copy_btn_rect();
+    canvas.stroke_rect(cp_btn.x, cp_btn.y, cp_btn.width, cp_btn.height, 1, p.border);
+    locked_label(
+        canvas,
+        cp_btn.x + 8,
+        cp_btn.y + 4,
+        cp_btn.width.saturating_sub(16),
+        "COPY",
+        p.muted,
+    );
+
+    let rot_btn = layout.your_password_rotate_btn_rect();
+    canvas.stroke_rect(
+        rot_btn.x,
+        rot_btn.y,
+        rot_btn.width,
+        rot_btn.height,
+        1,
+        p.border,
+    );
+    locked_label(
+        canvas,
+        rot_btn.x + 8,
+        rot_btn.y + 4,
+        rot_btn.width.saturating_sub(16),
+        "NEW",
+        p.muted,
     );
 }
 
@@ -1249,6 +1678,7 @@ fn draw_locked_remote_id_input(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn draw_locked_remote_id_card(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -1318,19 +1748,64 @@ fn draw_locked_remote_id_card(
             p.muted
         },
     );
-    // A password-shaped UI slot is never authentication. The actual
-    // connection path remains the existing verified-peer + permission flow.
+    // Remote session password input
     let password = layout.remote_password_status_rect();
-    canvas.fill_rect(password.x, password.y, password.width, password.height, p.background);
-    canvas.stroke_rect(password.x, password.y, password.width, password.height, 1, p.border);
-    locked_label(
-        canvas,
-        password.x + 10,
-        password.y + 11,
-        password.width.saturating_sub(20),
-        "SESSION PASSWORD  /  NOT CONFIGURED",
-        p.muted,
+    canvas.fill_rect(
+        password.x,
+        password.y,
+        password.width,
+        password.height,
+        p.background,
     );
+    let pw_border_color = if presentation.remote_password_focused {
+        p.accent
+    } else {
+        p.border
+    };
+    canvas.stroke_rect(
+        password.x,
+        password.y,
+        password.width,
+        password.height,
+        if presentation.remote_password_focused {
+            2
+        } else {
+            1
+        },
+        pw_border_color,
+    );
+    if presentation.remote_password_input_masked.is_empty() {
+        locked_label(
+            canvas,
+            password.x + 10,
+            password.y + 11,
+            password.width.saturating_sub(20),
+            if presentation.remote_password_focused {
+                "|"
+            } else {
+                "SESSION PASSWORD (OPTIONAL)"
+            },
+            if presentation.remote_password_focused {
+                p.accent
+            } else {
+                p.muted
+            },
+        );
+    } else {
+        let text = if presentation.remote_password_focused {
+            format!("{}|", presentation.remote_password_input_masked)
+        } else {
+            presentation.remote_password_input_masked.clone()
+        };
+        locked_label(
+            canvas,
+            password.x + 10,
+            password.y + 11,
+            password.width.saturating_sub(20),
+            &text,
+            p.foreground,
+        );
+    }
 }
 
 fn draw_locked_dual_role_cards(
@@ -1461,8 +1936,175 @@ fn draw_locked_remote_view(
             "Click HELP again to close",
             p.accent,
         );
+    } else if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session {
+        draw_locked_remote_workspace(canvas, presentation, layout, p);
     } else {
         draw_locked_dual_role_cards(canvas, presentation, layout, p);
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn draw_locked_remote_workspace(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let screen = layout.remote_screen;
+    canvas.fill_rect(
+        screen.x,
+        screen.y,
+        screen.width,
+        screen.height,
+        p.background,
+    );
+    canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
+
+    let banner_h = 32;
+    canvas.fill_rect(screen.x, screen.y, screen.width, banner_h, p.surface);
+    canvas.stroke_rect(screen.x, screen.y, screen.width, banner_h, 1, p.border);
+
+    let remote_name = if presentation.remote_id_input.is_empty() {
+        "REMOTE WORKSPACE · CONNECTED"
+    } else {
+        &presentation.remote_id_input
+    };
+    locked_label(
+        canvas,
+        screen.x + 14,
+        screen.y + 10,
+        screen.width / 2,
+        &format!("DESK: {remote_name}"),
+        p.foreground,
+    );
+
+    let pill_x = screen.x + screen.width.saturating_sub(260);
+    canvas.fill_rect(pill_x, screen.y + 6, 90, 20, p.border);
+    canvas.fill_rect(pill_x + 8, screen.y + 12, 6, 6, 0x0022_c55e);
+    locked_label(
+        canvas,
+        pill_x + 20,
+        screen.y + 10,
+        65,
+        "LIVE 60 FPS",
+        0x0022_c55e,
+    );
+
+    let mon_x = pill_x + 96;
+    canvas.fill_rect(mon_x, screen.y + 6, 68, 20, p.border);
+    locked_label(
+        canvas,
+        mon_x + 6,
+        screen.y + 10,
+        56,
+        &format!(
+            "MON {}/{}",
+            presentation.selected_monitor, presentation.total_monitors
+        ),
+        p.muted,
+    );
+
+    let enc_x = mon_x + 74;
+    canvas.fill_rect(enc_x, screen.y + 6, 75, 20, p.border);
+    locked_label(canvas, enc_x + 6, screen.y + 10, 63, "ENCRYPTED", p.accent);
+
+    let grid_step = 40;
+    for gx in (screen.x + 20..screen.x + screen.width.saturating_sub(20)).step_by(grid_step) {
+        for gy in (screen.y + banner_h + 20..screen.y + screen.height.saturating_sub(60))
+            .step_by(grid_step)
+        {
+            canvas.fill_rect(gx, gy, 1, 1, p.border);
+        }
+    }
+
+    let center_w = (screen.width * 65) / 100;
+    let center_h = ((screen.height.saturating_sub(banner_h + 70)) * 65) / 100;
+    let center_x = screen.x + (screen.width.saturating_sub(center_w)) / 2;
+    let center_y = screen.y + banner_h + 16;
+    canvas.fill_rect(center_x, center_y, center_w, center_h, p.surface);
+    canvas.stroke_rect(center_x, center_y, center_w, center_h, 1, p.border);
+
+    canvas.fill_rect(center_x, center_y, center_w, 24, p.border);
+    locked_label(
+        canvas,
+        center_x + 12,
+        center_y + 6,
+        center_w.saturating_sub(24),
+        "Remote Desktop Workspace — Active Session",
+        p.foreground,
+    );
+
+    locked_label(
+        canvas,
+        center_x + 20,
+        center_y + 40,
+        center_w.saturating_sub(40),
+        "Display: 1920x1080 @ 60Hz · Windows Desktop Stream",
+        p.muted,
+    );
+    locked_label(
+        canvas,
+        center_x + 20,
+        center_y + 65,
+        center_w.saturating_sub(40),
+        "Transport: Direct LAN (TCP/UDP) · ChaCha20-Poly1305",
+        p.muted,
+    );
+    locked_label(
+        canvas,
+        center_x + 20,
+        center_y + 90,
+        center_w.saturating_sub(40),
+        "Input: Interactive keyboard and pointer capture active",
+        p.foreground,
+    );
+
+    let tb = layout.session_toolbar_rect();
+    canvas.fill_rect(tb.x, tb.y, tb.width, tb.height, p.surface);
+    canvas.stroke_rect(tb.x, tb.y, tb.width, tb.height, 1, p.border);
+
+    let btn_labels = [
+        if presentation.remote_input_enabled {
+            "INPUT: ON"
+        } else {
+            "INPUT: OFF"
+        },
+        "DISPLAY",
+        if presentation.clipboard_sync_enabled {
+            "CLIP: ON"
+        } else {
+            "CLIP: OFF"
+        },
+        "FILES",
+        if presentation.fullscreen_enabled {
+            "EXIT FULL"
+        } else {
+            "FULLSCREEN"
+        },
+        "DISCONNECT",
+    ];
+
+    for (i, label) in btn_labels.iter().enumerate() {
+        let b = layout.session_tool_btn_rect(i);
+        let is_disconnect = i == 5;
+        let bg_color = if is_disconnect { p.accent } else { p.border };
+        canvas.fill_rect(b.x, b.y, b.width, b.height, bg_color);
+        canvas.stroke_rect(
+            b.x,
+            b.y,
+            b.width,
+            b.height,
+            1,
+            if is_disconnect { p.accent } else { p.border },
+        );
+        locked_label(
+            canvas,
+            b.x + 8,
+            b.y + (b.height / 2).saturating_sub(6),
+            b.width.saturating_sub(16),
+            label,
+            p.foreground,
+        );
     }
 }
 

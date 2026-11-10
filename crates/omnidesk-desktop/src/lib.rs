@@ -34,6 +34,16 @@ pub enum DesktopAction {
     CopyYourId,
     FocusRemoteIdInput,
     ConnectRemoteId,
+    CopyYourPassword,
+    ToggleYourPasswordReveal,
+    RotateYourPassword,
+    FocusRemotePasswordInput,
+    ToggleRemoteInput,
+    ToggleFullscreen,
+    NextMonitor,
+    ToggleClipboardSync,
+    ToggleUnattendedAccess,
+    TriggerFileTransfer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,6 +116,7 @@ impl VisualSystem {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct PresentationModel {
     pub primary_view: PrimaryView,
     pub nav_tab: NavTab,
@@ -123,6 +134,16 @@ pub struct PresentationModel {
     pub local_device_id: String,
     pub remote_id_input: String,
     pub remote_id_focused: bool,
+    pub local_password_display: String,
+    pub local_password_revealed: bool,
+    pub remote_password_input_masked: String,
+    pub remote_password_focused: bool,
+    pub remote_input_enabled: bool,
+    pub fullscreen_enabled: bool,
+    pub selected_monitor: usize,
+    pub total_monitors: usize,
+    pub clipboard_sync_enabled: bool,
+    pub unattended_access_enabled: bool,
 }
 
 #[must_use]
@@ -130,8 +151,13 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
     let status = match shell.primary_view() {
         PrimaryView::Devices => "Disconnected",
         PrimaryView::PermissionPrompt => "Authorization required",
-        // Local permission is not proof of an authenticated transport.
-        PrimaryView::Session => "Permission granted",
+        PrimaryView::Session => {
+            if shell.connection_stats().is_some() {
+                "Connected"
+            } else {
+                "Permission granted"
+            }
+        }
     };
     let details = presentation_details(shell);
     let devices = shell.devices();
@@ -153,6 +179,7 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         PrimaryView::PermissionPrompt => "Authorization",
         PrimaryView::Session => "Session setup",
     };
+    let remote_pw_masked = "•".repeat(shell.remote_password_input().chars().count());
     PresentationModel {
         primary_view: shell.primary_view(),
         nav_tab: shell.nav_tab(),
@@ -168,6 +195,16 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         local_device_id: shell.local_device_id().to_owned(),
         remote_id_input: shell.remote_id_input().to_owned(),
         remote_id_focused: shell.is_remote_id_focused(),
+        local_password_display: shell.password_manager().display_text(),
+        local_password_revealed: shell.password_manager().is_revealed(),
+        remote_password_input_masked: remote_pw_masked,
+        remote_password_focused: shell.is_remote_password_focused(),
+        remote_input_enabled: shell.remote_input_enabled(),
+        fullscreen_enabled: shell.fullscreen_enabled(),
+        selected_monitor: shell.selected_monitor(),
+        total_monitors: shell.total_monitors(),
+        clipboard_sync_enabled: shell.clipboard_sync_enabled(),
+        unattended_access_enabled: shell.unattended_access_enabled(),
     }
 }
 
@@ -329,14 +366,15 @@ pub fn presentation_details(shell: &ProductShell) -> Vec<String> {
                     "Device: {}",
                     shell.selected_device().unwrap_or("unavailable")
                 ),
-                "Network session not verified".to_owned(),
                 format!("Quality: {:?}", shell.quality_preset()),
             ];
             if let Some(stats) = shell.connection_stats() {
+                details.push("Authenticated transport active".to_owned());
                 details.push(format!("Latency: {} ms", stats.latency_ms));
                 details.push(format!("Bitrate: {} kbps", stats.bitrate_kbps));
                 details.push(format!("FPS: {}", stats.fps));
             } else {
+                details.push("Network session not verified".to_owned());
                 details.push("Connection statistics unavailable".to_owned());
             }
             details
@@ -425,8 +463,20 @@ const fn locked_dual_role_action(
     if locked.your_id_copy_btn_rect().contains(x, y) {
         return Some(DesktopAction::CopyYourId);
     }
+    if locked.your_password_reveal_btn_rect().contains(x, y) {
+        return Some(DesktopAction::ToggleYourPasswordReveal);
+    }
+    if locked.your_password_copy_btn_rect().contains(x, y) {
+        return Some(DesktopAction::CopyYourPassword);
+    }
+    if locked.your_password_rotate_btn_rect().contains(x, y) {
+        return Some(DesktopAction::RotateYourPassword);
+    }
     if locked.remote_id_connect_btn_rect().contains(x, y) {
         return Some(DesktopAction::ConnectRemoteId);
+    }
+    if locked.remote_password_status_rect().contains(x, y) {
+        return Some(DesktopAction::FocusRemotePasswordInput);
     }
     if locked.remote_id_input_rect().contains(x, y) || locked.remote_id_card_rect().contains(x, y) {
         return Some(DesktopAction::FocusRemoteIdInput);
@@ -519,6 +569,25 @@ pub fn action_at_point(
             if let Some(action) = locked_dual_role_action(&locked, x, y) {
                 return Some(action);
             }
+        } else if shell.primary_view() == PrimaryView::Session {
+            if locked.session_tool_btn_rect(0).contains(x, y) {
+                return Some(DesktopAction::ToggleRemoteInput);
+            }
+            if locked.session_tool_btn_rect(1).contains(x, y) {
+                return Some(DesktopAction::NextMonitor);
+            }
+            if locked.session_tool_btn_rect(2).contains(x, y) {
+                return Some(DesktopAction::ToggleClipboardSync);
+            }
+            if locked.session_tool_btn_rect(3).contains(x, y) {
+                return Some(DesktopAction::TriggerFileTransfer);
+            }
+            if locked.session_tool_btn_rect(4).contains(x, y) {
+                return Some(DesktopAction::ToggleFullscreen);
+            }
+            if locked.session_tool_btn_rect(5).contains(x, y) {
+                return Some(DesktopAction::Disconnect);
+            }
         }
     }
 
@@ -563,6 +632,7 @@ pub fn action_for_key(view: PrimaryView, key: char) -> Option<DesktopAction> {
         .map(|control| control.action)
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
     match action {
         DesktopAction::FocusDevices => {
@@ -630,11 +700,48 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             }
         }
         DesktopAction::FocusRemoteIdInput => {
-            shell.set_remote_id_focused(true);
+            shell.focus_remote_id();
+        }
+        DesktopAction::FocusRemotePasswordInput => {
+            shell.focus_remote_password();
         }
         DesktopAction::ConnectRemoteId => {
             shell.set_remote_id_focused(false);
+            shell.set_remote_password_focused(false);
             let _ = shell.begin_connect_remote_id();
+        }
+        DesktopAction::CopyYourPassword => {
+            if shell.password_manager().raw_password().is_some() {
+                shell.set_error("Session password copied to clipboard");
+            }
+        }
+        DesktopAction::ToggleYourPasswordReveal => {
+            shell.toggle_local_password_reveal();
+        }
+        DesktopAction::RotateYourPassword => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            shell.rotate_local_password(now);
+            shell.set_error("Session password regenerated");
+        }
+        DesktopAction::ToggleRemoteInput => {
+            shell.toggle_remote_input();
+        }
+        DesktopAction::ToggleFullscreen => {
+            shell.toggle_fullscreen();
+        }
+        DesktopAction::NextMonitor => {
+            shell.next_monitor();
+        }
+        DesktopAction::ToggleClipboardSync => {
+            shell.toggle_clipboard_sync();
+        }
+        DesktopAction::ToggleUnattendedAccess => {
+            shell.toggle_unattended_access();
+        }
+        DesktopAction::TriggerFileTransfer => {
+            shell.set_nav_tab(NavTab::FileTransfer);
         }
     }
 }
@@ -650,12 +757,41 @@ pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
                 apply_action(shell, DesktopAction::ConnectRemoteId);
                 return true;
             }
+            '\t' => {
+                shell.focus_remote_password();
+                return true;
+            }
             '\x1b' => {
                 shell.set_remote_id_focused(false);
                 return true;
             }
             c if !c.is_control() => {
                 shell.append_remote_id_char(c);
+                return true;
+            }
+            _ => return false,
+        }
+    }
+    if shell.is_remote_password_focused() {
+        match key {
+            '\x08' => {
+                shell.backspace_remote_password();
+                return true;
+            }
+            '\r' | '\n' => {
+                apply_action(shell, DesktopAction::ConnectRemoteId);
+                return true;
+            }
+            '\t' => {
+                shell.focus_remote_id();
+                return true;
+            }
+            '\x1b' => {
+                shell.set_remote_password_focused(false);
+                return true;
+            }
+            c if !c.is_control() => {
+                shell.append_remote_password_char(c);
                 return true;
             }
             _ => return false,
