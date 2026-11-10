@@ -53,9 +53,11 @@ fn main() -> io::Result<()> {
     // The locked design must retain Connect + Share + Remote Display at
     // typical compact and full-size desktop resolutions.
     for (name, width, height) in [
-        ("01_remote_access_compact.ppm", 1419, 611),
-        ("02_remote_access_laptop.ppm", 1280, 800),
-        ("03_remote_access_wide.ppm", 1920, 1080),
+        ("01_remote_access_small.ppm", 800, 600),
+        ("02_remote_access_iconrail.ppm", 960, 640),
+        ("03_remote_access_compact.ppm", 1419, 611),
+        ("10_remote_access_laptop.ppm", 1280, 800),
+        ("11_remote_access_wide.ppm", 1920, 1080),
     ] {
         render_to_ppm(&shell, &out_dir, name, width, height)?;
     }
@@ -77,7 +79,7 @@ fn main() -> io::Result<()> {
     writeln!(receipt, "VERIFIED_NETWORK_SESSION=NO")?;
     writeln!(receipt, "CONNECTED_DESKTOP_CAPTURE=NO")?;
     writeln!(receipt, "WINDOWS_EXE_SCREENSHOT=NO")?;
-    writeln!(receipt, "SCREEN_COUNT=9")?;
+    writeln!(receipt, "SCREEN_COUNT=11")?;
     writeln!(receipt, "BROWSER_MOCKUP=NO")?;
     receipt.flush()?;
     println!("V5 offline Rust renderer captures: {}", out_dir.display());
