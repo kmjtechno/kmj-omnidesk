@@ -180,6 +180,18 @@ working remote sessions, or production acceptance evidence.</p>
         "PREVIEW_PATH=$copy",
         "NATIVE_RENDER_PNG_DIR=$captureDir"
     )
+    # Explicit physical Windows acceptance matrix. Offline renderer PNGs never
+    # satisfy these gates; a human must inspect the actual preview window.
+    # Keep the status fail-closed even when the -Launch switch is used.
+    $physicalViewports = @('800x600','960x640','1024x768','1419x611','1920x1080')
+    foreach ($viewport in $physicalViewports) {
+        $receipt += "WINDOWS_NATIVE_SCREENSHOT_$viewport=NOT_VERIFIED"
+        $receipt += "WINDOWS_NATIVE_KEYBOARD_HITTEST_$viewport=NOT_VERIFIED"
+        $receipt += "WINDOWS_NATIVE_CONTRAST_$viewport=NOT_VERIFIED"
+    }
+    $receipt += 'WINDOWS_NATIVE_ACCESSIBILITY_SCREENREADER=NOT_VERIFIED'
+    $receipt += 'WINDOWS_NATIVE_DPI_SCALING=NOT_VERIFIED'
+    $receipt += 'V5_LOCKED_DESIGN_PARITY=NOT_ACCEPTED'
     $receipt += $pngReceipts
     Set-Content -LiteralPath (Join-Path $previewDir 'receipt.txt') -Value $receipt -Encoding UTF8
     $receipt | ForEach-Object { Write-Host $_ }
