@@ -557,9 +557,9 @@ impl LockedDashboardLayout {
         let status = self.your_password_status_rect();
         DashboardRect {
             x: status.x + status.width.saturating_sub(168),
-            y: status.y,
+            y: status.y + 28,
             width: 50,
-            height: status.height,
+            height: 23,
         }
     }
 
@@ -568,9 +568,9 @@ impl LockedDashboardLayout {
         let status = self.your_password_status_rect();
         DashboardRect {
             x: status.x + status.width.saturating_sub(112),
-            y: status.y,
+            y: status.y + 28,
             width: 50,
-            height: status.height,
+            height: 23,
         }
     }
 
@@ -579,9 +579,9 @@ impl LockedDashboardLayout {
         let status = self.your_password_status_rect();
         DashboardRect {
             x: status.x + status.width.saturating_sub(56),
-            y: status.y,
+            y: status.y + 28,
             width: 54,
-            height: status.height,
+            height: 23,
         }
     }
 
@@ -737,6 +737,25 @@ mod locked_dashboard_tests {
             assert!(
                 remote.y + remote.height <= layout.remote_screen.y + layout.remote_screen.height
             );
+        }
+    }
+
+    #[test]
+    fn v5_password_actions_never_cover_password_text_or_leave_share_card() {
+        for (w, h) in [(1180, 600), (1419, 611), (1920, 1080)] {
+            let layout = LockedDashboardLayout::for_window(w, h).unwrap();
+            let card = layout.your_id_card_rect();
+            let label = layout.your_password_status_rect();
+            for btn in [
+                layout.your_password_reveal_btn_rect(),
+                layout.your_password_copy_btn_rect(),
+                layout.your_password_rotate_btn_rect(),
+            ] {
+                assert!(btn.y >= label.y + label.height);
+                assert!(btn.x >= card.x);
+                assert!(btn.y + btn.height <= card.y + card.height);
+                assert!(btn.x + btn.width <= card.x + card.width);
+            }
         }
     }
 
