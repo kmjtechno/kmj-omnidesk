@@ -500,7 +500,10 @@ mod tests {
         let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
         let (_, first) = tree.nodes.iter().find(|(id, _)| *id == NodeId(1)).unwrap();
         let (_, second) = tree.nodes.iter().find(|(id, _)| *id == NodeId(2)).unwrap();
-        assert_eq!(first.bounds(), Some(dashboard_bounds(layout.trusted_device_tile_rect(0))));
+        assert_eq!(
+            first.bounds(),
+            Some(dashboard_bounds(layout.trusted_device_tile_rect(0)))
+        );
         assert!(!first.is_disabled());
         assert!(second.is_disabled());
         assert_eq!(desktop_action_for_node(&shell, NodeId(2)), None);
