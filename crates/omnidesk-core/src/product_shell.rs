@@ -120,6 +120,7 @@ pub struct ProductShell {
     password_manager: crate::password_auth::SessionPasswordManager,
     remote_password_input: String,
     remote_password_focused: bool,
+    remote_password_revealed: bool,
     remote_input_enabled: bool,
     fullscreen_enabled: bool,
     selected_monitor: usize,
@@ -152,6 +153,7 @@ impl ProductShell {
             password_manager: crate::password_auth::SessionPasswordManager::unconfigured(),
             remote_password_input: String::new(),
             remote_password_focused: false,
+            remote_password_revealed: false,
             remote_input_enabled: true,
             fullscreen_enabled: false,
             selected_monitor: 1,
@@ -401,6 +403,7 @@ impl ProductShell {
         // secure heap zeroization must be added before handling real secrets.
         self.remote_password_input.clear();
         self.remote_password_focused = false;
+        self.remote_password_revealed = false;
     }
 
     #[must_use]
@@ -529,6 +532,7 @@ impl ProductShell {
             .filter(|c| !c.is_control())
             .take(32)
             .collect();
+        self.remote_password_revealed = false;
     }
 
     pub fn append_remote_password_char(&mut self, c: char) {
@@ -543,6 +547,19 @@ impl ProductShell {
 
     pub fn clear_remote_password(&mut self) {
         self.remote_password_input.clear();
+        self.remote_password_revealed = false;
+    }
+
+    #[must_use]
+    pub const fn is_remote_password_revealed(&self) -> bool {
+        self.remote_password_revealed
+    }
+
+    /// Reveal is a conscious local UI choice, never a permission grant.
+    pub const fn toggle_remote_password_reveal(&mut self) {
+        if !self.remote_password_input.is_empty() {
+            self.remote_password_revealed = !self.remote_password_revealed;
+        }
     }
 
     #[must_use]
@@ -939,6 +956,18 @@ mod tests {
             Err(ConnectError::DeviceOffline)
         );
         assert!(shell.last_error().unwrap().contains("offline"));
+    }
+
+    #[test]
+    fn remote_password_is_masked_by_default_and_resets_on_disconnect() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("local-ui-only");
+        assert!(!shell.is_remote_password_revealed());
+        shell.toggle_remote_password_reveal();
+        assert!(shell.is_remote_password_revealed());
+        shell.disconnect();
+        assert!(!shell.is_remote_password_revealed());
+        assert!(shell.remote_password_input().is_empty());
     }
 
     #[test]
