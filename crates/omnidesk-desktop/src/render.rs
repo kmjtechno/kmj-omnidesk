@@ -1670,6 +1670,19 @@ fn draw_locked_feature_page(
 ) {
     use omnidesk_core::product_shell::NavTab;
 
+    // These counts and names originate from ProductShell's local records,
+    // not a hardcoded "empty" dashboard. None imply verified delivery.
+    let transfer_count = format!("{} local transfer record(s)", presentation.transfer_record_count);
+    let latest_transfer_name = presentation
+        .latest_transfer_filename
+        .as_deref()
+        .unwrap_or("No transfer recorded");
+    let latest_transfer_status = presentation
+        .latest_transfer_status
+        .as_deref()
+        .unwrap_or("No transfer status");
+    let local_audit_count = format!("{} local security event(s)", presentation.local_audit_event_count);
+
     let (category, heading, explanation, cards) = match presentation.nav_tab {
         NavTab::Connections => (
             "SESSION MANAGEMENT",
@@ -1685,13 +1698,13 @@ fn draw_locked_feature_page(
             ],
         ),
         NavTab::FileTransfer => (
-            "SECURE TRANSFER",
+            "LOCAL TRANSFER RECORDS",
             "File transfer",
-            "Send and receive files only within an authorized encrypted session.",
+            "Recorded local queue status; network delivery is not verified.",
             [
-                ("TRANSFER QUEUE", "No active transfers"),
-                ("RECENT ACTIVITY", "No verified transfer records"),
-                ("ACCESS CONTROL", "Remote file access unavailable offline"),
+                ("TRANSFER RECORDS", transfer_count.as_str()),
+                ("LATEST FILE", latest_transfer_name),
+                ("LOCAL STATUS", latest_transfer_status),
             ],
         ),
         NavTab::RemoteActions => (
@@ -1717,10 +1730,10 @@ fn draw_locked_feature_page(
         NavTab::Security => (
             "TRUST & ACCESS",
             "Security center",
-            "Peer verification, session passwords and explicit permissions.",
+            "Peer verification, local audit records and access permissions.",
             [
                 ("PEER IDENTITY", "Authenticated transport required"),
-                ("SESSION PASSWORD", "Configure in your device panel"),
+                ("LOCAL AUDIT LOG", local_audit_count.as_str()),
                 ("REMOTE PERMISSIONS", "Fail closed until authorized"),
             ],
         ),
@@ -2465,6 +2478,57 @@ mod tests {
             trusted[tile.y * width + tile.x],
             packed_rgb(presentation_for(&shell).visual.border_rgb)
         );
+    }
+
+    #[test]
+    fn v5_transfer_and_security_pages_react_to_real_local_records() {
+        use omnidesk_core::product_shell::{FileTransferItem, NavTab};
+
+        let width = 1419;
+        let height = 800;
+        let mut shell = ProductShell::new();
+
+        shell.set_nav_tab(NavTab::FileTransfer);
+        let mut empty_transfer = vec![0_u32; width * height];
+        render_shell(
+            &mut empty_transfer,
+            width,
+            height,
+            &presentation_for(&shell),
+        );
+        shell.add_file_transfer(FileTransferItem {
+            id: "local-item".into(),
+            filename: "document.pdf".into(),
+            size_bytes: 1024,
+            progress_percent: 17,
+            status: "Queued".into(),
+        });
+        let mut actual_transfer = vec![0_u32; width * height];
+        render_shell(
+            &mut actual_transfer,
+            width,
+            height,
+            &presentation_for(&shell),
+        );
+        assert_ne!(actual_transfer, empty_transfer);
+
+        shell.set_nav_tab(NavTab::Security);
+        let mut empty_security = vec![0_u32; width * height];
+        render_shell(
+            &mut empty_security,
+            width,
+            height,
+            &presentation_for(&shell),
+        );
+        shell.add_audit_event("local-attempt", "Denied pending verification", 10);
+        let mut actual_security = vec![0_u32; width * height];
+        render_shell(
+            &mut actual_security,
+            width,
+            height,
+            &presentation_for(&shell),
+        );
+        assert_ne!(actual_security, empty_security);
     }
 
     #[test]
