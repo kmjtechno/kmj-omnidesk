@@ -164,8 +164,12 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         PrimaryView::Devices => "Disconnected",
         PrimaryView::PermissionPrompt => "Authorization required",
         PrimaryView::Session => {
+            // A local permission decision and reported performance counters
+            // do NOT prove that a peer-authenticated encrypted transport or
+            // real remote display stream exists. The Windows host still
+            // refuses raw-TCP remote control until independent verification.
             if shell.connection_stats().is_some() {
-                "Connected"
+                "Transport unverified"
             } else {
                 "Permission granted"
             }
@@ -1382,6 +1386,11 @@ mod tests {
         });
 
         let session = presentation_for(&shell);
+        assert_eq!(
+            session.status,
+            "Transport unverified",
+            "Performance counters must not make an unauthenticated peer look connected"
+        );
         assert!(session.details.iter().any(|line| line == "Device: desk-1"));
         assert!(
             session
