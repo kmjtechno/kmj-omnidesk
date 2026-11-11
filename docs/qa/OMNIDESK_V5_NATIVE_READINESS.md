@@ -97,6 +97,17 @@ The native Windows event handler now blocks *all* invisible device, session, or 
 
 The current native capture example and the preview script were independently rechecked against one another: both require exactly **12 PNG screens** (including Trusted Devices and the compact view), with exact filename/dimensions and truthful offline-only receipts. No count mismatch remains; no unnecessary count change was made.
 
+## V5 source functionality — 2026-11-11
+
+Three new feature-branch commits corrected source-level UI truthfulness:
+
+- `PresentationModel` derives File Transfer queue length, latest recorded filename, and its local status **from `ProductShell::file_transfers()`**, rather than hard-coded empty cards. The Security Center derives the count of recorded local audit events from `ProductShell::audit_log()`.
+- `draw_locked_feature_page` now renders these actual local values in File Transfer and Security Center, with explicit copy that **local records are not proof of remote file delivery, trusted audit backend, or an encrypted peer**.
+- The native shell no longer presents `Connected` solely because a locally authorized state includes performance counters; it reports `Transport unverified` until a separately verified encrypted peer transport exists.
+- Added source-level regression tests for populated/empty local records, visual page changes, and avoidance of false connection status.
+
+**Execution gate is unchanged:** These new tests were added in GitHub source but were **not run** at the current feature HEAD. P520 remains online; its authorized CodeBridge execution profile can only operate on the old local checkout/older isolated lanes, and does not fetch the new feature branch. No current Windows binary or network capability has been released.
+
 ## Latest validation status
 
 | Gate | Evidence |
