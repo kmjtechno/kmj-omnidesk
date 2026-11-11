@@ -91,6 +91,12 @@ Source changes now committed: dedicated `NavTab::TrustedDevices`, grouped sideba
 
 **Still NOT verified:** exact-head Windows compilation and `cargo fmt/clippy/test` execution, fresh P520 running-app screenshot and visual acceptance, secure encrypted remote peer transport and any two-PC session. The local CodeBridge device is online but presently exposes only old detached worktrees and approved Cargo commands without a feature-branch fetch/build profile. The installed application has not changed.
 
+## Help-overlay keyboard guard — 2026-11-11
+
+The native Windows event handler now blocks *all* invisible device, session, or navigation keyboard shortcuts while the Help overlay is visible. Escape closes the overlay without dispatching a remote-control operation. This complements the existing pointer and AccessKit hidden-action guards. **This is a committed source fix, not an exact-head Windows build/test PASS.**
+
+The current native capture example and the preview script were independently rechecked against one another: both require exactly **12 PNG screens** (including Trusted Devices and the compact view), with exact filename/dimensions and truthful offline-only receipts. No count mismatch remains; no unnecessary count change was made.
+
 ## Latest validation status
 
 | Gate | Evidence |
