@@ -26,7 +26,7 @@
 | Premium Session Inspector with real-only connection metrics | `render.rs::draw_locked_inspector` | Committed; no fake latency/FPS/encryption |
 | Compact 800–1023px icon rail without obsolete fallback | `layout.rs::for_window`, `render.rs::draw_locked_navigation` | Committed |
 | Accessibility labels/roles, actual window size, no hidden actions | `accesskit_tree.rs`, `windows_host.rs` | Committed; physical Windows screen-reader QA pending |
-| Native renderer captures of 11 safe offline screen/size combinations | `examples/capture_v5_screens.rs` | Executed & Generated (11 PNGs in `target/v5_captures/`) |
+| Native renderer capture matrix (12 safe offline screen/size combinations) | `examples/capture_v5_screens.rs` | 12 PNG targets in current script; historical 11-PNG execution does not verify current exact HEAD |
 
 ## Built-in V5 regression tests verified
 
@@ -83,14 +83,14 @@ The approved `preview-desktop.png` design has **four Workspace entries** (Remote
 
 1. Use a **fresh isolated checkout** of the branch, never reset/clean the dirty shared `E:\KMJ\KMJ OmniDesk`.
 2. With reviewed toolchain/lockfile, run `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`, `cargo test --locked --workspace --all-targets --all-features`.
-3. Generate non-network V5 Rust-renderer captures: `cargo run --locked -p omnidesk-desktop --example capture_v5_screens -- target/v5_captures`. The current example writes **11 PNG images** and a receipt, rather than raw PPM files; compare them with the approved V5 `index.html`. These are actual renderer pixel buffers, **not Windows desktop screenshots or live sessions**.
+3. Generate non-network V5 Rust-renderer captures: `cargo run --locked -p omnidesk-desktop --example capture_v5_screens -- target/v5_captures`. The current example targets **12 PNG images** and a receipt, rather than raw PPM files; compare them with the approved V5 `index.html`. These are actual renderer pixel buffers, **not Windows desktop screenshots or live sessions**.
 4. Build and run the isolated Windows preview: `scripts/Build-V5-Windows-Preview.ps1`. Capture **real running Windows executable** at 800x600, 960x640, 1024x768, 1419x611, 1280x800, 1920x1080 and 100%/125%/150% DPI. The native PPM images are not a substitute for this.
 5. Verify click alignment, Tab navigation, accessibility, password visual masking, stable output, screenshot comparison and *no invented session status*. Record binary SHA and QA exit codes.
 6. Only after the design is visually accepted, finish **real** encrypted/verified ID+Password session, media/control protocol, file transfer, multi-monitor and two-PC QA. Never unblock unsafe plaintext login to make the UI seem complete.
 
 ## Zero-cost preview build workflow (new)
 
-`scripts/Build-V5-Windows-Preview.ps1` now accepts optional `-ExpectedSha <full-40-hex>`, refuses a mismatched GitHub checkout, runs Cargo formatting/lint/tests/release build, then generates and checks 11 real Rust-rendered PNG captures under the isolated preview folder. The generated receipt includes source SHA, executable SHA256, and explicitly marks physical Windows screenshot and secure remote access as **NOT VERIFIED**. It never overwrites the installed OmniDesk application.
+`scripts/Build-V5-Windows-Preview.ps1` requires mandatory `-ExpectedSha <full-40-hex>`, refuses a mismatched GitHub checkout, runs Cargo formatting/lint/tests/release build, then generates and checks 12 offline Rust-rendered PNG captures under the isolated preview folder. The generated receipt includes source SHA, executable SHA256, and explicitly marks physical Windows screenshot and secure remote access as **NOT VERIFIED**. It never overwrites the installed OmniDesk application.
 
 Actual isolated P520 command execution remains blocked by the current CodeBridge profile; the script is committed and ready for an authorized local operator/Antigravity runtime, but **it has not been run in this chat**.
 
@@ -100,7 +100,7 @@ Actual isolated P520 command execution remains blocked by the current CodeBridge
 - `cargo fmt --all -- --check`: PASS (zero errors)
 - `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`: PASS (zero warnings)
 - `cargo test --locked --workspace --all-targets --all-features`: PASS (528 tests passed, 0 failed)
-- 11 PNG captures generated in `target/v5_captures/`
+- Historical 11 PNG captures generated in `target/v5_captures/`; current 12-capture exact-HEAD matrix remains unverified on P520
 - Release executable built: `target/release/omnidesk-desktop.exe` (SHA256: `F28698E7782B83EE653B16FB7D25B8282FD94A964FB392E3E90AC7773AEFBF39`)
 
 **Design source implementation: completed and verified. 11 offline review captures and Windows release binary generated.**
