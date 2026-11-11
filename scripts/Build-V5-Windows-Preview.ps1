@@ -195,6 +195,17 @@ working remote sessions, or production acceptance evidence.</p>
     if ($LASTEXITCODE -ne 0) {
         throw 'Staged source changed during V5 QA; refusing PASS receipt'
     }
+    # A clean tracked diff is insufficient: build tools could add new, nonignored
+    # source files without changing HEAD. Refuse exact-source certification if
+    # any untracked, nonignored file appeared in this fresh isolated checkout.
+    $untrackedSource = @(& git ls-files --others --exclude-standard)
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Cannot inspect untracked files after V5 QA'
+    }
+    if ($untrackedSource.Count -ne 0) {
+        throw ("Untracked source appeared during V5 QA: " + ($untrackedSource -join ', '))
+    }
+    Write-Host 'KMJ_V5_UNTRACKED_SOURCE_ATTEST=PASS'
     Write-Host 'KMJ_V5_POST_BUILD_SOURCE_ATTEST=PASS'
     Write-Host 'KMJ_V5_NATIVE_RENDER_PNG=PASS_COUNT_12'
     $receipt = @(
