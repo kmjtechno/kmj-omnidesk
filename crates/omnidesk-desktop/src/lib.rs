@@ -149,6 +149,13 @@ pub struct PresentationModel {
     pub total_monitors: usize,
     pub clipboard_sync_enabled: bool,
     pub unattended_access_enabled: bool,
+    /// Locally recorded transfer state; not evidence of an encrypted
+    /// remote file channel or of any successfully delivered bytes.
+    pub transfer_record_count: usize,
+    pub latest_transfer_filename: Option<String>,
+    pub latest_transfer_status: Option<String>,
+    /// Count of locally recorded security events, not a server audit log.
+    pub local_audit_event_count: usize,
 }
 
 #[must_use]
@@ -227,6 +234,10 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         total_monitors: shell.total_monitors(),
         clipboard_sync_enabled: shell.clipboard_sync_enabled(),
         unattended_access_enabled: shell.unattended_access_enabled(),
+        transfer_record_count: shell.file_transfers().len(),
+        latest_transfer_filename: shell.file_transfers().last().map(|item| item.filename.clone()),
+        latest_transfer_status: shell.file_transfers().last().map(|item| item.status.clone()),
+        local_audit_event_count: shell.audit_log().len(),
     }
 }
 
@@ -1313,6 +1324,31 @@ mod tests {
         assert!(!apply_key(&mut shell, '1'));
         assert_eq!(shell.primary_view(), PrimaryView::Devices);
         assert_eq!(shell.selected_device(), None);
+    }
+
+    #[test]
+    fn v5_transfer_and_security_cards_use_actual_local_records() {
+        use omnidesk_core::product_shell::FileTransferItem;
+
+        let mut shell = ProductShell::new();
+        let empty = presentation_for(&shell);
+        assert_eq!(empty.transfer_record_count, 0);
+        assert!(empty.latest_transfer_filename.is_none());
+        assert_eq!(empty.local_audit_event_count, 0);
+
+        shell.add_file_transfer(FileTransferItem {
+            id: "local-record-1".into(),
+            filename: "report.pdf".into(),
+            size_bytes: 512,
+            progress_percent: 25,
+            status: "Queued".into(),
+        });
+        shell.add_audit_event("local-session-request", "No network permission granted", 42);
+        let actual = presentation_for(&shell);
+        assert_eq!(actual.transfer_record_count, 1);
+        assert_eq!(actual.latest_transfer_filename.as_deref(), Some("report.pdf"));
+        assert_eq!(actual.latest_transfer_status.as_deref(), Some("Queued"));
+        assert_eq!(actual.local_audit_event_count, 1);
     }
 
     #[test]
