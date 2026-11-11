@@ -635,6 +635,18 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                // Help replaces the V5 workspace. Do not let invisible
+                // session/device keyboard shortcuts operate behind it.
+                // Escape dismisses Help without sending a remote action.
+                if self.shell.is_help_open() {
+                    if matches!(
+                        event.logical_key,
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape)
+                    ) {
+                        self.dispatch_action(DesktopAction::ToggleHelp);
+                    }
+                    return;
+                }
                 if self.shell.is_remote_id_focused() {
                     match &event.logical_key {
                         winit::keyboard::Key::Named(winit::keyboard::NamedKey::Backspace) => {
