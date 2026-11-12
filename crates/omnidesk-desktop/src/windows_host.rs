@@ -605,9 +605,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if let (Some((x, y)), Some(window)) =
-                    (self.cursor_position, self.window.as_ref())
-                {
+                if let (Some((x, y)), Some(window)) = (self.cursor_position, self.window.as_ref()) {
                     let size = window.inner_size();
                     let width = usize::try_from(size.width).unwrap_or(usize::MAX);
                     let height = usize::try_from(size.height).unwrap_or(usize::MAX);
@@ -615,12 +613,22 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         if !self.shell.is_help_open() && layout.viewer.contains(x, y) {
                             let direction = match delta {
                                 winit::event::MouseScrollDelta::LineDelta(_, dy) => {
-                                    if dy > 0.0 { -1 } else if dy < 0.0 { 1 } else { 0 }
+                                    if dy > 0.0 {
+                                        -1
+                                    } else if dy < 0.0 {
+                                        1
+                                    } else {
+                                        0
+                                    }
                                 }
                                 winit::event::MouseScrollDelta::PixelDelta(position) => {
-                                    if position.y > 0.0 { -1 }
-                                    else if position.y < 0.0 { 1 }
-                                    else { 0 }
+                                    if position.y > 0.0 {
+                                        -1
+                                    } else if position.y < 0.0 {
+                                        1
+                                    } else {
+                                        0
+                                    }
                                 }
                             };
                             let old = self.shell.workspace_scroll_y();
