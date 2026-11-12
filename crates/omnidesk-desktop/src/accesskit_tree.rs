@@ -24,7 +24,7 @@ const V5_COPY_PASSWORD_NODE: NodeId = NodeId(10_006);
 const V5_ROTATE_PASSWORD_NODE: NodeId = NodeId(10_007);
 const V5_REMOTE_REVEAL_NODE: NodeId = NodeId(10_008);
 const V5_NAV_FIRST_NODE: u64 = 11_001;
-const V5_SETTINGS_NODE: NodeId = NodeId(12_001);
+const V5_SECURITY_MODEL_NODE: NodeId = NodeId(12_001);
 const V5_HELP_NODE: NodeId = NodeId(12_002);
 
 const V5_NAV_TABS: [NavTab; 6] = [
@@ -41,7 +41,12 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
     // Always-visible top-bar actions remain operable when Help replaces
     // the central content. They never reveal credential values.
     match node_id {
-        V5_SETTINGS_NODE => return Some(DesktopAction::OpenSettings),
+        V5_SECURITY_MODEL_NODE => {
+            return (shell.primary_view() == PrimaryView::Devices
+                && shell.nav_tab() == NavTab::Devices
+                && !shell.is_help_open())
+                .then_some(DesktopAction::SelectNav(NavTab::Security));
+        }
         V5_HELP_NODE => return Some(DesktopAction::ToggleHelp),
         _ => {}
     }
@@ -206,25 +211,25 @@ pub fn build_accesskit_tree_at_size(
     }
 
     if let Some(layout) = LockedDashboardLayout::for_window(width, height) {
-        for (id, name, rect) in [
-            (
-                V5_SETTINGS_NODE,
-                "Open preferences",
-                layout.settings_button_rect(width),
-            ),
-            (
-                V5_HELP_NODE,
-                "Open or close Help",
-                layout.help_button_rect(width),
-            ),
-        ] {
-            let mut node = Node::new(Role::Button);
-            node.set_label(name);
-            node.set_bounds(dashboard_bounds(rect));
-            node.add_action(Action::Focus);
-            node.add_action(Action::Click);
-            child_ids.push(id);
-            nodes.push((id, node));
+        let mut help = Node::new(Role::Button);
+        help.set_label("Open or close Help");
+        help.set_bounds(dashboard_bounds(layout.help_button_rect(width)));
+        help.add_action(Action::Focus);
+        help.add_action(Action::Click);
+        child_ids.push(V5_HELP_NODE);
+        nodes.push((V5_HELP_NODE, help));
+
+        if shell.primary_view() == PrimaryView::Devices
+            && shell.nav_tab() == NavTab::Devices
+            && !shell.is_help_open()
+        {
+            let mut security = Node::new(Role::Button);
+            security.set_label("Security model");
+            security.set_bounds(dashboard_bounds(layout.security_model_button_rect()));
+            security.add_action(Action::Focus);
+            security.add_action(Action::Click);
+            child_ids.push(V5_SECURITY_MODEL_NODE);
+            nodes.push((V5_SECURITY_MODEL_NODE, security));
         }
     }
 
@@ -458,15 +463,15 @@ mod tests {
     }
 
     #[test]
-    fn v5_topbar_help_and_settings_are_accessible_and_hit_aligned() {
+    fn v5_topbar_help_and_security_model_are_accessible_and_hit_aligned() {
         let mut shell = ProductShell::new();
         let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
         let tree = build_accesskit_tree_at_size(&shell, None, 1419, 611);
         for (id, expected_action, rect) in [
             (
-                V5_SETTINGS_NODE,
-                DesktopAction::OpenSettings,
-                layout.settings_button_rect(1419),
+                V5_SECURITY_MODEL_NODE,
+                DesktopAction::SelectNav(NavTab::Security),
+                layout.security_model_button_rect(),
             ),
             (
                 V5_HELP_NODE,
