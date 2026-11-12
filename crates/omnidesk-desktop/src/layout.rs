@@ -368,9 +368,18 @@ impl LockedDashboardLayout {
         // These are CONTENT positions, not positions squeezed into one
         // short viewport. The host scrolls this center column only.
         let remote_screen = DashboardRect {
-            x: viewer.x + 21,
-            y: viewer.y + 123,
-            width: viewer.width.saturating_sub(33),
+            // The approved HTML adds four pixels of padding when the
+            // Session Inspector is present, and two pixels of vertical
+            // breathing room on medium-width Windows desktops.
+            x: viewer.x + if inspector_width > 0 { 25 } else { 21 },
+            y: viewer.y + if inspector_width > 0 {
+                133
+            } else if width >= 1200 {
+                125
+            } else {
+                123
+            },
+            width: viewer.width.saturating_sub(if inspector_width > 0 { 37 } else { 33 }),
             height: 788,
         };
         let devices = DashboardRect {
@@ -727,21 +736,22 @@ mod locked_dashboard_tests {
         // Matched against the approved V5 HTML reference's real DOM boxes,
         // not an unapproved redesign or the outdated 173px native screenshot.
         let scenarios = [
-            // screen width, height, connect width, share x, share width
-            (1024, 768, 380, 645, 351),
-            (1308, 777, 527, 792, 488),
-            (1600, 920, 526, 791, 487),
+            // screen width, height, x, card y, connect width, share x,
+            // share width, stage y, stage x
+            (1024, 768, 249, 216, 380, 645, 351, 660, 249),
+            (1308, 777, 249, 218, 527, 792, 488, 662, 249),
+            (1600, 920, 253, 226, 524, 793, 485, 670, 253),
         ];
-        for (width, height, connect_width, share_x, share_width) in scenarios {
+        for (width, height, card_x, card_y, connect_width, share_x, share_width, stage_y, stage_x) in scenarios {
             let l = LockedDashboardLayout::for_window(width, height).unwrap();
             let connect = l.remote_id_card_rect();
             let share = l.your_id_card_rect();
             let stage = l.remote_stage_rect();
             assert_eq!((connect.x, connect.y, connect.width, connect.height),
-                (249, 216, connect_width, 363));
+                (card_x, card_y, connect_width, 363));
             assert_eq!((share.x, share.y, share.width, share.height),
-                (share_x, 216, share_width, 363));
-            assert_eq!(stage.y, 660);
+                (share_x, card_y, share_width, 363));
+            assert_eq!((stage.x, stage.y), (stage_x, stage_y));
             assert_eq!(stage.height, 315);
             assert_eq!(
                 l.inspector.width == 0, width < 1450,
