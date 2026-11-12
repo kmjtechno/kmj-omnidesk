@@ -108,6 +108,16 @@ Three new feature-branch commits corrected source-level UI truthfulness:
 
 **Execution gate is unchanged:** These new tests were added in GitHub source but were **not run** at the current feature HEAD. P520 remains online; its authorized CodeBridge execution profile can only operate on the old local checkout/older isolated lanes, and does not fetch the new feature branch. No current Windows binary or network capability has been released.
 
+## Owner screenshot correction — approved V5 layout alignment (12 Nov 2026)
+
+The owner's uploaded **1308×777 native Windows screenshot** showed a 173px-tall, square-edged old layout, overlapping captions, a premature Session Inspector, and a compressed Remote Display. The actual locked browser prototype (not a new generated image) was remeasured with Chromium at **1024×768, 1308×777 and 1600×920**.
+
+Native Rust source now uses **363px-tall Connect/Share cards, 34px two-tone hero typography, 14px rounded card surfaces, a separate 315px Remote Display, fixed 75px header and left navigation, premium inspector panels only where they fit, and independently scrollable central content**. Mouse wheel, pointer hit testing, keyboard/Help guards and AccessKit bounds use the same scroll position. No real session data is invented; raw plaintext remote control remains fail-closed.
+
+Detailed pixel-coordinate source receipt (the DOM comparison is source geometry only): `docs/qa/OMNIDESK_V5_APPROVED_REFERENCE_GEOMETRY_20261112.md`. The new `approved_v5_reference_coordinates_are_locked_at_three_viewports` Rust test locks the geometry and replaces the earlier compressed form assumptions.
+
+**Build blocker:** Attempting an isolated P520 lane at feature SHA `bfed9e3c2f714b80af09c9532e6d003ed93479e6` returned `WORKTREE_HEAD_MISMATCH`; subsequently more UI commits were made to the GitHub branch. P520 remained online, but its shared checkout is still behind and dirty, and its approved runner does not fetch the feature branch. No exact-feature-HEAD Cargo fmt/Clippy/test, compiled preview, *real Windows screenshot*, production replacement, signed installer or two-PC secure session is claimed. Existing owner files untouched; no paid hosted CI.
+
 ## Latest validation status
 
 | Gate | Evidence |
