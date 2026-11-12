@@ -4,11 +4,8 @@
 //! domain-separated enrollment payloads, and clock-drift bounded authentication.
 
 use std::{
-    collections::{HashMap, hash_map::RandomState},
-    hash::{BuildHasher, Hasher},
+    collections::HashMap,
     path::Path,
-    sync::atomic::{AtomicU64, Ordering},
-    time::Instant,
 };
 
 use ed25519_dalek::{Signature, VerifyingKey};
@@ -395,35 +392,16 @@ pub enum EnrollmentStage {
     Failed,
 }
 
-/// Generates 32 bytes of cryptographically secure random entropy by sampling the OS
-/// CSPRNG via multiple [`RandomState`] seeds and mixing with monotonic and process entropy.
+/// Generates a fresh 256-bit nonce with the operating system's CSPRNG.
+///
+/// The timestamp remains in the signature for compatibility, but is not a
+/// substitute for cryptographic entropy. Refuse to issue a predictable
+/// enrollment challenge or local password if the OS source fails.
 #[must_use]
-pub fn generate_csprng_nonce(now_epoch_secs: u64) -> [u8; 32] {
-    static COUNTER: AtomicU64 = AtomicU64::new(1);
-    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
-
-    let mut hasher = Sha256::new();
-    hasher.update(b"KMJ_OMNIDESK_CSPRNG_CHALLENGE_V1");
-    hasher.update(now_epoch_secs.to_be_bytes());
-    hasher.update(count.to_be_bytes());
-    hasher.update(std::process::id().to_be_bytes());
-
-    for _ in 0..4 {
-        let rs = RandomState::new();
-        let mut h = rs.build_hasher();
-        h.write_u64(count);
-        hasher.update(h.finish().to_be_bytes());
-    }
-
-    let nanos = Instant::now().elapsed().as_nanos();
-    hasher.update(nanos.to_be_bytes());
-
-    let result = hasher.finalize();
+pub fn generate_csprng_nonce(_now_epoch_secs: u64) -> [u8; 32] {
     let mut nonce = [0_u8; 32];
-    nonce.copy_from_slice(&result);
-    if nonce == [0_u8; 32] {
-        nonce[0] = 1;
-    }
+    getrandom::getrandom(&mut nonce)
+        .expect("KMJ OmniDesk: OS cryptographic entropy unavailable; refusing weak secret");
     nonce
 }
 
@@ -786,6 +764,14 @@ mod tests {
             timestamp_epoch_secs: now,
             signature,
         }
+    }
+
+    #[test]
+    fn os_rng_nonce_is_fresh_for_identical_timestamps() {
+        let first = generate_csprng_nonce(1_700_000_000);
+        let second = generate_csprng_nonce(1_700_000_000);
+        assert_ne!(first, [0_u8; 32]);
+        assert_ne!(first, second, "OS RNG must not return a time-derived nonce");
     }
 
     #[test]
