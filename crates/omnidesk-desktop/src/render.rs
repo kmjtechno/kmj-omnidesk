@@ -2312,7 +2312,9 @@ mod tests {
         let own = layout.your_password_status_rect();
         let remote = layout.remote_password_status_rect();
         let border = packed_rgb(presentation.visual.border_rgb);
-        assert_eq!(pixels[remote.y * width + remote.x], border);
+        // V5 input fields have rounded corners; sample the top-center
+        // hairline rather than the transparent top-left corner pixel.
+        assert_eq!(pixels[remote.y * width + remote.x + remote.width / 2], border);
         let own_card = layout.your_id_card_rect();
         let connect_card = layout.remote_id_card_rect();
         if layout.access_cards_wide() {
@@ -2331,25 +2333,33 @@ mod tests {
 
     #[test]
     fn v5_remote_display_stage_is_drawn_on_all_supported_compact_desktops() {
-        let presentation = presentation_for(&ProductShell::new());
-        let border = packed_rgb(presentation.visual.border_rgb);
+        let border = packed_rgb(VisualSystem::kmj_black_red().border_rgb);
         for (width, height) in [
             (800, 600),
             (960, 640),
             (1024, 768),
+            (1308, 777),
             (1419, 611),
             (1920, 1080),
         ] {
             let layout = LockedDashboardLayout::for_window(width, height).unwrap();
             let stage = layout.remote_stage_rect();
+            let mut shell = ProductShell::new();
+            // Scroll stage into the physical viewport; the document layout
+            // retains its exact reference coordinates at every window size.
+            let requested = stage.y.saturating_sub(height / 2);
+            let scroll = requested.min(LockedDashboardLayout::max_scroll_y(height));
+            shell.set_workspace_scroll_y(scroll);
             let mut pixels = vec![0_u32; width * height];
-            render_shell(&mut pixels, width, height, &presentation);
+            render_shell(&mut pixels, width, height, &presentation_for(&shell));
+            let visible_y = stage.y.saturating_sub(scroll);
+            assert!(visible_y < height);
             assert_eq!(
-                pixels[stage.y * width + stage.x],
+                pixels[visible_y * width + stage.x + stage.width / 2],
                 border,
-                "missing locked V5 remote-display border at {width}x{height}"
+                "missing V5 Remote Display stage border at {width}x{height}"
             );
-            assert!(stage.height >= 95);
+            assert!(stage.height >= 315);
         }
     }
 
