@@ -375,14 +375,17 @@ impl LockedDashboardLayout {
             // Session Inspector is present, and two pixels of vertical
             // breathing room on medium-width Windows desktops.
             x: viewer.x + if inspector_width > 0 { 25 } else { 21 },
-            y: viewer.y + if inspector_width > 0 {
-                133
-            } else if width >= 1200 {
-                125
-            } else {
-                123
-            },
-            width: viewer.width.saturating_sub(if inspector_width > 0 { 37 } else { 33 }),
+            y: viewer.y
+                + if inspector_width > 0 {
+                    133
+                } else if width >= 1200 {
+                    125
+                } else {
+                    123
+                },
+            width: viewer
+                .width
+                .saturating_sub(if inspector_width > 0 { 37 } else { 33 }),
             height: 788,
         };
         let devices = DashboardRect {
@@ -745,19 +748,35 @@ mod locked_dashboard_tests {
             (1308, 777, 249, 218, 527, 792, 488, 662, 249),
             (1600, 920, 253, 226, 524, 793, 485, 670, 253),
         ];
-        for (width, height, card_x, card_y, connect_width, share_x, share_width, stage_y, stage_x) in scenarios {
+        for (
+            width,
+            height,
+            card_x,
+            card_y,
+            connect_width,
+            share_x,
+            share_width,
+            stage_y,
+            stage_x,
+        ) in scenarios
+        {
             let l = LockedDashboardLayout::for_window(width, height).unwrap();
             let connect = l.remote_id_card_rect();
             let share = l.your_id_card_rect();
             let stage = l.remote_stage_rect();
-            assert_eq!((connect.x, connect.y, connect.width, connect.height),
-                (card_x, card_y, connect_width, 363));
-            assert_eq!((share.x, share.y, share.width, share.height),
-                (share_x, card_y, share_width, 363));
+            assert_eq!(
+                (connect.x, connect.y, connect.width, connect.height),
+                (card_x, card_y, connect_width, 363)
+            );
+            assert_eq!(
+                (share.x, share.y, share.width, share.height),
+                (share_x, card_y, share_width, 363)
+            );
             assert_eq!((stage.x, stage.y), (stage_x, stage_y));
             assert_eq!(stage.height, 315);
             assert_eq!(
-                l.inspector.width == 0, width <= 1510,
+                l.inspector.width == 0,
+                width <= 1510,
                 "inspector must collapse on 1308px compact Windows desktop"
             );
             assert!(LockedDashboardLayout::max_scroll_y(height) > 0);
@@ -833,7 +852,11 @@ mod locked_dashboard_tests {
             let layout = LockedDashboardLayout::for_window(width, height)
                 .expect("V5 owner-locked breakpoint");
             assert_eq!(layout.navigation.width, expected_nav, "{width}x{height}");
-            assert_eq!(layout.inspector.width > 0, inspector_visible, "{width}x{height}");
+            assert_eq!(
+                layout.inspector.width > 0,
+                inspector_visible,
+                "{width}x{height}"
+            );
             let connect = layout.remote_id_card_rect();
             let share = layout.your_id_card_rect();
             assert!(connect.x + connect.width <= share.x, "{width}x{height}");
