@@ -336,8 +336,11 @@ impl LockedDashboardLayout {
         // SCROLLABLE central content canvas. Never shrink 363px workflow
         // cards into the former 173px mini-panels on short Windows screens.
         let top = 75;
-        let navigation_width = if width < 1024 { 78 } else { 200 };
-        let inspector_width = if width < 1450 || height < 840 {
+        // Match the actual locked HTML breakpoints, not a guessed 1450px
+        // threshold. At the owner's 1309x777 screenshot the inspector must
+        // collapse so the two credential cards can breathe.
+        let navigation_width = if width <= 1020 { 78 } else { 200 };
+        let inspector_width = if width <= 1510 {
             0
         } else {
             (width * 18 / 100).clamp(294, 315)
@@ -810,6 +813,37 @@ mod locked_dashboard_tests {
                     .contains(l.device_row(0).x, l.device_row(0).y)
             );
             assert!(!l.device_row(0).contains(l.navigation.x, l.device_row(0).y));
+        }
+    }
+
+    #[test]
+    fn locked_html_breakpoints_match_owner_screenshot_and_inspector_fold() {
+        for (width, height, expected_nav, inspector_visible) in [
+            (960, 640, 78, false),
+            (1020, 768, 78, false),
+            (1021, 768, 200, false),
+            (1309, 777, 200, false),
+            (1419, 611, 200, false),
+            (1450, 900, 200, false),
+            (1510, 900, 200, false),
+            (1511, 900, 200, true),
+            (1920, 777, 200, true),
+            (1920, 1080, 200, true),
+        ] {
+            let layout = LockedDashboardLayout::for_window(width, height)
+                .expect("V5 owner-locked breakpoint");
+            assert_eq!(layout.navigation.width, expected_nav, "{width}x{height}");
+            assert_eq!(layout.inspector.width > 0, inspector_visible, "{width}x{height}");
+            let connect = layout.remote_id_card_rect();
+            let share = layout.your_id_card_rect();
+            assert!(connect.x + connect.width <= share.x, "{width}x{height}");
+            assert!(share.x + share.width <= layout.viewer.x + layout.viewer.width);
+            let input = layout.remote_id_input_rect();
+            let password = layout.remote_password_status_rect();
+            let connect_button = layout.remote_id_connect_btn_rect();
+            assert!(input.y + input.height <= password.y);
+            assert!(password.y + password.height <= connect_button.y);
+            assert!(connect_button.y + connect_button.height < connect.y + connect.height);
         }
     }
 
