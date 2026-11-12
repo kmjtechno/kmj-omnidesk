@@ -560,7 +560,7 @@ pub fn action_at_point(
 ) -> Option<DesktopAction> {
     // Only center content scrolls. Header, navigation and inspector retain
     // physical Windows coordinates for consistent pointer/a11y behavior.
-    let content_y = if let Some(layout) = LockedDashboardLayout::for_window(width, height) {
+    let content_y = LockedDashboardLayout::for_window(width, height).map_or(y, |layout| {
         if x >= layout.viewer.x
             && x < layout.viewer.x.saturating_add(layout.viewer.width)
             && y >= layout.viewer.y
@@ -573,9 +573,7 @@ pub fn action_at_point(
         } else {
             y
         }
-    } else {
-        y
-    };
+    });
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
         // Six visible destinations, matching the locked V5 sidebar.
         const NAV_TABS: [NavTab; 6] = [
