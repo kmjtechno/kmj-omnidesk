@@ -8,7 +8,7 @@
 
 The 1308 × 777 Windows screenshot shows the old cramped UI: 173px-tall Connect/Share cards, overlapping headings and field labels, a permanently occupying Session Inspector, and collapsed Remote Display/toolbar panels. The approved browser reference uses a 75px header, ~30px premium hero and **363px cards** above a separately labeled **315px Remote Display**. The browser permits vertical scrolling rather than crushing its content.
 
-The feature branch now replaces height-dependent mini-cards with fixed reference geometry and center-only wheel scrolling. The KMJ branded header, navigation rail and Session Inspector remain fixed. Help and screen-reader focus preserve native hit-target alignment. The inspector collapses for widths under 1450px or heights under 840px. Raw TCP control remains intentionally blocked until authenticated encryption exists.
+The feature branch now replaces height-dependent mini-cards with fixed reference geometry and center-only wheel scrolling. The KMJ branded header, navigation rail and Session Inspector remain fixed. Help and screen-reader focus preserve native hit-target alignment. The locked HTML hides the Session Inspector at viewport widths of 1510px or less (`@media(max-width:1510px)`), and switches the navigation to the compact icon rail at 1020px or less (`@media(max-width:1020px)`). Native Windows screenshots must independently verify these responsive states; source geometry is not physical-app acceptance. Raw TCP control remains intentionally blocked until authenticated encryption exists.
 
 ## Real reference measurements vs native source geometry
 
