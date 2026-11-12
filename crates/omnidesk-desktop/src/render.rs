@@ -1618,6 +1618,15 @@ fn draw_locked_remote_stage(canvas: &mut Canvas<'_>, layout: &LockedDashboardLay
         p.border,
     );
 
+    draw_locked_remote_stage_placeholder(canvas, layout, p);
+}
+
+fn draw_locked_remote_stage_placeholder(
+    canvas: &mut Canvas<'_>,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let stage = layout.remote_stage_rect();
     // This is a genuine disconnected state, not a fictional remote image,
     // frame rate, codec, encryption metric or authorized input stream.
     let center_x = stage.x + stage.width / 2;
