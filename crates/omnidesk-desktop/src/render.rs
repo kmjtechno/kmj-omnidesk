@@ -1212,9 +1212,9 @@ fn draw_locked_your_id_card(
         7, p.background, p.border);
     locked_label(canvas, rotate.x + 11, rotate.y + 9,
         rotate.width.saturating_sub(18), "New password", p.foreground);
-    locked_label(canvas, card.x + 24, card.y + 330,
+    locked_label(canvas, card.x + 24, card.y + 322,
         card.width.saturating_sub(48),
-        "Credentials are local; verified encrypted access is required.", p.muted);
+        "Credentials stay local. Remote access requires verification.", p.muted);
 }
 
 fn draw_locked_remote_id_input(
@@ -1331,16 +1331,16 @@ fn draw_locked_remote_id_card(
         connect.width.saturating_sub(25), "Connect securely",
         if ready { p.foreground } else { p.muted },
     );
-    locked_label(
-        canvas, connect.x + connect.width + 12, connect.y + 8,
-        card.width.saturating_sub(connect.width + 64),
-        "Requires a verified peer and an allowed session.", p.muted,
-    );
+    let side_x = connect.x + connect.width + 12;
+    let side_width = card.width.saturating_sub(connect.width + 64);
+    locked_label(canvas, side_x, connect.y + 4, side_width,
+        "Requires a verified", p.muted);
+    locked_label(canvas, side_x, connect.y + 23, side_width,
+        "peer and permission", p.muted);
     canvas.dot(card.x + 30, card.y + 335, 4, p.accent);
-    locked_label(canvas, card.x + 42, card.y + 329,
+    locked_label(canvas, card.x + 42, card.y + 322,
         card.width.saturating_sub(65),
-        "ID locates the device; password and permission must be verified.",
-        p.muted);
+        "ID locates the device; access must be verified.", p.muted);
 }
 
 fn draw_locked_dual_role_cards(
