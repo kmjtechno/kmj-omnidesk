@@ -552,6 +552,23 @@ pub fn action_at_point(
     x: usize,
     y: usize,
 ) -> Option<DesktopAction> {
+    // Only center content scrolls. Header, navigation and inspector retain
+    // physical Windows coordinates for consistent pointer/a11y behavior.
+    let content_y = if let Some(layout) = LockedDashboardLayout::for_window(width, height) {
+        if x >= layout.viewer.x
+            && x < layout.viewer.x.saturating_add(layout.viewer.width)
+            && y >= layout.viewer.y
+        {
+            y.saturating_add(
+                shell.workspace_scroll_y()
+                    .min(LockedDashboardLayout::max_scroll_y(height)),
+            )
+        } else {
+            y
+        }
+    } else {
+        y
+    };
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
         // Six visible destinations, matching the locked V5 sidebar.
         const NAV_TABS: [NavTab; 6] = [
@@ -565,9 +582,9 @@ pub fn action_at_point(
         for (i, &tab) in NAV_TABS.iter().enumerate() {
             let rect = locked.nav_tab_rect(i);
             if x >= rect.x
-                && y >= rect.y
+                && content_y >= rect.y
                 && x < rect.x.saturating_add(rect.width)
-                && y < rect.y.saturating_add(rect.height)
+                && content_y < rect.y.saturating_add(rect.height)
             {
                 return Some(DesktopAction::SelectNav(tab));
             }
@@ -577,25 +594,25 @@ pub fn action_at_point(
         if shell.nav_tab() == NavTab::Devices {
             let all_rect = locked.filter_all_rect();
             if x >= all_rect.x
-                && y >= all_rect.y
+                && content_y >= all_rect.y
                 && x < all_rect.x.saturating_add(all_rect.width)
-                && y < all_rect.y.saturating_add(all_rect.height)
+                && content_y < all_rect.y.saturating_add(all_rect.height)
             {
                 return Some(DesktopAction::SelectFilter(DeviceFilter::All));
             }
             let online_rect = locked.filter_online_rect();
             if x >= online_rect.x
-                && y >= online_rect.y
+                && content_y >= online_rect.y
                 && x < online_rect.x.saturating_add(online_rect.width)
-                && y < online_rect.y.saturating_add(online_rect.height)
+                && content_y < online_rect.y.saturating_add(online_rect.height)
             {
                 return Some(DesktopAction::SelectFilter(DeviceFilter::Online));
             }
             let offline_rect = locked.filter_offline_rect();
             if x >= offline_rect.x
-                && y >= offline_rect.y
+                && content_y >= offline_rect.y
                 && x < offline_rect.x.saturating_add(offline_rect.width)
-                && y < offline_rect.y.saturating_add(offline_rect.height)
+                && content_y < offline_rect.y.saturating_add(offline_rect.height)
             {
                 return Some(DesktopAction::SelectFilter(DeviceFilter::Offline));
             }
@@ -604,24 +621,24 @@ pub fn action_at_point(
         // Top bar buttons (SETTINGS, HELP)
         let settings_rect = locked.settings_button_rect(width);
         if x >= settings_rect.x
-            && y >= settings_rect.y
+            && content_y >= settings_rect.y
             && x < settings_rect.x.saturating_add(settings_rect.width)
-            && y < settings_rect.y.saturating_add(settings_rect.height)
+            && content_y < settings_rect.y.saturating_add(settings_rect.height)
         {
             return Some(DesktopAction::OpenSettings);
         }
         let help_rect = locked.help_button_rect(width);
         if x >= help_rect.x
-            && y >= help_rect.y
+            && content_y >= help_rect.y
             && x < help_rect.x.saturating_add(help_rect.width)
-            && y < help_rect.y.saturating_add(help_rect.height)
+            && content_y < help_rect.y.saturating_add(help_rect.height)
         {
             return Some(DesktopAction::ToggleHelp);
         }
         // Help replaces the central workflow surface. Underlying input
         // fields, connect buttons and session controls must not be clickable
         // through its visible overlay.
-        if shell.is_help_open() && locked.remote_screen.contains(x, y) {
+        if shell.is_help_open() && locked.remote_screen.contains(x, content_y) {
             return None;
         }
 
@@ -631,7 +648,7 @@ pub fn action_at_point(
             if shell.nav_tab() == NavTab::TrustedDevices {
                 let model = presentation_for(shell);
                 for (index, control) in model.controls.iter().enumerate().take(9) {
-                    if control.enabled && locked.trusted_device_tile_rect(index).contains(x, y) {
+                    if control.enabled && locked.trusted_device_tile_rect(index).contains(x, content_y) {
                         return Some(control.action);
                     }
                 }
@@ -661,22 +678,22 @@ pub fn action_at_point(
                 return Some(action);
             }
         } else if shell.primary_view() == PrimaryView::Session {
-            if locked.session_tool_btn_rect(0).contains(x, y) {
+            if locked.session_tool_btn_rect(0).contains(x, content_y) {
                 return Some(DesktopAction::ToggleRemoteInput);
             }
-            if locked.session_tool_btn_rect(1).contains(x, y) {
+            if locked.session_tool_btn_rect(1).contains(x, content_y) {
                 return Some(DesktopAction::NextMonitor);
             }
-            if locked.session_tool_btn_rect(2).contains(x, y) {
+            if locked.session_tool_btn_rect(2).contains(x, content_y) {
                 return Some(DesktopAction::ToggleClipboardSync);
             }
-            if locked.session_tool_btn_rect(3).contains(x, y) {
+            if locked.session_tool_btn_rect(3).contains(x, content_y) {
                 return Some(DesktopAction::TriggerFileTransfer);
             }
-            if locked.session_tool_btn_rect(4).contains(x, y) {
+            if locked.session_tool_btn_rect(4).contains(x, content_y) {
                 return Some(DesktopAction::ToggleFullscreen);
             }
-            if locked.session_tool_btn_rect(5).contains(x, y) {
+            if locked.session_tool_btn_rect(5).contains(x, content_y) {
                 return Some(DesktopAction::Disconnect);
             }
         }
@@ -688,7 +705,7 @@ pub fn action_at_point(
         .controls
         .iter()
         .zip(rects)
-        .find(|(control, rect)| control.enabled && rect.contains(x, y))
+        .find(|(control, rect)| control.enabled && rect.contains(x, content_y))
         .map(|(control, _)| control.action)
 }
 
@@ -1832,6 +1849,29 @@ mod tests {
         assert_eq!(action, Some(DesktopAction::ToggleHelp));
         apply_action(&mut shell, action.unwrap());
         assert!(shell.is_help_open());
+    }
+
+    #[test]
+    fn v5_scrolling_maps_remote_form_clicks_but_not_sidebar_navigation() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        shell.set_remote_id_input("222-222-222");
+        shell.set_remote_password_input("test-only");
+        let width = 1308;
+        let height = 777;
+        let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+        assert_eq!(layout.inspector.width, 0, "approved compact layout");
+        let input = layout.remote_id_input_rect();
+        let sidebar = layout.nav_tab_rect(2);
+        shell.set_workspace_scroll_y(140);
+        assert_eq!(
+            action_at_point(&shell, width, height, input.x + 4, input.y + 4 - 140),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, sidebar.x + 5, sidebar.y + 5),
+            Some(DesktopAction::SelectNav(NavTab::Connections))
+        );
     }
 
     #[test]
