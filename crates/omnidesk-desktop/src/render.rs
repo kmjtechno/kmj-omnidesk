@@ -1690,27 +1690,43 @@ fn draw_locked_remote_view(
         "KMJ TECHNO   >   OMNIDESK   >   ACCESS DESK",
         p.muted,
     );
-    let prefix = "Remote control,";
-    let prefix_width = Canvas::text_width(prefix, 3);
-    canvas.text_clipped(
-        screen.x, viewer.y + 58, prefix, 3, screen.width, p.foreground,
-    );
-    canvas.text_clipped(
-        screen.x + prefix_width + 8,
-        viewer.y + 58,
-        "reimagined.",
-        3,
-        screen.width.saturating_sub(prefix_width + 8),
-        p.accent,
-    );
-    locked_label(
-        canvas,
-        screen.x,
-        viewer.y + 109,
-        screen.width,
-        "One beautifully focused workspace to connect, collaborate and manage your computers securely.",
-        p.muted,
-    );
+    use omnidesk_core::product_shell::NavTab;
+    if presentation.nav_tab == NavTab::Devices {
+        let prefix = "Remote control,";
+        let prefix_width = Canvas::text_width(prefix, 3);
+        canvas.text_clipped(
+            screen.x, viewer.y + 58, prefix, 3, screen.width, p.foreground,
+        );
+        canvas.text_clipped(
+            screen.x + prefix_width + 8, viewer.y + 58,
+            "reimagined.", 3,
+            screen.width.saturating_sub(prefix_width + 8), p.accent,
+        );
+        locked_label(
+            canvas, screen.x, viewer.y + 109, screen.width,
+            "One beautifully focused workspace to connect, collaborate and manage your computers securely.",
+            p.muted,
+        );
+    } else {
+        let title = match presentation.nav_tab {
+            NavTab::TrustedDevices => "Trusted devices",
+            NavTab::Connections => "Sessions & history",
+            NavTab::FileTransfer => "File transfer",
+            NavTab::RemoteActions => "Remote actions",
+            NavTab::Automation => "Automation",
+            NavTab::Security => "Security center",
+            NavTab::Settings => "Preferences",
+            NavTab::Devices => unreachable!(),
+        };
+        canvas.text_clipped(
+            screen.x, viewer.y + 58, title, 3, screen.width, p.foreground,
+        );
+        locked_label(
+            canvas, screen.x, viewer.y + 109, screen.width,
+            "Your secure workspace. Operations require verified access and scoped permissions.",
+            p.muted,
+        );
+    }
     // The approved first fold has no frame around the whole middle area:
     // only the two workflow cards and Remote Display are bordered.
     if presentation.nav_tab != omnidesk_core::product_shell::NavTab::Devices
