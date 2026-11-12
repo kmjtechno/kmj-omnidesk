@@ -1563,11 +1563,7 @@ fn draw_locked_dual_role_cards(
     draw_locked_remote_stage(canvas, layout, p);
 }
 
-fn draw_locked_remote_stage(
-    canvas: &mut Canvas<'_>,
-    layout: &LockedDashboardLayout,
-    p: Palette,
-) {
+fn draw_locked_remote_stage(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
     let stage = layout.remote_stage_rect();
     // A labelled stage below the cards, not a 200px inset trapped inside
     // a compressed outer card. Its title and subtitle are visible on the
