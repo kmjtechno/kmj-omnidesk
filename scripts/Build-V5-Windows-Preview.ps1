@@ -228,7 +228,10 @@ working remote sessions, or production acceptance evidence.</p>
     # Explicit physical Windows acceptance matrix. Offline renderer PNGs never
     # satisfy these gates; a human must inspect the actual preview window.
     # Keep the status fail-closed even when the -Launch switch is used.
-    $physicalViewports = @('800x600','960x640','1024x768','1308x777','1419x611','1920x1080')
+    # Both 1308 and 1309 widths are required: the owner supplied two screenshot
+    # dimensions. Include 1600x920 for the inspector-visible reference state.
+    # These remain NOT_VERIFIED until real Windows window captures are reviewed.
+    $physicalViewports = @('800x600','960x640','1024x768','1308x777','1309x777','1419x611','1600x920','1920x1080')
     foreach ($viewport in $physicalViewports) {
         $receipt += "WINDOWS_NATIVE_SCREENSHOT_$viewport=NOT_VERIFIED"
         $receipt += "WINDOWS_NATIVE_KEYBOARD_HITTEST_$viewport=NOT_VERIFIED"
