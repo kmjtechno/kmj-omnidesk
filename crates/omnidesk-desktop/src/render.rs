@@ -1223,25 +1223,14 @@ fn draw_locked_remote_id_input(
     input_rect: crate::layout::DashboardRect,
     p: Palette,
 ) {
-    canvas.fill_rect(
-        input_rect.x,
-        input_rect.y,
-        input_rect.width,
-        input_rect.height,
-        p.background,
-    );
     let input_border_color = if presentation.remote_id_focused {
         p.accent
     } else {
         p.border
     };
-    canvas.stroke_rect(
-        input_rect.x,
-        input_rect.y,
-        input_rect.width,
-        input_rect.height,
-        if presentation.remote_id_focused { 2 } else { 1 },
-        input_border_color,
+    canvas.rounded_panel(
+        input_rect.x, input_rect.y, input_rect.width, input_rect.height,
+        9, p.background, input_border_color,
     );
 
     if presentation.remote_id_input.is_empty() {
