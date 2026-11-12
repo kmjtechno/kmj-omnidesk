@@ -802,6 +802,39 @@ fn locked_label(
     canvas.text_clipped(x, y, label, 1, width, color);
 }
 
+/// A compact native eye icon replaces the clipped "SHO..." text in the V5
+/// password buttons. The button's full accessible label and hit area remain
+/// independent of its pixel glyph. The slash indicates a masked password.
+fn draw_locked_password_eye(
+    canvas: &mut Canvas<'_>,
+    rect: crate::layout::DashboardRect,
+    revealed: bool,
+    color: u32,
+) {
+    let cx = rect.x + rect.width / 2;
+    let cy = rect.y + rect.height / 2;
+    canvas.h_line(cx.saturating_sub(5), cy.saturating_sub(5), 10, color);
+    canvas.h_line(cx.saturating_sub(9), cy.saturating_sub(3), 4, color);
+    canvas.h_line(cx + 5, cy.saturating_sub(3), 4, color);
+    canvas.h_line(cx.saturating_sub(11), cy, 3, color);
+    canvas.h_line(cx + 8, cy, 3, color);
+    canvas.h_line(cx.saturating_sub(9), cy + 3, 4, color);
+    canvas.h_line(cx + 5, cy + 3, 4, color);
+    canvas.h_line(cx.saturating_sub(5), cy + 5, 10, color);
+    canvas.dot(cx, cy, 2, color);
+    if !revealed {
+        for offset in 0..17 {
+            canvas.fill_rect(
+                cx.saturating_sub(8) + offset,
+                cy.saturating_sub(8) + offset,
+                1,
+                1,
+                color,
+            );
+        }
+    }
+}
+
 fn draw_locked_header(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -931,16 +964,21 @@ fn draw_locked_navigation(
         omnidesk_core::product_shell::NavTab::Security,
         omnidesk_core::product_shell::NavTab::Settings,
     ];
-    locked_label(
-        canvas,
-        nav.x + 14,
-        nav.y + 26,
-        nav.width.saturating_sub(28),
-        "WORKSPACE",
-        p.muted,
-    );
-    // The owner's locked V5 reference has a distinct Protection section.
+    // The compact rail is deliberately icon-only; an unbounded heading
+    // rendered as "WORKS..." on 1024px Windows displays. All six accessible
+    // navigation labels remain available through AccessKit.
     let compact_rail = nav.width < 120;
+    if !compact_rail {
+        locked_label(
+            canvas,
+            nav.x + 14,
+            nav.y + 26,
+            nav.width.saturating_sub(28),
+            "WORKSPACE",
+            p.muted,
+        );
+    }
+    // The owner's locked V5 reference has a distinct Protection section.
     canvas.h_line(
         nav.x + 14,
         nav.y + 255,
@@ -1273,16 +1311,10 @@ fn draw_locked_your_id_card(
         p.background,
         p.border,
     );
-    locked_label(
+    draw_locked_password_eye(
         canvas,
-        show.x + 3,
-        show.y + 10,
-        show.width.saturating_sub(6),
-        if presentation.local_password_revealed {
-            "HIDE"
-        } else {
-            "SHOW"
-        },
+        show,
+        presentation.local_password_revealed,
         if has_password { p.foreground } else { p.muted },
     );
     let copy = layout.your_password_copy_btn_rect();
@@ -1491,16 +1523,10 @@ fn draw_locked_remote_id_card(
         p.background,
         p.border,
     );
-    locked_label(
+    draw_locked_password_eye(
         canvas,
-        show.x + 7,
-        show.y + 10,
-        show.width.saturating_sub(12),
-        if presentation.remote_password_revealed {
-            "HIDE"
-        } else {
-            "SHOW"
-        },
+        show,
+        presentation.remote_password_revealed,
         if placeholder { p.muted } else { p.foreground },
     );
 
@@ -2593,6 +2619,44 @@ mod tests {
 
     use super::*;
     use crate::{VisualSystem, presentation_for};
+
+    #[test]
+    fn v5_password_eye_fits_the_compact_button_and_changes_with_reveal_state() {
+        let rect = crate::layout::DashboardRect {
+            x: 13,
+            y: 9,
+            width: 38,
+            height: 36,
+        };
+        let mut hidden = vec![0_u32; 64 * 60];
+        let mut revealed = hidden.clone();
+        draw_locked_password_eye(
+            &mut Canvas {
+                pixels: &mut hidden,
+                width: 64,
+                height: 60,
+            },
+            rect,
+            false,
+            0xff_37_51,
+        );
+        draw_locked_password_eye(
+            &mut Canvas {
+                pixels: &mut revealed,
+                width: 64,
+                height: 60,
+            },
+            rect,
+            true,
+            0xff_37_51,
+        );
+        assert_ne!(hidden, revealed, "masked and visible eye icons differ");
+        for (index, pixel) in hidden.iter().enumerate() {
+            if !rect.contains(index % 64, index / 64) {
+                assert_eq!(*pixel, 0, "eye glyph escapes its button");
+            }
+        }
+    }
 
     #[test]
     fn locked_design_preserves_lowercase_typography() {
