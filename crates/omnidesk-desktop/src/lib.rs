@@ -121,6 +121,7 @@ impl VisualSystem {
 pub struct PresentationModel {
     pub primary_view: PrimaryView,
     pub nav_tab: NavTab,
+    pub workspace_scroll_y: usize,
     pub device_filter: DeviceFilter,
     pub help_open: bool,
     pub title: &'static str,
@@ -214,6 +215,7 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
     PresentationModel {
         primary_view: shell.primary_view(),
         nav_tab: shell.nav_tab(),
+        workspace_scroll_y: shell.workspace_scroll_y(),
         device_filter: shell.device_filter(),
         help_open: shell.is_help_open(),
         title: "KMJ OmniDesk",
