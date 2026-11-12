@@ -611,22 +611,19 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                     let height = usize::try_from(size.height).unwrap_or(usize::MAX);
                     if let Some(layout) = crate::LockedDashboardLayout::for_window(width, height) {
                         if !self.shell.is_help_open() && layout.viewer.contains(x, y) {
-                            let direction = match delta {
-                                winit::event::MouseScrollDelta::LineDelta(_, dy) => {
-                                    if dy > 0.0 {
-                                        -1
-                                    } else {
-                                        i32::from(dy < 0.0)
+                            let direction =
+                                match delta {
+                                    winit::event::MouseScrollDelta::LineDelta(_, dy) => {
+                                        if dy > 0.0 { -1 } else { i32::from(dy < 0.0) }
                                     }
-                                }
-                                winit::event::MouseScrollDelta::PixelDelta(position) => {
-                                    if position.y > 0.0 {
-                                        -1
-                                    } else {
-                                        i32::from(position.y < 0.0)
+                                    winit::event::MouseScrollDelta::PixelDelta(position) => {
+                                        if position.y > 0.0 {
+                                            -1
+                                        } else {
+                                            i32::from(position.y < 0.0)
+                                        }
                                     }
-                                }
-                            };
+                                };
                             let old = self.shell.workspace_scroll_y();
                             let max = crate::LockedDashboardLayout::max_scroll_y(height);
                             let next = match direction {
