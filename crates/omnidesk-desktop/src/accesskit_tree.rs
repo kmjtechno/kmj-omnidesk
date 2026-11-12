@@ -45,7 +45,7 @@ pub fn desktop_action_for_node(shell: &ProductShell, node_id: NodeId) -> Option<
             return (shell.primary_view() == PrimaryView::Devices
                 && shell.nav_tab() == NavTab::Devices
                 && !shell.is_help_open())
-                .then_some(DesktopAction::SelectNav(NavTab::Security));
+            .then_some(DesktopAction::SelectNav(NavTab::Security));
         }
         V5_HELP_NODE => return Some(DesktopAction::ToggleHelp),
         _ => {}
