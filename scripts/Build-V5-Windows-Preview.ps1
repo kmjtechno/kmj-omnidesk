@@ -80,8 +80,8 @@ try {
         '--example','capture_v5_screens','--',$captureDir
     )
     $pngFiles = @(Get-ChildItem -LiteralPath $captureDir -Filter '*.png' -File)
-    if ($pngFiles.Count -ne 12) {
-        throw "Native renderer expected exactly 12 PNG files, found $($pngFiles.Count)"
+    if ($pngFiles.Count -ne 13) {
+        throw "Native renderer expected exactly 13 PNG files, found $($pngFiles.Count)"
     }
     # Pin the locked design's actual capture matrix, not merely a PNG count.
     # PNG IHDR stores width and height as unsigned big-endian 32-bit values.
@@ -91,6 +91,7 @@ try {
         '04_remote_access_1024.png' = @(1024, 768)
         '03_remote_access_compact.png' = @(1419, 611)
         '10_remote_access_laptop.png' = @(1280, 800)
+        '12_owner_screenshot_1309.png' = @(1309, 777)
         '11_remote_access_wide.png' = @(1920, 1080)
         '06_trusted_devices.png' = @(1419, 800)
         '07_sessions.png' = @(1419, 800)
@@ -170,7 +171,7 @@ working remote sessions, or production acceptance evidence.</p>
     $nativeReceiptLines = @(Get-Content -LiteralPath $nativeReceiptPath)
     $requiredNativeReceipt = @(
         'KMJ_OMNIDESK_V5_CAPTURE_TYPE=OFFLINE_NATIVE_RENDER_BUFFER_PNG',
-        'SCREEN_COUNT=12',
+        'SCREEN_COUNT=13',
         'VERIFIED_NETWORK_SESSION=NO',
         'CONNECTED_DESKTOP_CAPTURE=NO',
         'WINDOWS_EXE_SCREENSHOT=NO'
@@ -207,7 +208,7 @@ working remote sessions, or production acceptance evidence.</p>
     }
     Write-Host 'KMJ_V5_UNTRACKED_SOURCE_ATTEST=PASS'
     Write-Host 'KMJ_V5_POST_BUILD_SOURCE_ATTEST=PASS'
-    Write-Host 'KMJ_V5_NATIVE_RENDER_PNG=PASS_COUNT_12'
+    Write-Host 'KMJ_V5_NATIVE_RENDER_PNG=PASS_COUNT_13'
     $receipt = @(
         "SOURCE_SHA=$sha",
         "BINARY_SHA256=$digest",
@@ -215,7 +216,7 @@ working remote sessions, or production acceptance evidence.</p>
         "CLIPPY=PASS",
         "TESTS=PASS",
         "BUILD=PASS",
-        "NATIVE_RENDER_PNG_COUNT=12",
+        "NATIVE_RENDER_PNG_COUNT=13",
         "NATIVE_RENDER_TYPE=OFFLINE_RUST_PIXEL_BUFFER",
         "PHYSICAL_WINDOWS_SCREENSHOT=NOT_VERIFIED",
         "RELEASE=NOT_APPROVED",
