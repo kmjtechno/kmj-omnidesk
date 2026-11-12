@@ -3,10 +3,7 @@
 //! Handles single-use challenge creation, signature verification over
 //! domain-separated enrollment payloads, and clock-drift bounded authentication.
 
-use std::{
-    collections::HashMap,
-    path::Path,
-};
+use std::{collections::HashMap, path::Path};
 
 use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
