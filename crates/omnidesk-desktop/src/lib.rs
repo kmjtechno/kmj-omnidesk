@@ -623,14 +623,15 @@ pub fn action_at_point(
             }
         }
 
-        // Top bar buttons (SETTINGS, HELP)
-        let settings_rect = locked.settings_button_rect(width);
-        if x >= settings_rect.x
-            && content_y >= settings_rect.y
-            && x < settings_rect.x.saturating_add(settings_rect.width)
-            && content_y < settings_rect.y.saturating_add(settings_rect.height)
+        // The approved V5 top bar has only the Help icon; the preview
+        // badge is status, never a hidden Preferences button. Preferences
+        // remain reachable from the sixth visible navigation item.
+        if shell.primary_view() == PrimaryView::Devices
+            && shell.nav_tab() == NavTab::Devices
+            && !shell.is_help_open()
+            && locked.security_model_button_rect().contains(x, content_y)
         {
-            return Some(DesktopAction::OpenSettings);
+            return Some(DesktopAction::SelectNav(NavTab::Security));
         }
         let help_rect = locked.help_button_rect(width);
         if x >= help_rect.x
@@ -1842,18 +1843,19 @@ mod tests {
             Some(DesktopAction::SelectFilter(DeviceFilter::Offline))
         );
 
-        // 3. Top bar buttons hit testing
-        let settings_rect = layout.settings_button_rect(1419);
+        // 3. Owner-approved Security model CTA and Help affordances.
+        let security_rect = layout.security_model_button_rect();
         let action = action_at_point(
             &shell,
             1419,
             611,
-            settings_rect.x + 10,
-            settings_rect.y + 10,
+            security_rect.x + 10,
+            security_rect.y + 10,
         );
-        assert_eq!(action, Some(DesktopAction::OpenSettings));
+        assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::Security)));
         apply_action(&mut shell, action.unwrap());
-        assert_eq!(shell.nav_tab(), NavTab::Settings);
+        assert_eq!(shell.nav_tab(), NavTab::Security);
+        assert_eq!(action_at_point(&shell, 1419, 611, 1239, 32), None);
 
         let help_rect = layout.help_button_rect(1419);
         let action = action_at_point(&shell, 1419, 611, help_rect.x + 10, help_rect.y + 10);
