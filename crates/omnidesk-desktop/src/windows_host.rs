@@ -601,6 +601,41 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                     window.request_redraw();
                 }
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                if let (Some((x, y)), Some(window)) =
+                    (self.cursor_position, self.window.as_ref())
+                {
+                    let size = window.inner_size();
+                    let width = usize::try_from(size.width).unwrap_or(usize::MAX);
+                    let height = usize::try_from(size.height).unwrap_or(usize::MAX);
+                    if let Some(layout) = crate::LockedDashboardLayout::for_window(width, height) {
+                        if layout.viewer.contains(x, y) {
+                            let direction = match delta {
+                                winit::event::MouseScrollDelta::LineDelta(_, dy) => {
+                                    if dy > 0.0 { -1 } else if dy < 0.0 { 1 } else { 0 }
+                                }
+                                winit::event::MouseScrollDelta::PixelDelta(position) => {
+                                    if position.y > 0.0 { -1 }
+                                    else if position.y < 0.0 { 1 }
+                                    else { 0 }
+                                }
+                            };
+                            let old = self.shell.workspace_scroll_y();
+                            let max = crate::LockedDashboardLayout::max_scroll_y(height);
+                            let next = match direction {
+                                -1 => old.saturating_sub(120),
+                                1 => old.saturating_add(120).min(max),
+                                _ => old,
+                            };
+                            if next != old {
+                                self.shell.set_workspace_scroll_y(next);
+                                self.update_accessibility_tree();
+                                window.request_redraw();
+                            }
+                        }
+                    }
+                }
+            }
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_position = match (to_pixel(position.x), to_pixel(position.y)) {
                     (Some(x), Some(y)) => Some((x, y)),
