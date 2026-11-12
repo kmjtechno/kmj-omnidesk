@@ -1191,14 +1191,7 @@ fn draw_locked_navigation(
     // navigation labels remain available through AccessKit.
     let compact_rail = nav.width < 120;
     if !compact_rail {
-        locked_label(
-            canvas,
-            nav.x + 14,
-            nav.y + 26,
-            nav.width.saturating_sub(28),
-            "WORKSPACE",
-            p.muted,
-        );
+        canvas.text_bold_at(nav.x + 12, nav.y + 25, "WORKSPACE", 10.0, 0x6f_82_98);
     }
     // The owner's locked V5 reference has a distinct Protection section.
     canvas.h_line(
@@ -1208,22 +1201,15 @@ fn draw_locked_navigation(
         p.border,
     );
     if !compact_rail {
-        locked_label(
-            canvas,
-            nav.x + 14,
-            nav.y + 273,
-            nav.width.saturating_sub(28),
-            "PROTECTION",
-            p.muted,
-        );
+        canvas.text_bold_at(nav.x + 12, nav.y + 280, "PROTECTION", 10.0, 0x6f_82_98);
     }
     for (index, label) in nav_labels.iter().enumerate() {
         let rect = layout.nav_tab_rect(index);
         let active = nav_tabs[index] == presentation.nav_tab;
         if active {
-            canvas.rounded_fill(rect.x, rect.y, rect.width, rect.height, 9, p.accent);
+            canvas.rounded_fill(rect.x, rect.y, rect.width, rect.height, 9, 0xc4_00_31);
         }
-        let item_color = if active { p.foreground } else { p.muted };
+        let item_color = if active { p.foreground } else { 0xb9_c6_d6 };
         let compact_rail = nav.width < 120;
         let icon_x = if compact_rail {
             rect.x + rect.width.saturating_sub(16) / 2
@@ -1232,15 +1218,20 @@ fn draw_locked_navigation(
         };
         draw_locked_nav_icon(canvas, index, icon_x, rect.y + 10, item_color);
         if !compact_rail {
-            locked_label(
-                canvas,
+            canvas.text_bold_clipped(
                 rect.x + 44,
-                rect.y + 14,
-                rect.width.saturating_sub(50),
+                rect.y + 11,
                 label,
+                12.0,
+                rect.width.saturating_sub(50),
                 item_color,
             );
         }
+    }
+    // The reference places this secure-access help card below the first
+    // fold, not over the lower navigation on a 1308x777 Windows display.
+    if canvas.height < 1100 {
+        return;
     }
     let nav_bottom = nav.y + nav.height;
     canvas.rounded_panel(
@@ -2753,14 +2744,11 @@ fn draw_locked_dashboard(
     p: Palette,
 ) {
     draw_locked_header(canvas, presentation, layout, p);
-    locked_frame(
-        canvas,
-        layout.navigation.x,
-        layout.navigation.y,
-        layout.navigation.width,
-        layout.navigation.height,
-        p,
-    );
+    // Full-width left rail from the locked HTML; nav hit rectangles stay
+    // inset 12px and remain shared with AccessKit and pointer hit testing.
+    let nav_right = layout.navigation.x + layout.navigation.width + 10;
+    canvas.fill_rect(0, layout.navigation.y, nav_right, layout.navigation.height, 0x09_0e_15);
+    canvas.fill_rect(nav_right - 1, layout.navigation.y, 1, layout.navigation.height, 0x20_2c_39);
     draw_locked_navigation(canvas, presentation, layout, p);
 
     if layout.inspector.width > 0 {
