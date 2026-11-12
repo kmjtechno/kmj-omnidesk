@@ -35,9 +35,10 @@ pub fn official_kmj_mark() -> Option<&'static BrandImage> {
         .as_ref()
 }
 
-/// Pixel-exact approved KMJ TECHNO header wordmark, sourced from the
-/// owner-locked V5 HTML reference. Decoding happens once, offline; the native
-/// app does not download brand assets or substitute an approximation.
+/// Exact owner-approved KMJ TECHNO V5 header wordmark.
+///
+/// Sourced from the locked HTML reference. The native app decodes it once,
+/// offline, without downloading or substituting a different logo.
 #[must_use]
 pub fn approved_v5_header_logo() -> Option<&'static BrandImage> {
     static HEADER: OnceLock<Option<BrandImage>> = OnceLock::new();
