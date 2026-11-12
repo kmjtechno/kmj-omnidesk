@@ -1025,7 +1025,12 @@ fn draw_locked_header(
     // Match the owner-locked HTML chrome. The logo is the exact embedded
     // approved brand asset, not a newly drawn text approximation.
     canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, 0x09_0e_15);
-    canvas.h_line(0, layout.top_bar_height.saturating_sub(1), canvas.width, 0x25_31_3f);
+    canvas.h_line(
+        0,
+        layout.top_bar_height.saturating_sub(1),
+        canvas.width,
+        0x25_31_3f,
+    );
     if let Some(logo) = approved_v5_header_logo() {
         canvas.image_rgba(
             (23, 15, 162, 44),
@@ -1090,7 +1095,15 @@ fn draw_locked_header(
     canvas.text_bold_at(badge_x + 14, 30, "V5 PREVIEW", 11.0, 0xee_a6_b2);
 
     let help = layout.help_button_rect(canvas.width);
-    canvas.rounded_panel(help.x, help.y, help.width, help.height, 10, 0x11_19_23, 0x29_34_42);
+    canvas.rounded_panel(
+        help.x,
+        help.y,
+        help.width,
+        help.height,
+        10,
+        0x11_19_23,
+        0x29_34_42,
+    );
     canvas.dot(help.x + help.width / 2, help.y + 17, 8, 0xba_c7_d8);
     canvas.dot(help.x + help.width / 2, help.y + 17, 6, 0x11_19_23);
     canvas.text_bold_at(
@@ -1098,7 +1111,11 @@ fn draw_locked_header(
         help.y + 8,
         "?",
         14.0,
-        if presentation.help_open { p.accent } else { 0xba_c7_d8 },
+        if presentation.help_open {
+            p.accent
+        } else {
+            0xba_c7_d8
+        },
     );
 }
 fn draw_locked_nav_icon(canvas: &mut Canvas<'_>, index: usize, x: usize, y: usize, color: u32) {
@@ -1423,7 +1440,13 @@ fn draw_locked_your_id_card(
         p.foreground,
     );
 
-    canvas.text_bold_at(card.x + 24, card.y + 90, "Your OmniDesk ID", 11.5, 0xd8_e1_eb);
+    canvas.text_bold_at(
+        card.x + 24,
+        card.y + 90,
+        "Your OmniDesk ID",
+        11.5,
+        0xd8_e1_eb,
+    );
     canvas.text_bold_at(
         card.x + card.width.saturating_sub(104),
         card.y + 90,
@@ -1668,7 +1691,13 @@ fn draw_locked_remote_id_card(
         p.foreground,
     );
 
-    canvas.text_bold_at(card.x + 24, card.y + 90, "Remote device ID", 11.5, 0xd8_e1_eb);
+    canvas.text_bold_at(
+        card.x + 24,
+        card.y + 90,
+        "Remote device ID",
+        11.5,
+        0xd8_e1_eb,
+    );
     canvas.text_bold_at(
         card.x + card.width.saturating_sub(95),
         card.y + 90,
@@ -1678,7 +1707,13 @@ fn draw_locked_remote_id_card(
     );
     draw_locked_remote_id_input(canvas, presentation, layout.remote_id_input_rect(), p);
 
-    canvas.text_bold_at(card.x + 24, card.y + 169, "Session password", 11.5, 0xd8_e1_eb);
+    canvas.text_bold_at(
+        card.x + 24,
+        card.y + 169,
+        "Session password",
+        11.5,
+        0xd8_e1_eb,
+    );
     canvas.text_bold_at(
         card.x + card.width.saturating_sub(95),
         card.y + 169,
@@ -2214,7 +2249,13 @@ fn draw_locked_remote_view(
         let action_x = screen.x + screen.width.saturating_sub(152);
         let action_y = viewer.y + 82;
         canvas.rounded_panel(action_x, action_y, 152, 38, 9, 0x11_19_23, 0x35_41_50);
-        canvas.text_bold_at(action_x + 15, action_y + 10, "Security model", 11.0, 0xd5_dc_e8);
+        canvas.text_bold_at(
+            action_x + 15,
+            action_y + 10,
+            "Security model",
+            11.0,
+            0xd5_dc_e8,
+        );
         canvas.text_bold_at(action_x + 137, action_y + 10, ">", 11.0, 0xd5_dc_e8);
         locked_label(
             canvas,
