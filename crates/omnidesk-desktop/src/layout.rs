@@ -723,6 +723,35 @@ mod locked_dashboard_tests {
     use super::*;
 
     #[test]
+    fn approved_v5_reference_coordinates_are_locked_at_three_viewports() {
+        // Matched against the approved V5 HTML reference's real DOM boxes,
+        // not an unapproved redesign or the outdated 173px native screenshot.
+        let scenarios = [
+            // screen width, height, connect width, share x, share width
+            (1024, 768, 380, 645, 351),
+            (1308, 777, 527, 792, 488),
+            (1600, 920, 526, 791, 487),
+        ];
+        for (width, height, connect_width, share_x, share_width) in scenarios {
+            let l = LockedDashboardLayout::for_window(width, height).unwrap();
+            let connect = l.remote_id_card_rect();
+            let share = l.your_id_card_rect();
+            let stage = l.remote_stage_rect();
+            assert_eq!((connect.x, connect.y, connect.width, connect.height),
+                (249, 216, connect_width, 363));
+            assert_eq!((share.x, share.y, share.width, share.height),
+                (share_x, 216, share_width, 363));
+            assert_eq!(stage.y, 660);
+            assert_eq!(stage.height, 315);
+            assert_eq!(
+                l.inspector.width == 0, width < 1450,
+                "inspector must collapse on 1308px compact Windows desktop"
+            );
+            assert!(LockedDashboardLayout::max_scroll_y(height) > 0);
+        }
+    }
+
+    #[test]
     fn v5_layout_uses_three_primary_columns() {
         let l = LockedDashboardLayout::for_window(1419, 611).unwrap();
         assert!(l.navigation.x + l.navigation.width < l.viewer.x);
