@@ -43,7 +43,13 @@ fn native_ui_font() -> Option<&'static FontArc> {
 }
 
 const fn native_text_size(scale: usize) -> f32 {
-    if scale >= 2 { 22.0 } else { 16.0 }
+    if scale >= 3 {
+        34.0
+    } else if scale == 2 {
+        22.0
+    } else {
+        16.0
+    }
 }
 
 struct Canvas<'a> {
@@ -61,6 +67,66 @@ impl Canvas<'_> {
             for px in x.min(self.width)..max_x {
                 self.pixels[row + px] = color;
             }
+        }
+    }
+
+    /// A compact rounded panel primitive for the owner-locked V5 card
+    /// language. Rectangular borders were the main source of the old,
+    /// box-heavy appearance in the native screenshot.
+    fn rounded_fill(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        radius: usize,
+        color: u32,
+    ) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        let radius = radius.min(width / 2).min(height / 2);
+        if radius == 0 {
+            self.fill_rect(x, y, width, height, color);
+            return;
+        }
+        self.fill_rect(x, y + radius, width, height - radius * 2, color);
+        for row in 0..radius {
+            // Three-step antialias-free corner: soft enough at 1x/125% DPI
+            // without any downloaded textures, dependencies or GPU effects.
+            let inset = if row < radius / 4 {
+                radius / 2
+            } else if row < radius / 2 {
+                radius / 4
+            } else {
+                1
+            };
+            self.fill_rect(
+                x + inset, y + row, width.saturating_sub(inset * 2), 1, color,
+            );
+            self.fill_rect(
+                x + inset, y + height - row - 1,
+                width.saturating_sub(inset * 2), 1, color,
+            );
+        }
+    }
+
+    fn rounded_panel(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        radius: usize,
+        background: u32,
+        border: u32,
+    ) {
+        self.rounded_fill(x, y, width, height, radius, border);
+        if width >= 3 && height >= 3 {
+            self.rounded_fill(
+                x + 1, y + 1, width - 2, height - 2,
+                radius.saturating_sub(1), background,
+            );
         }
     }
 
@@ -1837,52 +1903,47 @@ fn draw_locked_remote_view(
     p: Palette,
 ) {
     let viewer = layout.viewer;
-    // Remote canvas. A legitimate remote video frame must come from the
-    // authenticated frame decoder, never from a screenshot of the reference.
-    locked_label(
-        canvas,
-        viewer.x + 18,
-        viewer.y + 13,
-        viewer.width.saturating_sub(36),
-        "KMJ TECHNO  /  OMNIDESK  /  ACCESS DESK",
-        p.muted,
-    );
-    let page_title = match presentation.nav_tab {
-        omnidesk_core::product_shell::NavTab::Devices => "Remote control, reimagined.",
-        omnidesk_core::product_shell::NavTab::TrustedDevices => "Trusted devices",
-        omnidesk_core::product_shell::NavTab::Connections => "Sessions & history",
-        omnidesk_core::product_shell::NavTab::FileTransfer => "File transfer",
-        omnidesk_core::product_shell::NavTab::RemoteActions => "Remote actions",
-        omnidesk_core::product_shell::NavTab::Automation => "Automation",
-        omnidesk_core::product_shell::NavTab::Security => "Security center",
-        omnidesk_core::product_shell::NavTab::Settings => "Preferences",
-    };
-    canvas.text_clipped(
-        viewer.x + 18,
-        viewer.y + 35,
-        page_title,
-        2,
-        viewer.width.saturating_sub(36),
-        p.foreground,
-    );
-    locked_label(
-        canvas,
-        viewer.x + 18,
-        viewer.y + if layout.compact_height() { 51 } else { 66 },
-        viewer.width.saturating_sub(36),
-        presentation.status,
-        p.muted,
-    );
     let screen = layout.remote_screen;
-    canvas.fill_rect(
+    locked_label(
+        canvas,
         screen.x,
-        screen.y,
+        viewer.y + 28,
         screen.width,
-        screen.height,
-        p.background,
+        "KMJ TECHNO   >   OMNIDESK   >   ACCESS DESK",
+        p.muted,
     );
-    canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
-    canvas.fill_rect(screen.x + 1, screen.y + 1, screen.width - 2, 3, p.border);
+    let prefix = "Remote control,";
+    let prefix_width = Canvas::text_width(prefix, 3);
+    canvas.text_clipped(
+        screen.x, viewer.y + 58, prefix, 3, screen.width, p.foreground,
+    );
+    canvas.text_clipped(
+        screen.x + prefix_width + 8,
+        viewer.y + 58,
+        "reimagined.",
+        3,
+        screen.width.saturating_sub(prefix_width + 8),
+        p.accent,
+    );
+    locked_label(
+        canvas,
+        screen.x,
+        viewer.y + 109,
+        screen.width,
+        "One beautifully focused workspace to connect, collaborate and manage your computers securely.",
+        p.muted,
+    );
+    // The approved first fold has no frame around the whole middle area:
+    // only the two workflow cards and Remote Display are bordered.
+    if presentation.nav_tab != omnidesk_core::product_shell::NavTab::Devices
+        || presentation.help_open
+        || presentation.primary_view != omnidesk_core::product_shell::PrimaryView::Devices
+    {
+        canvas.rounded_panel(
+            screen.x, screen.y, screen.width, screen.height,
+            12, p.background, p.border,
+        );
+    }
 
     if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices
         && !presentation.help_open
