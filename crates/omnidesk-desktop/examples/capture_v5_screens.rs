@@ -9,7 +9,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use omnidesk_core::product_shell::{NavTab, ProductShell};
+use omnidesk_core::{
+    password_auth::SessionPasswordManager,
+    product_shell::{NavTab, ProductShell},
+};
 use omnidesk_desktop::{presentation_for, render::render_shell};
 
 fn save_png(path: &Path, pixels: &[u32], width: usize, height: usize) -> io::Result<()> {
@@ -54,6 +57,9 @@ fn main() -> io::Result<()> {
     let mut shell = ProductShell::new();
     // Illustrative, non-operational ID used only for offline renderer QA.
     shell.set_local_device_id("KMJ-000-000-000");
+    // Match first-launch Windows UX without exposing any real password in
+    // the PNG or metadata. The generated value always stays masked.
+    *shell.password_manager_mut() = SessionPasswordManager::new(1_700_000_000);
 
     // The locked design must retain Connect + Share + Remote Display at
     // typical compact and full-size desktop resolutions.
@@ -65,7 +71,7 @@ fn main() -> io::Result<()> {
         ("10_remote_access_laptop.png", 1280, 800),
         // Exact size of the owner's 2026-11-12 screenshot, to detect
         // inspector and Connect/Share overlap regressions on the real fold.
-        ("12_owner_screenshot_1309.png", 1309, 777),
+        ("12_owner_screenshot_1308.png", 1308, 777),
         ("11_remote_access_wide.png", 1920, 1080),
     ] {
         render_to_png(&shell, &out_dir, name, width, height)?;
