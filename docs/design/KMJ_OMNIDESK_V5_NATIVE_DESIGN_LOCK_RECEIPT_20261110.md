@@ -103,4 +103,4 @@ Actual isolated P520 command execution remains blocked by the current CodeBridge
 - Historical 11 PNG captures generated in `target/v5_captures/`; current 12-capture exact-HEAD matrix remains unverified on P520
 - Release executable built: `target/release/omnidesk-desktop.exe` (SHA256: `F28698E7782B83EE653B16FB7D25B8282FD94A964FB392E3E90AC7773AEFBF39`)
 
-**Design source implementation: completed and verified. 11 offline review captures and Windows release binary generated.**
+**Historical receipt:** A previous V5 revision passed 528 local Rust tests and produced 11 offline PNGs plus a Windows executable. That does **not** verify the further 12 November reference-geometry and scroll fixes. **Current-source exact-HEAD Cargo build, 12-PNG inspection, real running Windows screenshots and owner design acceptance remain pending.** See `docs/qa/OMNIDESK_V5_APPROVED_REFERENCE_GEOMETRY_20261112.md`.
