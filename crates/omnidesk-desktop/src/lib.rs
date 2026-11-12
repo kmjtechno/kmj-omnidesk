@@ -666,7 +666,7 @@ pub fn action_at_point(
             if shell.nav_tab() != NavTab::Devices {
                 return None;
             }
-            if let Some(action) = locked_dual_role_action(&locked, x, y) {
+            if let Some(action) = locked_dual_role_action(&locked, x, content_y) {
                 if action == DesktopAction::ConnectRemoteId
                     && !presentation_for(shell).remote_access_form_ready
                 {
