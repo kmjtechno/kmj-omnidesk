@@ -42,6 +42,35 @@ fn native_ui_font() -> Option<&'static FontArc> {
     .as_ref()
 }
 
+/// Prefer the operating system's real bold face for the approved V5
+/// hierarchy. Never package or redistribute a proprietary font file.
+fn native_ui_bold_font() -> Option<&'static FontArc> {
+    static FONT: OnceLock<Option<FontArc>> = OnceLock::new();
+    FONT.get_or_init(|| {
+        #[cfg(windows)]
+        let paths: &[&str] = &[
+            r"C:\Windows\Fonts\segoeuib.ttf",
+            r"C:\Windows\Fonts\arialbd.ttf",
+        ];
+        #[cfg(target_os = "macos")]
+        let paths: &[&str] = &[
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/Library/Fonts/Arial Bold.ttf",
+        ];
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        let paths: &[&str] = &[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        ];
+        paths.iter().find_map(|path| {
+            std::fs::read(path)
+                .ok()
+                .and_then(|data| FontArc::try_from_vec(data).ok())
+        })
+    })
+    .as_ref()
+}
+
 const fn native_text_size(scale: usize) -> f32 {
     if scale >= 3 {
         34.0
@@ -352,6 +381,89 @@ impl Canvas<'_> {
             }
             cursor_x = cursor_x.saturating_add(9 * scale);
         }
+    }
+
+    /// Exact size-aware OS-bold glyph advances, matching native rendering
+    /// instead of guessing fixed bitmap character widths.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn bold_text_width(text: &str, size: f32) -> usize {
+        if let Some(font) = native_ui_bold_font().or_else(native_ui_font) {
+            let scaled = font.as_scaled(PxScale::from(size));
+            let advance: f32 = text
+                .chars()
+                .map(|ch| scaled.h_advance(scaled.glyph_id(ch)))
+                .sum();
+            return advance.ceil() as usize;
+        }
+        text.chars().count().saturating_mul(9)
+    }
+
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap
+    )]
+    fn text_bold_at(&mut self, x: usize, y: usize, text: &str, size: f32, color: u32) {
+        if let Some(font) = native_ui_bold_font().or_else(native_ui_font) {
+            let px = PxScale::from(size);
+            let scaled = font.as_scaled(px);
+            let mut cursor_x = x as f32;
+            let baseline = y as f32 + scaled.ascent();
+            for character in text.chars() {
+                let id = scaled.glyph_id(character);
+                let glyph = id.with_scale_and_position(px, point(cursor_x, baseline));
+                if let Some(outline) = font.outline_glyph(glyph) {
+                    let bounds = outline.px_bounds();
+                    let left = bounds.min.x as i32;
+                    let top = bounds.min.y as i32;
+                    outline.draw(|dx, dy, coverage| {
+                        self.blend_coverage(
+                            left.saturating_add(dx as i32),
+                            top.saturating_add(dy as i32),
+                            color,
+                            coverage,
+                        );
+                    });
+                }
+                cursor_x += scaled.h_advance(id);
+            }
+        } else {
+            self.text(x, y, text, 1, color);
+        }
+    }
+
+    fn text_bold_clipped(
+        &mut self,
+        x: usize,
+        y: usize,
+        label: &str,
+        size: f32,
+        max_width: usize,
+        color: u32,
+    ) {
+        if max_width == 0 {
+            return;
+        }
+        if Self::bold_text_width(label, size) <= max_width {
+            self.text_bold_at(x, y, label, size, color);
+            return;
+        }
+        let ellipsis = "...";
+        let dots = Self::bold_text_width(ellipsis, size);
+        if dots >= max_width {
+            return;
+        }
+        let mut clipped = String::new();
+        for ch in label.chars() {
+            clipped.push(ch);
+            if Self::bold_text_width(&clipped, size).saturating_add(dots) > max_width {
+                clipped.pop();
+                break;
+            }
+        }
+        let used = Self::bold_text_width(&clipped, size);
+        self.text_bold_at(x, y, &clipped, size, color);
+        self.text_bold_at(x + used, y, ellipsis, size, color);
     }
 
     /// A filled status dot: online devices get accent, offline get muted.
