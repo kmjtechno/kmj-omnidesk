@@ -955,18 +955,6 @@ fn draw_footer(
 // devices, or fabricated connection metrics may be rendered here.
 const VERIFIED_GREEN: u32 = 0x1f_da_78;
 
-fn locked_frame(
-    canvas: &mut Canvas<'_>,
-    left: usize,
-    top: usize,
-    width: usize,
-    height: usize,
-    palette: Palette,
-) {
-    canvas.fill_rect(left, top, width, height, palette.surface);
-    canvas.stroke_rect(left, top, width, height, 1, palette.border);
-}
-
 fn locked_label(
     canvas: &mut Canvas<'_>,
     x: usize,
