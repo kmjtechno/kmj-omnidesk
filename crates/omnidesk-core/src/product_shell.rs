@@ -462,6 +462,9 @@ impl ProductShell {
     pub const fn set_help_open(&mut self, open: bool) {
         self.help_open = open;
         if open {
+            // Open Help from its visible top-bar position instead of leaving
+            // the overlay scrolled off screen beneath the frozen sidebar.
+            self.workspace_scroll_y = 0;
             // Help replaces the Remote Access canvas. Blur hidden fields,
             // including any revealed password, before rendering Help.
             self.remote_id_focused = false;
