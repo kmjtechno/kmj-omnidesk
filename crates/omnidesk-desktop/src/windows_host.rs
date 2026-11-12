@@ -628,9 +628,13 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                                 _ => old,
                             };
                             if next != old {
+                                // Clone the Arc before mutably refreshing
+                                // AccessKit; don't hold a window field borrow
+                                // across the mutable self call.
+                                let redraw_window = Arc::clone(window);
                                 self.shell.set_workspace_scroll_y(next);
                                 self.update_accessibility_tree();
-                                window.request_redraw();
+                                redraw_window.request_redraw();
                             }
                         }
                     }
