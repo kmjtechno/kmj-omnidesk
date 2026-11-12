@@ -150,6 +150,14 @@ fn copy_to_clipboard(text: &str) -> bool {
     wrote && exited
 }
 
+/// A fresh, short-lived credential exists on first launch rather than a
+/// misleading "NOT CONFIGURED" slot. It is local to this process and never
+/// represents a verified encrypted peer connection or a persistent password.
+fn activate_fresh_local_password(shell: &mut ProductShell, now_epoch_secs: u64) {
+    *shell.password_manager_mut() =
+        omnidesk_core::password_auth::SessionPasswordManager::new(now_epoch_secs);
+}
+
 impl DesktopHost {
     fn new(
         context: Context<OwnedDisplayHandle>,
@@ -183,6 +191,7 @@ impl DesktopHost {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
+        activate_fresh_local_password(&mut shell, now);
         let identity =
             omnidesk_core::device_identity::DeviceIdentity::load_or_create(&identity_path, now)
                 .unwrap_or_else(|_| omnidesk_core::device_identity::DeviceIdentity::generate(now));
