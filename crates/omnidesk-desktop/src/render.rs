@@ -2188,20 +2188,32 @@ fn draw_locked_dashboard(
         draw_locked_inspector(canvas, presentation, layout, p);
     }
 
+    // Avoid temporary frame allocation on tall desktops that already fit
+    // the full V5 page. This also preserves the idle CPU/RAM release gate.
+    if canvas.height >= LockedDashboardLayout::CONTENT_HEIGHT
+        && presentation.workspace_scroll_y == 0
+    {
+        draw_locked_remote_view(canvas, presentation, layout, p);
+        draw_locked_session_tiles(canvas, presentation, layout, p);
+        draw_locked_devices(canvas, presentation, layout, p);
+        return;
+    }
     let virtual_height = LockedDashboardLayout::CONTENT_HEIGHT.max(canvas.height);
     let Some(virtual_layout) = LockedDashboardLayout::for_window(canvas.width, virtual_height)
     else {
         return;
     };
     let mut content_pixels = vec![p.background; canvas.width.saturating_mul(virtual_height)];
-    let mut content_canvas = Canvas {
-        pixels: &mut content_pixels,
-        width: canvas.width,
-        height: virtual_height,
-    };
-    draw_locked_remote_view(&mut content_canvas, presentation, &virtual_layout, p);
-    draw_locked_session_tiles(&mut content_canvas, presentation, &virtual_layout, p);
-    draw_locked_devices(&mut content_canvas, presentation, &virtual_layout, p);
+    {
+        let mut content_canvas = Canvas {
+            pixels: &mut content_pixels,
+            width: canvas.width,
+            height: virtual_height,
+        };
+        draw_locked_remote_view(&mut content_canvas, presentation, &virtual_layout, p);
+        draw_locked_session_tiles(&mut content_canvas, presentation, &virtual_layout, p);
+        draw_locked_devices(&mut content_canvas, presentation, &virtual_layout, p);
+    }
 
     let left = layout.viewer.x;
     let right = left.saturating_add(layout.viewer.width).min(canvas.width);
