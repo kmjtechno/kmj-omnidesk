@@ -615,19 +615,15 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                                 winit::event::MouseScrollDelta::LineDelta(_, dy) => {
                                     if dy > 0.0 {
                                         -1
-                                    } else if dy < 0.0 {
-                                        1
                                     } else {
-                                        0
+                                        i32::from(dy < 0.0)
                                     }
                                 }
                                 winit::event::MouseScrollDelta::PixelDelta(position) => {
                                     if position.y > 0.0 {
                                         -1
-                                    } else if position.y < 0.0 {
-                                        1
                                     } else {
-                                        0
+                                        i32::from(position.y < 0.0)
                                     }
                                 }
                             };
