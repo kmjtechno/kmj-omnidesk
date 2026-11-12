@@ -810,31 +810,36 @@ fn draw_locked_password_eye(
     rect: crate::layout::DashboardRect,
     revealed: bool,
     color: u32,
+    background: u32,
 ) {
     let cx = rect.x + rect.width / 2;
     let cy = rect.y + rect.height / 2;
-    canvas.h_line(cx.saturating_sub(5), cy.saturating_sub(5), 10, color);
-    canvas.h_line(cx.saturating_sub(9), cy.saturating_sub(3), 4, color);
-    canvas.h_line(cx + 5, cy.saturating_sub(3), 4, color);
-    canvas.h_line(cx.saturating_sub(11), cy, 3, color);
-    canvas.h_line(cx + 8, cy, 3, color);
-    canvas.h_line(cx.saturating_sub(9), cy + 3, 4, color);
-    canvas.h_line(cx + 5, cy + 3, 4, color);
-    canvas.h_line(cx.saturating_sub(5), cy + 5, 10, color);
-    canvas.dot(cx, cy, 2, color);
+    // Integer-only quadratic arcs give the icon a crisp eye silhouette on
+    // Windows without relying on missing emoji glyphs or additional fonts.
+    for step in 0..=24_usize {
+        let distance = step.abs_diff(12);
+        let rise = (144 - distance * distance) * 7 / 144;
+        let x = cx.saturating_sub(12) + step;
+        canvas.fill_rect(x, cy.saturating_sub(rise), 1, 1, color);
+        canvas.fill_rect(x, cy + rise, 1, 1, color);
+    }
+    canvas.dot(cx, cy, 3, color);
+    canvas.dot(cx, cy, 1, background);
     if !revealed {
-        for offset in 0..17 {
-            canvas.fill_rect(
-                cx.saturating_sub(8) + offset,
-                cy.saturating_sub(8) + offset,
-                1,
-                1,
-                color,
-            );
+        // Clear a 2px diagonal gap so the eye-off slash stays readable rather
+        // than becoming the overlapping horizontal strokes seen in the QA.
+        for step in 0..=24_usize {
+            let x = cx.saturating_sub(12) + step;
+            let y = cy.saturating_sub(10) + step * 20 / 24;
+            canvas.fill_rect(x, y, 2, 2, background);
+        }
+        for step in 0..=24_usize {
+            let x = cx.saturating_sub(12) + step;
+            let y = cy.saturating_sub(10) + step * 20 / 24;
+            canvas.fill_rect(x, y, 1, 1, color);
         }
     }
 }
-
 fn draw_locked_header(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -1031,11 +1036,11 @@ fn draw_locked_navigation(
         p.border,
     );
     if nav.width < 120 {
-        canvas.dot(nav.x + nav.width / 2, nav_bottom - 40, 5, p.muted);
+        canvas.dot(nav.x + nav.width / 2, nav_bottom - 45, 5, p.muted);
         locked_label(
             canvas,
             nav.x + 12,
-            nav_bottom - 24,
+            nav_bottom - 31,
             nav.width.saturating_sub(24),
             "LOCAL",
             p.muted,
@@ -1316,6 +1321,7 @@ fn draw_locked_your_id_card(
         show,
         presentation.local_password_revealed,
         if has_password { p.foreground } else { p.muted },
+        p.background,
     );
     let copy = layout.your_password_copy_btn_rect();
     canvas.rounded_panel(
@@ -1528,6 +1534,7 @@ fn draw_locked_remote_id_card(
         show,
         presentation.remote_password_revealed,
         if placeholder { p.muted } else { p.foreground },
+        p.background,
     );
 
     let connect = layout.remote_id_connect_btn_rect();
@@ -2639,6 +2646,7 @@ mod tests {
             rect,
             false,
             0xff_37_51,
+            0,
         );
         draw_locked_password_eye(
             &mut Canvas {
@@ -2649,6 +2657,7 @@ mod tests {
             rect,
             true,
             0xff_37_51,
+            0,
         );
         assert_ne!(hidden, revealed, "masked and visible eye icons differ");
         for (index, pixel) in hidden.iter().enumerate() {
