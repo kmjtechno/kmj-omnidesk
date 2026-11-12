@@ -1366,83 +1366,68 @@ fn draw_locked_dual_role_cards(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    // The approved V5 first screen always leads with the two concrete
-    // workflows. A separate remote-display stage follows them at every
-    // supported desktop size, including compact-height 1419x611.
     draw_locked_remote_id_card(canvas, presentation, layout, p);
     draw_locked_your_id_card(canvas, presentation, layout, p);
 
     let stage = layout.remote_stage_rect();
-    canvas.fill_rect(stage.x, stage.y, stage.width, stage.height, p.background);
-    canvas.stroke_rect(stage.x, stage.y, stage.width, stage.height, 1, p.border);
+    // A labelled stage below the cards, not a 200px inset trapped inside
+    // a compressed outer card. Its title and subtitle are visible on the
+    // approved 1024x768 fold, while the document scrolls below it.
+    locked_label(canvas, stage.x, stage.y.saturating_sub(54),
+        stage.width, "Remote display", p.foreground);
+    locked_label(canvas, stage.x, stage.y.saturating_sub(30),
+        stage.width,
+        "Your full-control workspace comes alive after a verified connection.",
+        p.muted);
+    canvas.rounded_panel(
+        stage.x, stage.y, stage.width, stage.height,
+        14, p.background, p.border,
+    );
     canvas.fill_rect(
-        stage.x + 1,
-        stage.y + 1,
-        stage.width.saturating_sub(2),
-        31,
+        stage.x + 1, stage.y + 1, stage.width.saturating_sub(2), 45,
         p.surface,
     );
-    canvas.dot(stage.x + 16, stage.y + 16, 3, p.accent);
-    canvas.dot(stage.x + 28, stage.y + 16, 3, p.border);
-    canvas.dot(stage.x + 40, stage.y + 16, 3, p.border);
-    locked_label(
-        canvas,
-        stage.x + 54,
-        stage.y + 12,
-        stage.width.saturating_sub(72),
-        "REMOTE DISPLAY  /  NO VERIFIED CONNECTION",
-        p.foreground,
-    );
-
-    // A premium empty state, not a simulated remote screenshot and never
-    // a fabricated connected status. Keep the viewport useful at 600px.
-    if stage.height >= 175 {
-        let icon_x = stage.x + stage.width / 2;
-        let icon_y = stage.y + (stage.height / 2).saturating_sub(21);
-        canvas.stroke_rect(
-            icon_x.saturating_sub(20),
-            icon_y.saturating_sub(19),
-            40,
-            29,
-            2,
-            p.border,
-        );
-        canvas.fill_rect(icon_x.saturating_sub(2), icon_y + 11, 4, 8, p.border);
-        canvas.h_line(icon_x.saturating_sub(12), icon_y + 20, 24, p.border);
-        locked_label(
-            canvas,
-            stage.x + 18,
-            icon_y + 35,
-            stage.width.saturating_sub(36),
-            "Your remote screen starts here",
-            p.foreground,
-        );
-        locked_label(
-            canvas,
-            stage.x + 18,
-            icon_y + 60,
-            stage.width.saturating_sub(36),
-            "Enter a device ID and password; remote control needs verified access.",
-            p.muted,
-        );
-    } else {
-        locked_label(
-            canvas,
-            stage.x + 18,
-            stage.y + 49,
-            stage.width.saturating_sub(36),
-            "Your remote screen starts here",
-            p.foreground,
-        );
-        locked_label(
-            canvas,
-            stage.x + 18,
-            stage.y + 71,
-            stage.width.saturating_sub(36),
-            "Requires authenticated transport and target permission",
-            p.muted,
-        );
+    for (index, color) in [p.accent, p.muted, p.border].iter().enumerate() {
+        canvas.dot(stage.x + 20 + index * 11, stage.y + 23, 3, *color);
     }
+    locked_label(canvas, stage.x + 57, stage.y + 16,
+        stage.width.saturating_sub(76),
+        "Remote screen  /  No session", p.foreground);
+    canvas.h_line(stage.x + 1, stage.y + 46,
+        stage.width.saturating_sub(2), p.border);
+
+    // This is a genuine disconnected state, not a fictional remote image,
+    // frame rate, codec, encryption metric or authorized input stream.
+    let center_x = stage.x + stage.width / 2;
+    let center_y = stage.y + 126;
+    canvas.rounded_panel(
+        center_x.saturating_sub(27), center_y.saturating_sub(20),
+        54, 54, 14, p.surface, p.border,
+    );
+    canvas.stroke_rect(
+        center_x.saturating_sub(12), center_y.saturating_sub(4),
+        24, 19, 2, p.accent,
+    );
+    canvas.fill_rect(center_x.saturating_sub(1), center_y + 15, 2, 6, p.accent);
+    canvas.h_line(center_x.saturating_sub(7), center_y + 21, 14, p.accent);
+    let main_label = "Your remote screen starts here";
+    let label_width = Canvas::text_width(main_label, 2);
+    canvas.text_clipped(
+        center_x.saturating_sub(label_width / 2),
+        stage.y + 184, main_label, 2,
+        stage.width.saturating_sub(36), p.foreground,
+    );
+    let detail = "Enter a device ID and password above. A real desktop appears only after secure verification.";
+    let detail_width = Canvas::text_width(detail, 1);
+    canvas.text_clipped(
+        center_x.saturating_sub(detail_width / 2),
+        stage.y + 218, detail, 1,
+        stage.width.saturating_sub(36), p.muted,
+    );
+    locked_label(
+        canvas, center_x.saturating_sub(110), stage.y + 263,
+        220, "No authenticated connection", p.muted,
+    );
 }
 
 /// Actual enrolled device directory, never fictional demo peers.
