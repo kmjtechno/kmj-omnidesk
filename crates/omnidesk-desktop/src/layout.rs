@@ -513,6 +513,17 @@ impl LockedDashboardLayout {
         }
     }
 
+    /// Reference CTA beside the 31px hero, always outside both cards.
+    #[must_use]
+    pub const fn security_model_button_rect(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.remote_screen.x + self.remote_screen.width.saturating_sub(152),
+            y: self.viewer.y + 82,
+            width: 152,
+            height: 38,
+        }
+    }
+
     #[must_use]
     pub const fn settings_button_rect(&self, window_width: usize) -> DashboardRect {
         DashboardRect {
@@ -725,10 +736,10 @@ impl LockedDashboardLayout {
     #[must_use]
     pub const fn help_button_rect(&self, window_width: usize) -> DashboardRect {
         DashboardRect {
-            x: window_width.saturating_sub(100),
-            y: 20,
-            width: 80,
-            height: 30,
+            x: window_width.saturating_sub(59),
+            y: 19,
+            width: 36,
+            height: 36,
         }
     }
 }
