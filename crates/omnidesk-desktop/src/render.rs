@@ -175,6 +175,56 @@ impl Canvas<'_> {
         }
     }
 
+    /// Approved V5 cards have a subtle dark-slate diagonal gradient rather
+    /// than the old flat rectangles. Horizontal scanlines keep this cheap in
+    /// the event-driven native renderer and preserve rounded 14px borders.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "pixel rectangle and approved palette are explicit at the call site"
+    )]
+    fn rounded_gradient_panel(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        radius: usize,
+        top: u32,
+        bottom: u32,
+        border: u32,
+    ) {
+        if width < 3 || height < 3 {
+            return;
+        }
+        self.rounded_fill(x, y, width, height, radius, border);
+        let inner_w = width - 2;
+        let inner_h = height - 2;
+        let inner_radius = radius.saturating_sub(1).min(inner_w / 2).min(inner_h / 2);
+        for row in 0..inner_h {
+            let corner_row = row.min(inner_h - row - 1);
+            let inset = if inner_radius > 0 && corner_row < inner_radius {
+                if corner_row < inner_radius / 4 {
+                    inner_radius / 2
+                } else if corner_row < inner_radius / 2 {
+                    inner_radius / 4
+                } else {
+                    1
+                }
+            } else {
+                0
+            };
+            let blend = row.saturating_mul(256) / inner_h.saturating_sub(1).max(1);
+            let tint = blend_rgb(top, bottom, blend);
+            self.fill_rect(
+                x + 1 + inset,
+                y + 1 + row,
+                inner_w.saturating_sub(2 * inset),
+                1,
+                tint,
+            );
+        }
+    }
+
     fn image_rgba(
         &mut self,
         destination: (usize, usize, usize, usize),
@@ -490,6 +540,19 @@ impl Canvas<'_> {
             }
         }
     }
+}
+
+/// Integer RGB interpolation avoids allocations and floating point in the
+/// native V5 rounded gradient scanline path.
+fn blend_rgb(top: u32, bottom: u32, fraction: usize) -> u32 {
+    let t = u32::try_from(fraction.min(256)).unwrap_or(256);
+    let mut rgb = 0_u32;
+    for shift in [0_u32, 8, 16] {
+        let a = (top >> shift) & 0xff;
+        let b = (bottom >> shift) & 0xff;
+        rgb |= ((a * (256 - t) + b * t + 128) / 256) << shift;
+    }
+    rgb
 }
 
 #[derive(Clone, Copy)]
@@ -1330,14 +1393,15 @@ fn draw_locked_your_id_card(
     p: Palette,
 ) {
     let card = layout.your_id_card_rect();
-    canvas.rounded_panel(
+    canvas.rounded_gradient_panel(
         card.x,
         card.y,
         card.width,
         card.height,
         14,
-        p.surface,
-        p.border,
+        0x16_1f_2b,
+        0x0d_14_1d,
+        0x29_34_42,
     );
     // Approved V5 has icon + title hierarchy, not three overlapping labels.
     canvas.rounded_panel(card.x + 24, card.y + 24, 40, 40, 10, p.background, p.border);
@@ -1582,14 +1646,15 @@ fn draw_locked_remote_id_card(
     p: Palette,
 ) {
     let card = layout.remote_id_card_rect();
-    canvas.rounded_panel(
+    canvas.rounded_gradient_panel(
         card.x,
         card.y,
         card.width,
         card.height,
         14,
-        p.surface,
-        p.border,
+        0x16_1f_2b,
+        0x0d_14_1d,
+        0x29_34_42,
     );
     canvas.rounded_panel(card.x + 24, card.y + 24, 40, 40, 10, p.background, p.accent);
     canvas.stroke_rect(card.x + 35, card.y + 36, 18, 13, 1, p.accent);
@@ -2802,6 +2867,20 @@ mod tests {
                 assert_eq!(*pixel, 0, "eye glyph escapes its button");
             }
         }
+    }
+
+    #[test]
+    fn v5_approved_card_gradient_is_visible_without_rectangular_corners() {
+        let mut pixels = vec![0_u32; 100 * 90];
+        Canvas {
+            pixels: &mut pixels,
+            width: 100,
+            height: 90,
+        }
+        .rounded_gradient_panel(8, 8, 82, 72, 14, 0x16_1f_2b, 0x0d_14_1d, 0x29_34_42);
+        assert_eq!(pixels[8 * 100 + 8], 0, "outer corner remains transparent");
+        assert_ne!(pixels[16 * 100 + 49], pixels[73 * 100 + 49]);
+        assert_eq!(pixels[8 * 100 + 49], 0x29_34_42);
     }
 
     #[test]
