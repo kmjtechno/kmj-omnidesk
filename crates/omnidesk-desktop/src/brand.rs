@@ -35,9 +35,44 @@ pub fn official_kmj_mark() -> Option<&'static BrandImage> {
         .as_ref()
 }
 
+/// Pixel-exact approved KMJ TECHNO header wordmark, sourced from the
+/// owner-locked V5 HTML reference. Decoding happens once, offline; the native
+/// app does not download brand assets or substitute an approximation.
+#[must_use]
+pub fn approved_v5_header_logo() -> Option<&'static BrandImage> {
+    static HEADER: OnceLock<Option<BrandImage>> = OnceLock::new();
+    HEADER
+        .get_or_init(|| {
+            let encoded = include_str!("../../../assets/brand/omnidesk-v5-approved-header.png.base64")
+                .trim();
+            let png = STANDARD.decode(encoded).ok()?;
+            let image = image::load_from_memory(&png).ok()?.into_rgba8();
+            let (width, height) = image.dimensions();
+            Some(BrandImage {
+                width,
+                height,
+                rgba: image.into_raw(),
+            })
+        })
+        .as_ref()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owner_locked_v5_header_asset_is_exact_size_and_decodable() {
+        let header = approved_v5_header_logo().expect("locked V5 header logo must decode");
+        assert_eq!((header.width, header.height), (190, 52));
+        assert_eq!(
+            header.rgba.len(),
+            usize::try_from(header.width).unwrap()
+                .saturating_mul(usize::try_from(header.height).unwrap())
+                .saturating_mul(4)
+        );
+        assert!(header.rgba.chunks_exact(4).any(|pixel| pixel[0] > 128));
+    }
 
     #[test]
     fn official_brand_asset_decodes_to_expected_source_dimensions() {
