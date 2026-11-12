@@ -2177,11 +2177,10 @@ fn draw_locked_dashboard(
         draw_locked_devices(canvas, presentation, layout, p);
         return;
     }
+    // Keep the PHYSICAL viewport layout for responsive inspector/nav
+    // decisions. Recomputing it at virtual_height would incorrectly restore
+    // the inspector on a short 1600px Windows window and offset hit targets.
     let virtual_height = LockedDashboardLayout::CONTENT_HEIGHT.max(canvas.height);
-    let Some(virtual_layout) = LockedDashboardLayout::for_window(canvas.width, virtual_height)
-    else {
-        return;
-    };
     let mut content_pixels = vec![p.background; canvas.width.saturating_mul(virtual_height)];
     {
         let mut content_canvas = Canvas {
@@ -2189,9 +2188,9 @@ fn draw_locked_dashboard(
             width: canvas.width,
             height: virtual_height,
         };
-        draw_locked_remote_view(&mut content_canvas, presentation, &virtual_layout, p);
-        draw_locked_session_tiles(&mut content_canvas, presentation, &virtual_layout, p);
-        draw_locked_devices(&mut content_canvas, presentation, &virtual_layout, p);
+        draw_locked_remote_view(&mut content_canvas, presentation, layout, p);
+        draw_locked_session_tiles(&mut content_canvas, presentation, layout, p);
+        draw_locked_devices(&mut content_canvas, presentation, layout, p);
     }
 
     let left = layout.viewer.x;
