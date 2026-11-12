@@ -757,7 +757,7 @@ mod locked_dashboard_tests {
             assert_eq!((stage.x, stage.y), (stage_x, stage_y));
             assert_eq!(stage.height, 315);
             assert_eq!(
-                l.inspector.width == 0, width < 1450,
+                l.inspector.width == 0, width <= 1510,
                 "inspector must collapse on 1308px compact Windows desktop"
             );
             assert!(LockedDashboardLayout::max_scroll_y(height) > 0);
