@@ -332,76 +332,58 @@ impl LockedDashboardLayout {
         if width < 800 || height < 600 {
             return None;
         }
-        // V5: remote access is the primary task, not a four-column
-        // directory dashboard. Give the viewer the entire center column.
-        let top = 70;
-        // Compact 800–1023px windows collapse to a labelled-in-AccessKit
-        // icon rail rather than falling back to the obsolete desktop UI.
-        let navigation_width = if width < 1024 {
-            78
-        } else {
-            (width / 100 * 15).clamp(182, 220)
-        };
-        // At laptop widths, drop the inspector instead of crushing the
-        // access cards. The status is still available in the workspace.
-        let inspector_width = if width < 1180 {
+        // V5 canonical fold: 75px branded header, fixed navigation and a
+        // SCROLLABLE central content canvas. Never shrink 363px workflow
+        // cards into the former 173px mini-panels on short Windows screens.
+        let top = 75;
+        let navigation_width = if width < 1024 { 78 } else { 200 };
+        let inspector_width = if width < 1450 {
             0
         } else {
-            (width / 100 * 19).clamp(240, 288)
+            (width * 18 / 100).clamp(294, 315)
         };
         let nav = DashboardRect {
-            x: 6,
-            y: top + 6,
+            x: 12,
+            y: top,
             width: navigation_width,
-            height: height - top - 12,
+            height: height.saturating_sub(top),
         };
         let inspector = DashboardRect {
-            x: width.saturating_sub(inspector_width + 7),
-            y: nav.y,
+            x: width.saturating_sub(inspector_width),
+            y: top,
             width: inspector_width,
             height: nav.height,
         };
-        let viewer_x = nav.x + nav.width + 8;
-        let viewer_width = inspector.x.saturating_sub(viewer_x + 8);
+        let viewer_x = nav.x + nav.width + 16;
+        let viewer_width = inspector.x.saturating_sub(viewer_x + 16);
         if viewer_width < 640 {
             return None;
         }
         let viewer = DashboardRect {
             x: viewer_x,
-            y: nav.y,
+            y: top,
             width: viewer_width,
             height: nav.height,
         };
-        // The device directory becomes a concise strip under the actual
-        // remote display, retaining discoverability without stealing a column.
-        // Short windows need smaller workflow cards, but MUST still show
-        // a separately framed Remote Display stage rather than only text.
-        let compact_height = viewer.height < 700;
-        let devices = DashboardRect {
-            x: viewer.x + 10,
-            y: viewer.y
-                + viewer
-                    .height
-                    .saturating_sub(if compact_height { 132 } else { 164 }),
-            width: viewer.width.saturating_sub(20),
-            height: if compact_height { 64 } else { 85 },
-        };
+        // These are CONTENT positions, not positions squeezed into one
+        // short viewport. The host scrolls this center column only.
         let remote_screen = DashboardRect {
-            x: viewer.x + 10,
-            y: viewer.y + if compact_height { 62 } else { 78 },
-            width: viewer.width.saturating_sub(20),
-            height: viewer
-                .height
-                .saturating_sub(if compact_height { 208 } else { 255 }),
+            x: viewer.x + 21,
+            y: viewer.y + 123,
+            width: viewer.width.saturating_sub(33),
+            height: 788,
+        };
+        let devices = DashboardRect {
+            x: remote_screen.x,
+            y: remote_screen.y + 810,
+            width: remote_screen.width,
+            height: 85,
         };
         let session_toolbar = DashboardRect {
-            x: viewer.x + 10,
-            y: viewer.y
-                + viewer
-                    .height
-                    .saturating_sub(if compact_height { 60 } else { 70 }),
-            width: viewer.width.saturating_sub(20),
-            height: if compact_height { 48 } else { 56 },
+            x: remote_screen.x,
+            y: devices.y + 100,
+            width: remote_screen.width,
+            height: 56,
         };
         Some(Self {
             top_bar_height: top,
@@ -411,9 +393,18 @@ impl LockedDashboardLayout {
             inspector,
             remote_screen,
             session_toolbar,
-            first_device_row_y: devices.y + if compact_height { 28 } else { 34 },
-            device_row_step: if compact_height { 33 } else { 55 },
+            first_device_row_y: devices.y + 34,
+            device_row_step: 55,
         })
+    }
+
+    /// Full document height of the scrollable V5 center column.
+    pub const CONTENT_HEIGHT: usize = 1240;
+
+    /// Maximum possible vertical scroll for a physical Windows viewport.
+    #[must_use]
+    pub const fn max_scroll_y(window_height: usize) -> usize {
+        Self::CONTENT_HEIGHT.saturating_sub(window_height)
     }
 
     #[must_use]
@@ -526,12 +517,12 @@ impl LockedDashboardLayout {
     /// A separate video/stage area below Connect and Share cards.
     #[must_use]
     pub const fn remote_stage_rect(&self) -> DashboardRect {
-        let offset = if self.compact_height() { 193 } else { 245 };
+        let offset = 462;
         DashboardRect {
-            x: self.remote_screen.x + 18,
+            x: self.remote_screen.x,
             y: self.remote_screen.y + offset,
-            width: self.remote_screen.width.saturating_sub(36),
-            height: self.remote_screen.height.saturating_sub(offset + 11),
+            width: self.remote_screen.width,
+            height: 315,
         }
     }
 
@@ -544,19 +535,27 @@ impl LockedDashboardLayout {
 
     #[must_use]
     pub const fn your_id_card_rect(&self) -> DashboardRect {
+        let screen = self.remote_screen;
+        let gap = 16;
+        let available = screen.width.saturating_sub(gap);
+        let connect_width = available * 52 / 100;
         DashboardRect {
             x: if self.access_cards_wide() {
-                self.remote_screen.x + 36 + self.remote_screen.width.saturating_sub(54) / 2
+                screen.x + connect_width + gap
             } else {
-                self.remote_screen.x + 18
+                screen.x
             },
-            y: self.remote_screen.y + 18,
+            y: if self.access_cards_wide() {
+                screen.y + 18
+            } else {
+                screen.y + 18 + 363 + 16
+            },
             width: if self.access_cards_wide() {
-                self.remote_screen.width.saturating_sub(54) / 2
+                available.saturating_sub(connect_width)
             } else {
-                self.remote_screen.width.saturating_sub(36)
+                screen.width
             },
-            height: if self.compact_height() { 173 } else { 205 },
+            height: 363,
         }
     }
 
@@ -564,74 +563,81 @@ impl LockedDashboardLayout {
     pub const fn your_id_copy_btn_rect(&self) -> DashboardRect {
         let card = self.your_id_card_rect();
         DashboardRect {
-            x: card.x + card.width.saturating_sub(116),
-            y: card.y + 46,
-            width: 100,
-            height: 34,
+            x: card.x + card.width.saturating_sub(117),
+            y: card.y + 118,
+            width: 98,
+            height: 36,
         }
     }
 
-    /// Status row for the local session password. Do not expose any credential
-    /// until a real native host secret lifecycle has been provisioned.
     #[must_use]
     pub const fn your_password_status_rect(&self) -> DashboardRect {
         let card = self.your_id_card_rect();
         DashboardRect {
-            x: card.x + 16,
-            y: card.y + 96,
-            width: card.width.saturating_sub(32),
-            height: 23,
+            x: card.x + 24,
+            y: card.y + 172,
+            width: card.width.saturating_sub(48),
+            height: 20,
+        }
+    }
+
+    /// Dedicated credential input, separate from its caption and footer.
+    #[must_use]
+    pub const fn your_password_field_rect(&self) -> DashboardRect {
+        let card = self.your_id_card_rect();
+        DashboardRect {
+            x: card.x + 24,
+            y: card.y + 198,
+            width: card.width.saturating_sub(158),
+            height: 44,
         }
     }
 
     #[must_use]
     pub const fn your_password_reveal_btn_rect(&self) -> DashboardRect {
-        let status = self.your_password_status_rect();
+        let field = self.your_password_field_rect();
         DashboardRect {
-            x: status.x + status.width.saturating_sub(168),
-            y: status.y + 28,
-            width: 50,
-            height: 23,
+            x: field.x + field.width.saturating_sub(42),
+            y: field.y + 4,
+            width: 38,
+            height: 36,
         }
     }
 
     #[must_use]
     pub const fn your_password_copy_btn_rect(&self) -> DashboardRect {
-        let status = self.your_password_status_rect();
+        let field = self.your_password_field_rect();
         DashboardRect {
-            x: status.x + status.width.saturating_sub(112),
-            y: status.y + 28,
-            width: 50,
-            height: 23,
+            x: field.x + field.width + 8,
+            y: field.y,
+            width: 96,
+            height: field.height,
         }
     }
 
     #[must_use]
     pub const fn your_password_rotate_btn_rect(&self) -> DashboardRect {
-        let status = self.your_password_status_rect();
+        let card = self.your_id_card_rect();
         DashboardRect {
-            x: status.x + status.width.saturating_sub(56),
-            y: status.y + 28,
-            width: 54,
-            height: 23,
+            x: card.x + card.width.saturating_sub(170),
+            y: card.y + 285,
+            width: 146,
+            height: 32,
         }
     }
 
     #[must_use]
     pub const fn remote_id_card_rect(&self) -> DashboardRect {
+        let screen = self.remote_screen;
         DashboardRect {
-            x: self.remote_screen.x + 18,
-            y: if self.access_cards_wide() {
-                self.remote_screen.y + 18
-            } else {
-                self.remote_screen.y + 164
-            },
+            x: screen.x,
+            y: screen.y + 18,
             width: if self.access_cards_wide() {
-                self.remote_screen.width.saturating_sub(54) / 2
+                screen.width.saturating_sub(16) * 52 / 100
             } else {
-                self.remote_screen.width.saturating_sub(36)
+                screen.width
             },
-            height: if self.compact_height() { 173 } else { 205 },
+            height: 363,
         }
     }
 
@@ -639,22 +645,21 @@ impl LockedDashboardLayout {
     pub const fn remote_id_input_rect(&self) -> DashboardRect {
         let card = self.remote_id_card_rect();
         DashboardRect {
-            x: card.x + 16,
-            y: card.y + 49,
-            width: card.width.saturating_sub(32),
-            height: if self.compact_height() { 30 } else { 36 },
+            x: card.x + 24,
+            y: card.y + 111,
+            width: card.width.saturating_sub(48),
+            height: 44,
         }
     }
 
     #[must_use]
     pub const fn remote_id_connect_btn_rect(&self) -> DashboardRect {
         let card = self.remote_id_card_rect();
-        // V5 order: Remote ID → Session Password → Connect.
         DashboardRect {
-            x: card.x + 16,
-            y: card.y + if self.compact_height() { 136 } else { 150 },
-            width: 166,
-            height: if self.compact_height() { 30 } else { 36 },
+            x: card.x + 24,
+            y: card.y + 252,
+            width: 176,
+            height: 44,
         }
     }
 
@@ -662,14 +667,13 @@ impl LockedDashboardLayout {
     pub const fn remote_password_status_rect(&self) -> DashboardRect {
         let card = self.remote_id_card_rect();
         DashboardRect {
-            x: card.x + 16,
-            y: card.y + if self.compact_height() { 97 } else { 107 },
-            width: card.width.saturating_sub(32),
-            height: if self.compact_height() { 28 } else { 32 },
+            x: card.x + 24,
+            y: card.y + 191,
+            width: card.width.saturating_sub(48),
+            height: 44,
         }
     }
 
-    /// Small Show/Hide action inside the remote password input.
     #[must_use]
     pub const fn remote_password_reveal_btn_rect(&self) -> DashboardRect {
         let field = self.remote_password_status_rect();
