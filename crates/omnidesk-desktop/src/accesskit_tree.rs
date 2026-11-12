@@ -129,7 +129,8 @@ fn control_bounds(shell: &ProductShell, index: usize, width: usize, height: usiz
             height: 0,
         });
     let scroll = if LockedDashboardLayout::for_window(width, height).is_some() {
-        shell.workspace_scroll_y()
+        shell
+            .workspace_scroll_y()
             .min(LockedDashboardLayout::max_scroll_y(height))
     } else {
         0
@@ -314,7 +315,8 @@ pub fn build_accesskit_tree_at_size(
                 node.set_label(label);
                 node.set_bounds(dashboard_bounds_scrolled(
                     bounds,
-                    shell.workspace_scroll_y()
+                    shell
+                        .workspace_scroll_y()
                         .min(LockedDashboardLayout::max_scroll_y(height)),
                 ));
                 node.add_action(Action::Focus);
@@ -404,13 +406,22 @@ mod tests {
         shell.set_workspace_scroll_y(120);
         let layout = LockedDashboardLayout::for_window(width, height).unwrap();
         let tree = build_accesskit_tree_at_size(&shell, None, width, height);
-        let (_, field) = tree.nodes.iter()
-            .find(|(id, _)| *id == V5_REMOTE_ID_NODE).unwrap();
+        let (_, field) = tree
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == V5_REMOTE_ID_NODE)
+            .unwrap();
         let expected = dashboard_bounds_scrolled(layout.remote_id_input_rect(), 120);
         assert_eq!(field.bounds(), Some(expected));
-        let (_, navigation) = tree.nodes.iter()
-            .find(|(id, _)| *id == NodeId(V5_NAV_FIRST_NODE)).unwrap();
-        assert_eq!(navigation.bounds(), Some(dashboard_bounds(layout.nav_tab_rect(0))));
+        let (_, navigation) = tree
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == NodeId(V5_NAV_FIRST_NODE))
+            .unwrap();
+        assert_eq!(
+            navigation.bounds(),
+            Some(dashboard_bounds(layout.nav_tab_rect(0)))
+        );
     }
 
     #[test]
