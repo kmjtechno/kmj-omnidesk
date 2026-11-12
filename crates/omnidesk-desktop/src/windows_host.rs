@@ -516,6 +516,9 @@ impl DesktopHost {
                         action,
                         DesktopAction::FocusRemoteIdInput | DesktopAction::FocusRemotePasswordInput
                     ) {
+                        // Reveal the corresponding real field if a screen
+                        // reader focuses it after scrolling into the stage.
+                        self.shell.set_workspace_scroll_y(0);
                         self.dispatch_action(action);
                     }
                     self.accessibility_focus = Some(request.target_node);
