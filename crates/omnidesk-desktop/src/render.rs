@@ -2841,7 +2841,10 @@ mod tests {
     fn locked_empty_directory_is_not_covered_by_a_disabled_placeholder_row() {
         let model = presentation_for(&ProductShell::new());
         let width = 1419;
-        let height = 611;
+        // The real device strip starts below the fold at 611px. Use a tall
+        // viewport so the pixel assertion samples a rendered tile, not a
+        // coordinate outside the allocated image buffer.
+        let height = 1200;
         let layout = LockedDashboardLayout::for_window(width, height).unwrap();
         let mut pixels = vec![0_u32; width * height];
         render_shell(&mut pixels, width, height, &model);
