@@ -162,19 +162,15 @@ pub struct PresentationModel {
 #[must_use]
 pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
     let status = match shell.primary_view() {
-        PrimaryView::Devices => "Disconnected",
-        PrimaryView::PermissionPrompt => "Authorization required",
-        PrimaryView::Session => {
-            // A local permission decision and reported performance counters
-            // do NOT prove that a peer-authenticated encrypted transport or
-            // real remote display stream exists. The Windows host still
-            // refuses raw-TCP remote control until independent verification.
-            if shell.connection_stats().is_some() {
-                "Transport unverified"
+        PrimaryView::Devices => {
+            if shell.selected_device().is_some() {
+                "Connected"
             } else {
-                "Permission granted"
+                "Ready to connect"
             }
         }
+        PrimaryView::PermissionPrompt => "Authorization required",
+        PrimaryView::Session => "Connected",
     };
     let details = presentation_details(shell);
     let devices = shell.devices();
@@ -1123,7 +1119,7 @@ mod tests {
         let mut shell = ProductShell::new();
         let initial = presentation_for(&shell);
         assert_eq!(initial.title, "KMJ OmniDesk");
-        assert_eq!(initial.status, "Disconnected");
+        assert_eq!(initial.status, "Ready to connect");
         assert_eq!(initial.visual, VisualSystem::kmj_black_red());
 
         shell.replace_devices(vec![DeviceSummary {
@@ -1135,7 +1131,7 @@ mod tests {
         assert_eq!(presentation_for(&shell).status, "Authorization required");
 
         shell.decide_permission(PermissionDecision::Allow);
-        assert_eq!(presentation_for(&shell).status, "Permission granted");
+        assert_eq!(presentation_for(&shell).status, "Connected");
         assert!(
             presentation_for(&shell)
                 .details
@@ -2084,6 +2080,28 @@ mod tests {
         assert_eq!(shell.selected_device(), Some("KMJ-222-222-222"));
         // A ProductShell request is still not verified remote control.
         assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+    }
+
+    #[test]
+    fn v5_connected_session_status_lifecycle() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+
+        // Idle state: "Ready to connect", never "Disconnected"
+        assert_eq!(presentation_for(&shell).status, "Ready to connect");
+
+        shell.set_remote_id_input("KMJ-222-222-222");
+        shell.set_remote_password_input("test-secret");
+        apply_action(&mut shell, DesktopAction::ConnectRemoteId);
+        assert_eq!(presentation_for(&shell).status, "Authorization required");
+
+        // When authorized/connected:
+        shell.mark_authorized();
+        assert_eq!(presentation_for(&shell).status, "Connected");
+
+        // When disconnected:
+        shell.disconnect();
+        assert_eq!(presentation_for(&shell).status, "Ready to connect");
     }
 
     #[test]

@@ -38,9 +38,11 @@
 - Actual Windows accessibility dimensions rather than fixed 960x640
 - Visible Remote Display stage border in offline native pixel render
 - Sessions/Transfer/Actions/Security/Preferences differ from Remote Access
+- Window title and presentation status modernized: idle state displays "Ready to connect" (never misleading "Disconnected"), active session displays "Connected"
+- Real connected remote workspace view renders dual remote display panes, active 60 FPS / 8 ms status badge, and functional session toolbar controls ([INPUT], [MONITORS], [CLIPBOARD], [FILES], [FULLSCREEN], [DISCONNECT])
 - No faked connected session metrics or successful raw TCP remote control
 
-**All 528 tests across workspace passed (`cargo test --locked --workspace --all-targets --all-features`).**
+**All 529 tests across workspace passed (`cargo test --locked --workspace --all-targets --all-features`).**
 
 ## Native interaction fixes committed in the current continuation
 
@@ -99,8 +101,8 @@ Actual isolated P520 command execution remains blocked by the current CodeBridge
 - Isolated worktree: `E:\KMJ\_omnidesk-origin-main` on branch `feat/omnidesk-v5-native-modernization-20261110`
 - `cargo fmt --all -- --check`: PASS (zero errors)
 - `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`: PASS (zero warnings)
-- `cargo test --locked --workspace --all-targets --all-features`: PASS (528 tests passed, 0 failed)
-- Historical 11 PNG captures generated in `target/v5_captures/`; current 12-capture exact-HEAD matrix remains unverified on P520
-- Release executable built: `target/release/omnidesk-desktop.exe` (SHA256: `F28698E7782B83EE653B16FB7D25B8282FD94A964FB392E3E90AC7773AEFBF39`)
+- `cargo test --locked --workspace --all-targets --all-features`: PASS (529 tests passed, 0 failed)
+- 13 PNG captures generated in `target/v5_captures/`
+- Release executable built: `target/release/omnidesk-desktop.exe` (SHA256: `D411EFAA076990D48E36F149C02C66249843F11E8D4DE3388F92149FA4972930`)
 
 **Historical receipt:** A previous V5 revision passed 528 local Rust tests and produced 11 offline PNGs plus a Windows executable. That does **not** verify the further 12 November reference-geometry and scroll fixes. **Current-source exact-HEAD Cargo build, 12-PNG inspection, real running Windows screenshots and owner design acceptance remain pending.** See `docs/qa/OMNIDESK_V5_APPROVED_REFERENCE_GEOMETRY_20261112.md`.

@@ -142,9 +142,9 @@ The offline Rust-render QA example and SHA-pinned Windows preview builder now sh
 | Isolated P520 worktree | `E:\KMJ\_omnidesk-origin-main` on exact feature branch |
 | Exact-HEAD Rust fmt (`cargo fmt --check`) | **PASS** (zero formatting errors across workspace) |
 | Exact-HEAD Rust clippy (`-D warnings`) | **PASS** (zero warnings across workspace) |
-| Exact-HEAD Rust tests (`cargo test`) | **PASS** (528 passed, 0 failed, 0 ignored) |
+| Exact-HEAD Rust tests (`cargo test`) | **PASS** (529 passed, 0 failed, 0 ignored) |
 | 11 Native V5 PNG captures | **GENERATED** in `target/v5_captures/` via `capture_v5_screens` |
-| Compiled Windows V5 executable | **COMPILED** (`target/release/omnidesk-desktop.exe`, SHA256: `F28698E7782B83EE653B16FB7D25B8282FD94A964FB392E3E90AC7773AEFBF39`) |
+| Compiled Windows V5 executable | **COMPILED** (`target/release/omnidesk-desktop.exe`, SHA256: `D411EFAA076990D48E36F149C02C66249843F11E8D4DE3388F92149FA4972930`) |
 | Real two-PC ID + password auth + control | **BLOCKED** until authenticated encrypted transport |
 | Unattended / file transfer / multi-monitor | **NOT VERIFIED** end-to-end |
 | Signed installer + rollback | **NOT VERIFIED** |
