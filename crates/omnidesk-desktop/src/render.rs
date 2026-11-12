@@ -1406,30 +1406,30 @@ fn draw_locked_your_id_card(
     // Approved V5 has icon + title hierarchy, not three overlapping labels.
     canvas.rounded_panel(card.x + 24, card.y + 24, 40, 40, 10, p.background, p.border);
     canvas.stroke_rect(card.x + 36, card.y + 36, 17, 14, 1, p.muted);
-    locked_label(
-        canvas,
+    canvas.text_bold_clipped(
         card.x + 76,
-        card.y + 26,
+        card.y + 24,
+        "02 / SHARE THIS DESK",
+        9.5,
         card.width.saturating_sub(100),
-        "02  /  SHARE THIS DESK",
-        p.muted,
+        0xf2_76_89,
     );
-    locked_label(
-        canvas,
+    canvas.text_bold_clipped(
         card.x + 76,
-        card.y + 48,
-        card.width.saturating_sub(100),
+        card.y + 42,
         "Your ID & password",
+        17.0,
+        card.width.saturating_sub(100),
         p.foreground,
     );
 
-    locked_label(
-        canvas,
-        card.x + 24,
-        card.y + 94,
-        card.width.saturating_sub(48),
-        "Your OmniDesk ID",
-        p.foreground,
+    canvas.text_bold_at(card.x + 24, card.y + 90, "Your OmniDesk ID", 11.5, 0xd8_e1_eb);
+    canvas.text_bold_at(
+        card.x + card.width.saturating_sub(104),
+        card.y + 90,
+        "This device",
+        10.0,
+        p.muted,
     );
     let id_row_x = card.x + 24;
     let id_row_y = card.y + 111;
@@ -1476,14 +1476,7 @@ fn draw_locked_your_id_card(
     );
 
     let caption = layout.your_password_status_rect();
-    locked_label(
-        canvas,
-        caption.x,
-        caption.y,
-        caption.width,
-        "Your password",
-        p.foreground,
-    );
+    canvas.text_bold_at(caption.x, caption.y - 4, "Your password", 11.5, 0xd8_e1_eb);
     let field = layout.your_password_field_rect();
     canvas.rounded_panel(
         field.x,
@@ -1658,40 +1651,40 @@ fn draw_locked_remote_id_card(
     );
     canvas.rounded_panel(card.x + 24, card.y + 24, 40, 40, 10, p.background, p.accent);
     canvas.stroke_rect(card.x + 35, card.y + 36, 18, 13, 1, p.accent);
-    locked_label(
-        canvas,
+    canvas.text_bold_clipped(
         card.x + 76,
-        card.y + 26,
+        card.y + 24,
+        "01 / TAKE CONTROL",
+        9.5,
         card.width.saturating_sub(100),
-        "01  /  TAKE CONTROL",
-        p.accent,
+        0xf2_76_89,
     );
-    locked_label(
-        canvas,
+    canvas.text_bold_clipped(
         card.x + 76,
-        card.y + 48,
-        card.width.saturating_sub(100),
+        card.y + 42,
         "Connect to another desktop",
+        17.0,
+        card.width.saturating_sub(100),
         p.foreground,
     );
 
-    locked_label(
-        canvas,
-        card.x + 24,
-        card.y + 94,
-        card.width.saturating_sub(48),
-        "Remote device ID",
-        p.foreground,
+    canvas.text_bold_at(card.x + 24, card.y + 90, "Remote device ID", 11.5, 0xd8_e1_eb);
+    canvas.text_bold_at(
+        card.x + card.width.saturating_sub(95),
+        card.y + 90,
+        "Required",
+        10.0,
+        p.muted,
     );
     draw_locked_remote_id_input(canvas, presentation, layout.remote_id_input_rect(), p);
 
-    locked_label(
-        canvas,
-        card.x + 24,
-        card.y + 174,
-        card.width.saturating_sub(48),
-        "Session password",
-        p.foreground,
+    canvas.text_bold_at(card.x + 24, card.y + 169, "Session password", 11.5, 0xd8_e1_eb);
+    canvas.text_bold_at(
+        card.x + card.width.saturating_sub(95),
+        card.y + 169,
+        "Required",
+        10.0,
+        p.muted,
     );
     let field = layout.remote_password_status_rect();
     canvas.rounded_panel(
@@ -2201,23 +2194,28 @@ fn draw_locked_remote_view(
     );
     if presentation.nav_tab == NavTab::Devices {
         let prefix = "Remote control,";
-        let prefix_width = Canvas::text_width(prefix, 3);
-        canvas.text_clipped(
+        let prefix_width = Canvas::bold_text_width(prefix, 31.0);
+        canvas.text_bold_clipped(
             screen.x,
             viewer.y + 58,
             prefix,
-            3,
+            31.0,
             screen.width,
             p.foreground,
         );
-        canvas.text_clipped(
+        canvas.text_bold_clipped(
             screen.x + prefix_width + 8,
             viewer.y + 58,
             "reimagined.",
-            3,
+            31.0,
             screen.width.saturating_sub(prefix_width + 8),
-            p.accent,
+            0xff_39_54,
         );
+        let action_x = screen.x + screen.width.saturating_sub(152);
+        let action_y = viewer.y + 82;
+        canvas.rounded_panel(action_x, action_y, 152, 38, 9, 0x11_19_23, 0x35_41_50);
+        canvas.text_bold_at(action_x + 15, action_y + 10, "Security model", 11.0, 0xd5_dc_e8);
+        canvas.text_bold_at(action_x + 137, action_y + 10, ">", 11.0, 0xd5_dc_e8);
         locked_label(
             canvas,
             screen.x,
