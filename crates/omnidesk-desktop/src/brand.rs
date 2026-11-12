@@ -43,8 +43,8 @@ pub fn approved_v5_header_logo() -> Option<&'static BrandImage> {
     static HEADER: OnceLock<Option<BrandImage>> = OnceLock::new();
     HEADER
         .get_or_init(|| {
-            let encoded = include_str!("../../../assets/brand/omnidesk-v5-approved-header.png.base64")
-                .trim();
+            let encoded =
+                include_str!("../../../assets/brand/omnidesk-v5-approved-header.png.base64").trim();
             let png = STANDARD.decode(encoded).ok()?;
             let image = image::load_from_memory(&png).ok()?.into_rgba8();
             let (width, height) = image.dimensions();
@@ -67,7 +67,8 @@ mod tests {
         assert_eq!((header.width, header.height), (190, 52));
         assert_eq!(
             header.rgba.len(),
-            usize::try_from(header.width).unwrap()
+            usize::try_from(header.width)
+                .unwrap()
                 .saturating_mul(usize::try_from(header.height).unwrap())
                 .saturating_mul(4)
         );
