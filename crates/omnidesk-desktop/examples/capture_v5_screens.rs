@@ -63,6 +63,9 @@ fn main() -> io::Result<()> {
         ("04_remote_access_1024.png", 1024, 768),
         ("03_remote_access_compact.png", 1419, 611),
         ("10_remote_access_laptop.png", 1280, 800),
+        // Exact size of the owner's 2026-11-12 screenshot, to detect
+        // inspector and Connect/Share overlap regressions on the real fold.
+        ("12_owner_screenshot_1309.png", 1309, 777),
         ("11_remote_access_wide.png", 1920, 1080),
     ] {
         render_to_png(&shell, &out_dir, name, width, height)?;
@@ -90,7 +93,7 @@ fn main() -> io::Result<()> {
     writeln!(receipt, "VERIFIED_NETWORK_SESSION=NO")?;
     writeln!(receipt, "CONNECTED_DESKTOP_CAPTURE=NO")?;
     writeln!(receipt, "WINDOWS_EXE_SCREENSHOT=NO")?;
-    writeln!(receipt, "SCREEN_COUNT=12")?;
+    writeln!(receipt, "SCREEN_COUNT=13")?;
     writeln!(receipt, "BROWSER_MOCKUP=NO")?;
     receipt.flush()?;
     println!(
