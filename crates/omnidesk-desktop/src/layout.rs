@@ -337,7 +337,7 @@ impl LockedDashboardLayout {
         // cards into the former 173px mini-panels on short Windows screens.
         let top = 75;
         let navigation_width = if width < 1024 { 78 } else { 200 };
-        let inspector_width = if width < 1450 {
+        let inspector_width = if width < 1450 || height < 840 {
             0
         } else {
             (width * 18 / 100).clamp(294, 315)
