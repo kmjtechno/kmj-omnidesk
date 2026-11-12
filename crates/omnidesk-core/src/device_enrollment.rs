@@ -6,7 +6,6 @@
 use std::{collections::HashMap, path::Path};
 
 use ed25519_dalek::{Signature, VerifyingKey};
-use sha2::{Digest, Sha256};
 
 use crate::{
     PROTOCOL_VERSION,
@@ -394,6 +393,10 @@ pub enum EnrollmentStage {
 /// The timestamp remains in the signature for compatibility, but is not a
 /// substitute for cryptographic entropy. Refuse to issue a predictable
 /// enrollment challenge or local password if the OS source fails.
+///
+/// # Panics
+/// Panics rather than generating a weak credential if the OS random provider
+/// fails; a predictable challenge would compromise authentication.
 #[must_use]
 pub fn generate_csprng_nonce(_now_epoch_secs: u64) -> [u8; 32] {
     let mut nonce = [0_u8; 32];
