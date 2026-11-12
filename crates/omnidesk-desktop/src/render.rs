@@ -3,7 +3,8 @@ use font8x8::{BASIC_FONTS, UnicodeFonts};
 use std::sync::OnceLock;
 
 use crate::{
-    LockedDashboardLayout, PresentationModel, ShellLayout, brand::official_kmj_mark,
+    LockedDashboardLayout, PresentationModel, ShellLayout,
+    brand::{approved_v5_header_logo, official_kmj_mark},
     control_rects_for,
 };
 
@@ -958,61 +959,85 @@ fn draw_locked_header(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    // Header: branding, search affordance and account utilities, as in lock.
-    canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, p.background);
-    canvas.h_line(0, layout.top_bar_height - 1, canvas.width, p.border);
-    if let Some(mark) = official_kmj_mark() {
+    // Match the owner-locked HTML chrome. The logo is the exact embedded
+    // approved brand asset, not a newly drawn text approximation.
+    canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, 0x09_0e_15);
+    canvas.h_line(0, layout.top_bar_height.saturating_sub(1), canvas.width, 0x25_31_3f);
+    if let Some(logo) = approved_v5_header_logo() {
         canvas.image_rgba(
-            (26, 17, 40, 40),
+            (23, 15, 162, 44),
+            (
+                usize::try_from(logo.width).unwrap_or(0),
+                usize::try_from(logo.height).unwrap_or(0),
+            ),
+            &logo.rgba,
+        );
+    } else if let Some(mark) = official_kmj_mark() {
+        canvas.image_rgba(
+            (23, 16, 42, 42),
             (
                 usize::try_from(mark.width).unwrap_or(0),
                 usize::try_from(mark.height).unwrap_or(0),
             ),
             &mark.rgba,
         );
+        canvas.text_bold_at(73, 18, "KMJ TECHNO", 15.0, p.foreground);
     }
-    canvas.text(73, 20, "KMJ TECHNO", 1, p.foreground);
-    canvas.text(73, 42, "INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
+    canvas.fill_rect(245, 21, 1, 33, 0x33_40_50);
+    canvas.text_bold_at(266, 23, "OmniDesk", 15.0, p.foreground);
+    canvas.text_bold_at(266, 43, "REMOTE WORKSPACE", 9.0, 0x8d_9a_ac);
 
-    // Hide the decorative command strip on compact windows: it is not
-    // searchable yet and must never overlap the KMJ TECHNO wordmark.
+    // Offline presentation only: do not fabricate search results.
     if canvas.width >= 1024 {
-        let search_x = layout.remote_screen.x + 155;
-        let search_w = (canvas.width * 23 / 100).clamp(270, 365);
-        canvas.rounded_panel(search_x, 18, search_w, 37, 9, p.background, p.border);
-        locked_label(
-            canvas,
-            search_x + 14,
-            29,
-            search_w.saturating_sub(28),
-            "OMNIDESK  /  REMOTE WORKSPACE",
-            p.muted,
-        );
+        let search_x = 406;
+        let search_w = canvas.width.saturating_sub(search_x + 252).min(365);
+        if search_w >= 180 {
+            canvas.rounded_panel(search_x, 18, search_w, 38, 9, 0x0c_12_1b, 0x29_34_42);
+            canvas.dot(search_x + 23, 35, 5, 0x8d_9a_ac);
+            canvas.dot(search_x + 23, 35, 3, 0x0c_12_1b);
+            canvas.fill_rect(search_x + 27, 40, 7, 1, 0x8d_9a_ac);
+            canvas.text_clipped(
+                search_x + 43,
+                28,
+                "Find tools or devices...",
+                1,
+                search_w.saturating_sub(122),
+                0x8d_9a_ac,
+            );
+            canvas.rounded_panel(
+                search_x + search_w - 52,
+                27,
+                42,
+                20,
+                4,
+                0x0c_12_1b,
+                0x33_40_50,
+            );
+            canvas.text_bold_at(search_x + search_w - 46, 31, "Ctrl K", 9.0, 0x8d_9a_ac);
+        }
     }
 
-    let settings_rect = layout.settings_button_rect(canvas.width);
-    let help_rect = layout.help_button_rect(canvas.width);
-    let settings_color = if presentation.nav_tab == omnidesk_core::product_shell::NavTab::Settings {
-        p.accent
-    } else {
-        p.muted
-    };
-    let help_color = if presentation.help_open {
-        p.accent
-    } else {
-        p.muted
-    };
-    locked_label(
-        canvas,
-        settings_rect.x,
-        29,
-        settings_rect.width,
-        "SETTINGS",
-        settings_color,
-    );
-    locked_label(canvas, help_rect.x, 29, help_rect.width, "HELP", help_color);
-}
+    if canvas.width >= 1200 {
+        let status_x = canvas.width.saturating_sub(311);
+        canvas.dot(status_x + 4, 37, 4, 0x7d_89_97);
+        canvas.text_bold_at(status_x + 15, 29, "No active session", 11.0, 0xc0_ca_d8);
+    }
+    let badge_x = canvas.width.saturating_sub(190);
+    canvas.rounded_panel(badge_x, 22, 118, 31, 8, 0x2d_13_1d, 0x73_33_43);
+    canvas.text_bold_at(badge_x + 14, 30, "V5 PREVIEW", 11.0, 0xee_a6_b2);
 
+    let help = layout.help_button_rect(canvas.width);
+    canvas.rounded_panel(help.x, help.y, help.width, help.height, 10, 0x11_19_23, 0x29_34_42);
+    canvas.dot(help.x + help.width / 2, help.y + 17, 8, 0xba_c7_d8);
+    canvas.dot(help.x + help.width / 2, help.y + 17, 6, 0x11_19_23);
+    canvas.text_bold_at(
+        help.x + help.width / 2 - 4,
+        help.y + 8,
+        "?",
+        14.0,
+        if presentation.help_open { p.accent } else { 0xba_c7_d8 },
+    );
+}
 fn draw_locked_nav_icon(canvas: &mut Canvas<'_>, index: usize, x: usize, y: usize, color: u32) {
     // Minimal native glyphs for the owner-locked six navigation destinations.
     // Their visual location and labels are shared by pointer and AccessKit.
