@@ -170,7 +170,13 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
             }
         }
         PrimaryView::PermissionPrompt => "Authorization required",
-        PrimaryView::Session => "Connected",
+        PrimaryView::Session => {
+            if shell.connection_stats().is_some() {
+                "Transport unverified"
+            } else {
+                "Permission granted"
+            }
+        }
     };
     let details = presentation_details(shell);
     let devices = shell.devices();
@@ -1131,7 +1137,7 @@ mod tests {
         assert_eq!(presentation_for(&shell).status, "Authorization required");
 
         shell.decide_permission(PermissionDecision::Allow);
-        assert_eq!(presentation_for(&shell).status, "Connected");
+        assert_eq!(presentation_for(&shell).status, "Permission granted");
         assert!(
             presentation_for(&shell)
                 .details
@@ -2097,7 +2103,7 @@ mod tests {
 
         // When authorized/connected:
         shell.mark_authorized();
-        assert_eq!(presentation_for(&shell).status, "Connected");
+        assert_eq!(presentation_for(&shell).status, "Permission granted");
 
         // When disconnected:
         shell.disconnect();

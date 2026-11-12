@@ -2620,8 +2620,8 @@ fn draw_locked_details(
     info_w: usize,
     details_y: usize,
 ) {
-    let is_connected =
-        presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session
+    let is_connected = presentation.primary_view
+        == omnidesk_core::product_shell::PrimaryView::Session
         || presentation.status == "Connected";
 
     let peer_device = presentation
@@ -2765,9 +2765,9 @@ fn draw_locked_inspector(
             p.border,
         );
     }
-    let is_connected =
-        presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session
-            || presentation.status == "Connected";
+    let is_connected = presentation.primary_view
+        == omnidesk_core::product_shell::PrimaryView::Session
+        || presentation.status == "Connected";
     locked_label(
         canvas,
         info_x + 15,
@@ -2820,7 +2820,14 @@ fn draw_locked_inspector(
         info_w.saturating_sub(30),
         status_y + 150,
     );
-    draw_locked_action_buttons(canvas, p, info_x + 10, info_w.saturating_sub(20), actions_y);
+    draw_locked_action_buttons(
+        canvas,
+        presentation,
+        p,
+        info_x + 10,
+        info_w.saturating_sub(20),
+        actions_y,
+    );
 
     locked_label(
         canvas,
