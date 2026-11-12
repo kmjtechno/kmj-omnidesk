@@ -98,6 +98,16 @@ fn accessibility_coordinate(value: usize) -> f64 {
     f64::from(u32::try_from(value).unwrap_or(u32::MAX))
 }
 
+fn dashboard_bounds_scrolled(rect: DashboardRect, scroll_y: usize) -> Rect {
+    let dy = accessibility_coordinate(scroll_y);
+    Rect {
+        x0: accessibility_coordinate(rect.x),
+        y0: accessibility_coordinate(rect.y) - dy,
+        x1: accessibility_coordinate(rect.x.saturating_add(rect.width)),
+        y1: accessibility_coordinate(rect.y.saturating_add(rect.height)) - dy,
+    }
+}
+
 fn dashboard_bounds(rect: DashboardRect) -> Rect {
     Rect {
         x0: accessibility_coordinate(rect.x),
@@ -118,12 +128,21 @@ fn control_bounds(shell: &ProductShell, index: usize, width: usize, height: usiz
             width: 0,
             height: 0,
         });
-    Rect {
-        x0: accessibility_coordinate(rect.x),
-        y0: accessibility_coordinate(rect.y),
-        x1: accessibility_coordinate(rect.x.saturating_add(rect.width)),
-        y1: accessibility_coordinate(rect.y.saturating_add(rect.height)),
-    }
+    let scroll = if LockedDashboardLayout::for_window(width, height).is_some() {
+        shell.workspace_scroll_y()
+            .min(LockedDashboardLayout::max_scroll_y(height))
+    } else {
+        0
+    };
+    dashboard_bounds_scrolled(
+        DashboardRect {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        },
+        scroll,
+    )
 }
 
 /// Builds a complete AccessKit tree from the authoritative product-shell state.
@@ -293,7 +312,11 @@ pub fn build_accesskit_tree_at_size(
             for (id, role, label, bounds) in fields {
                 let mut node = Node::new(role);
                 node.set_label(label);
-                node.set_bounds(dashboard_bounds(bounds));
+                node.set_bounds(dashboard_bounds_scrolled(
+                    bounds,
+                    shell.workspace_scroll_y()
+                        .min(LockedDashboardLayout::max_scroll_y(height)),
+                ));
                 node.add_action(Action::Focus);
                 let enabled = match id {
                     V5_REMOTE_REVEAL_NODE => !shell.remote_password_input().is_empty(),
@@ -371,6 +394,23 @@ mod tests {
 
         let invalid = build_accesskit_tree_with_focus(&shell, Some(NodeId(99)));
         assert_eq!(invalid.focus, NodeId(1));
+    }
+
+    #[test]
+    fn v5_accessibility_bounds_follow_center_scroll_but_not_header() {
+        let mut shell = ProductShell::new();
+        let width = 1308;
+        let height = 777;
+        shell.set_workspace_scroll_y(120);
+        let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+        let tree = build_accesskit_tree_at_size(&shell, None, width, height);
+        let (_, field) = tree.nodes.iter()
+            .find(|(id, _)| *id == V5_REMOTE_ID_NODE).unwrap();
+        let expected = dashboard_bounds_scrolled(layout.remote_id_input_rect(), 120);
+        assert_eq!(field.bounds(), Some(expected));
+        let (_, navigation) = tree.nodes.iter()
+            .find(|(id, _)| *id == NodeId(V5_NAV_FIRST_NODE)).unwrap();
+        assert_eq!(navigation.bounds(), Some(dashboard_bounds(layout.nav_tab_rect(0))));
     }
 
     #[test]
