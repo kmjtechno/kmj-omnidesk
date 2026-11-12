@@ -118,6 +118,10 @@ impl Canvas<'_> {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "canvas panel primitive keeps its exact rectangle and palette at every call site"
+    )]
     fn rounded_panel(
         &mut self,
         x: usize,
@@ -1556,7 +1560,14 @@ fn draw_locked_dual_role_cards(
 ) {
     draw_locked_remote_id_card(canvas, presentation, layout, p);
     draw_locked_your_id_card(canvas, presentation, layout, p);
+    draw_locked_remote_stage(canvas, layout, p);
+}
 
+fn draw_locked_remote_stage(
+    canvas: &mut Canvas<'_>,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
     let stage = layout.remote_stage_rect();
     // A labelled stage below the cards, not a 200px inset trapped inside
     // a compressed outer card. Its title and subtitle are visible on the
@@ -1937,6 +1948,7 @@ fn draw_locked_remote_view(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
+    use omnidesk_core::product_shell::NavTab;
     let viewer = layout.viewer;
     let screen = layout.remote_screen;
     locked_label(
@@ -1947,7 +1959,6 @@ fn draw_locked_remote_view(
         "KMJ TECHNO   >   OMNIDESK   >   ACCESS DESK",
         p.muted,
     );
-    use omnidesk_core::product_shell::NavTab;
     if presentation.nav_tab == NavTab::Devices {
         let prefix = "Remote control,";
         let prefix_width = Canvas::text_width(prefix, 3);
