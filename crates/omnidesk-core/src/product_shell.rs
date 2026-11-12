@@ -423,7 +423,7 @@ impl ProductShell {
 
     /// The Windows host clamps this to the actual viewport height.
     pub const fn set_workspace_scroll_y(&mut self, scroll: usize) {
-        self.workspace_scroll_y = scroll.min(1240);
+        self.workspace_scroll_y = if scroll > 1240 { 1240 } else { scroll };
     }
 
     pub fn set_nav_tab(&mut self, tab: NavTab) {
