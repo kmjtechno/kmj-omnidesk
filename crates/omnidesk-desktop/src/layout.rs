@@ -443,10 +443,10 @@ impl LockedDashboardLayout {
     #[must_use]
     pub const fn nav_tab_rect(&self, index: usize) -> DashboardRect {
         DashboardRect {
-            x: self.navigation.x + 6,
-            y: self.navigation.y + 34 + index.saturating_mul(44) + if index >= 4 { 60 } else { 0 },
-            width: self.navigation.width.saturating_sub(12),
-            height: 36,
+            x: self.navigation.x,
+            y: self.navigation.y + 50 + index.saturating_mul(44) + if index >= 4 { 80 } else { 0 },
+            width: self.navigation.width,
+            height: 42,
         }
     }
 
