@@ -921,7 +921,7 @@ fn draw_locked_navigation(
     locked_label(
         canvas,
         nav.x + 14,
-        nav.y + 12,
+        nav.y + 26,
         nav.width.saturating_sub(28),
         "WORKSPACE",
         p.muted,
@@ -930,7 +930,7 @@ fn draw_locked_navigation(
     let compact_rail = nav.width < 120;
     canvas.h_line(
         nav.x + 14,
-        nav.y + 226,
+        nav.y + 255,
         nav.width.saturating_sub(28),
         p.border,
     );
@@ -938,7 +938,7 @@ fn draw_locked_navigation(
         locked_label(
             canvas,
             nav.x + 14,
-            nav.y + 244,
+            nav.y + 273,
             nav.width.saturating_sub(28),
             "PROTECTION",
             p.muted,
@@ -948,41 +948,35 @@ fn draw_locked_navigation(
         let rect = layout.nav_tab_rect(index);
         let active = nav_tabs[index] == presentation.nav_tab;
         if active {
-            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.accent);
+            canvas.rounded_fill(rect.x, rect.y, rect.width, rect.height, 9, p.accent);
         }
         let item_color = if active { p.foreground } else { p.muted };
         let compact_rail = nav.width < 120;
         let icon_x = if compact_rail {
             rect.x + rect.width.saturating_sub(16) / 2
         } else {
-            rect.x + 7
+            rect.x + 15
         };
         draw_locked_nav_icon(canvas, index, icon_x, rect.y + 10, item_color);
         if !compact_rail {
             locked_label(
                 canvas,
-                rect.x + 29,
-                rect.y + 13,
-                rect.width.saturating_sub(34),
+                rect.x + 44,
+                rect.y + 14,
+                rect.width.saturating_sub(50),
                 label,
                 item_color,
             );
         }
     }
     let nav_bottom = nav.y + nav.height;
-    canvas.fill_rect(
+    canvas.rounded_panel(
         nav.x + 9,
         nav_bottom - 69,
         nav.width.saturating_sub(18),
         56,
+        9,
         p.background,
-    );
-    canvas.stroke_rect(
-        nav.x + 9,
-        nav_bottom - 69,
-        nav.width.saturating_sub(18),
-        56,
-        1,
         p.border,
     );
     if nav.width < 120 {
