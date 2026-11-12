@@ -612,7 +612,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                     let width = usize::try_from(size.width).unwrap_or(usize::MAX);
                     let height = usize::try_from(size.height).unwrap_or(usize::MAX);
                     if let Some(layout) = crate::LockedDashboardLayout::for_window(width, height) {
-                        if layout.viewer.contains(x, y) {
+                        if !self.shell.is_help_open() && layout.viewer.contains(x, y) {
                             let direction = match delta {
                                 winit::event::MouseScrollDelta::LineDelta(_, dy) => {
                                     if dy > 0.0 { -1 } else if dy < 0.0 { 1 } else { 0 }
