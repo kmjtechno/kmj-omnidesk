@@ -2735,8 +2735,20 @@ fn draw_locked_dashboard(
     // Full-width left rail from the locked HTML; nav hit rectangles stay
     // inset 12px and remain shared with AccessKit and pointer hit testing.
     let nav_right = layout.navigation.x + layout.navigation.width + 10;
-    canvas.fill_rect(0, layout.navigation.y, nav_right, layout.navigation.height, 0x09_0e_15);
-    canvas.fill_rect(nav_right - 1, layout.navigation.y, 1, layout.navigation.height, 0x20_2c_39);
+    canvas.fill_rect(
+        0,
+        layout.navigation.y,
+        nav_right,
+        layout.navigation.height,
+        0x09_0e_15,
+    );
+    canvas.fill_rect(
+        nav_right - 1,
+        layout.navigation.y,
+        1,
+        layout.navigation.height,
+        0x20_2c_39,
+    );
     draw_locked_navigation(canvas, presentation, layout, p);
 
     if layout.inspector.width > 0 {
