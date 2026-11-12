@@ -91,7 +91,7 @@ try {
         '04_remote_access_1024.png' = @(1024, 768)
         '03_remote_access_compact.png' = @(1419, 611)
         '10_remote_access_laptop.png' = @(1280, 800)
-        '12_owner_screenshot_1309.png' = @(1309, 777)
+        '12_owner_screenshot_1308.png' = @(1308, 777)
         '11_remote_access_wide.png' = @(1920, 1080)
         '06_trusted_devices.png' = @(1419, 800)
         '07_sessions.png' = @(1419, 800)
@@ -228,7 +228,7 @@ working remote sessions, or production acceptance evidence.</p>
     # Explicit physical Windows acceptance matrix. Offline renderer PNGs never
     # satisfy these gates; a human must inspect the actual preview window.
     # Keep the status fail-closed even when the -Launch switch is used.
-    $physicalViewports = @('800x600','960x640','1024x768','1419x611','1920x1080')
+    $physicalViewports = @('800x600','960x640','1024x768','1308x777','1419x611','1920x1080')
     foreach ($viewport in $physicalViewports) {
         $receipt += "WINDOWS_NATIVE_SCREENSHOT_$viewport=NOT_VERIFIED"
         $receipt += "WINDOWS_NATIVE_KEYBOARD_HITTEST_$viewport=NOT_VERIFIED"
