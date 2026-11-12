@@ -69,7 +69,7 @@ During the 2026-11-10 continuation, the GitHub source was inspected for V5 locke
 
 ## Native PNG visual-review path — committed, pending execution
 
-To reduce the unresolved V5 visual-QA blocker, the existing Rust renderer example now generates **11 true PNG pixel-buffer captures** using the already-declared `image` crate (`image::save_buffer_with_format`), with non-network receipt text. It does not fabricate connected-session screenshots.
+To reduce the unresolved V5 visual-QA blocker, the existing Rust renderer example now targets **12 true PNG pixel-buffer captures** using the already-declared `image` crate (`image::save_buffer_with_format`), with non-network receipt text. It does not fabricate connected-session screenshots.
 
 The Windows preview script `scripts/Build-V5-Windows-Preview.ps1` now:
 
@@ -77,8 +77,8 @@ The Windows preview script `scripts/Build-V5-Windows-Preview.ps1` now:
 - Optionally checks `-ExpectedSha` against the exact cloned 40-character Git commit
 - Runs `cargo fmt`, `clippy`, `test` and release `build` and stops on any failure
 - Builds and executes the capture example and refuses missing, malformed or incorrect PNG counts
-- Writes SHA256 checksums for all 11 PNG files, executable SHA256 and exact source SHA to the preview receipt
-- Generates a self-contained local `index.html` gallery of the 11 offline native-render images, clearly labelled **not a Windows desktop screenshot**
+- Writes SHA256 checksums for all 12 PNG files, executable SHA256 and exact source SHA to the preview receipt
+- Generates a self-contained local `index.html` gallery of the 12 offline native-render images, clearly labelled **not a Windows desktop screenshot**
 - Never installs over, stops or overwrites the running OmniDesk Windows application
 
 This provides an actionable zero-additional-cost QA route **when an exact-branch Windows execution profile becomes authorized/available**. The current CodeBridge profiles are limited to the shared checkout or old clean lanes, and this script **has not executed in this chat**. The actual V5 UI remains unverified until a real Windows preview capture and owner visual comparison pass.
@@ -118,7 +118,13 @@ Detailed pixel-coordinate source receipt (the DOM comparison is source geometry 
 
 **Build blocker:** Attempting an isolated P520 lane at feature SHA `bfed9e3c2f714b80af09c9532e6d003ed93479e6` returned `WORKTREE_HEAD_MISMATCH`; subsequently more UI commits were made to the GitHub branch. P520 remained online, but its shared checkout is still behind and dirty, and its approved runner does not fetch the feature branch. No exact-feature-HEAD Cargo fmt/Clippy/test, compiled preview, *real Windows screenshot*, production replacement, signed installer or two-PC secure session is claimed. Existing owner files untouched; no paid hosted CI.
 
-## Latest validation status
+## Historical build receipt — not evidence for the 12 November V5 source
+
+The following earlier local P520 receipt (528 tests, fmt/Clippy PASS, Windows executable SHA256 `F28698E7782B83EE653B16FB7D25B8282FD94A964FB392E3E90AC7773AEFBF39`, 11 PNGs) is **preserved**, but its exact GitHub commit is not tied to the current 12 November source changes in this report. It cannot validate the newly redesigned 363px cards, center scrolling or updated Inspector. The current 12-PNG matrix has not been independently executed for the current feature-branch HEAD.
+
+**Current branch release gate remains OPEN:** exact-commit Windows compilation/tests, 12 PNG review, real running Windows screenshot parity and safe installation are not verified. CodeBridge `worktree_lane_prepare` returned `WORKTREE_HEAD_MISMATCH`; no shared checkout or installed executable was overwritten.
+
+## Latest validation status (historical receipts below, not current HEAD)
 
 | Gate | Evidence |
 |---|---|
@@ -136,6 +142,6 @@ Detailed pixel-coordinate source receipt (the DOM comparison is source geometry 
 
 ## Next owner-testable step
 
-1. Inspect the 11 generated native V5 PNG captures in `target/v5_captures/` and compare with approved `docs/prototypes/omnidesk-v5/index.html`.
+1. Review the historical 11 generated native V5 PNG captures in `target/v5_captures/` and compare with approved `docs/prototypes/omnidesk-v5/index.html`.
 2. Launch the isolated Windows release binary (`target/release/omnidesk-desktop.exe`) on P520 to inspect live interactive rendering across 100%, 125%, 150% DPI without touching or overwriting any production installation.
 3. Advance to Milestone 4/5/6: real peer-authenticated and encrypted transport implementation for end-to-end ID + Password session control.
