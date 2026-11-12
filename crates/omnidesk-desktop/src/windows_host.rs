@@ -827,10 +827,33 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_PIXEL_OFFSET, consent_matches_peer, refuse_unverified_session_action, to_pixel,
+        MAX_PIXEL_OFFSET, activate_fresh_local_password, consent_matches_peer,
+        refuse_unverified_session_action, to_pixel,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn native_startup_uses_a_masked_short_lived_local_password_without_authorizing_a_peer() {
+        let now = 1_700_000_000;
+        let mut shell = ProductShell::new();
+        assert!(shell.password_manager().raw_password().is_none());
+        activate_fresh_local_password(&mut shell, now);
+        let manager = shell.password_manager();
+        assert!(manager.is_active(now));
+        assert_eq!(manager.display_text(), "••••••••");
+        assert!(!manager.is_revealed());
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
+        assert!(shell.selected_device().is_none());
+
+        shell.toggle_local_password_reveal();
+        assert_eq!(
+            shell.password_manager().display_text(),
+            shell.password_manager().raw_password().unwrap()
+        );
+        shell.toggle_local_password_reveal();
+        assert_eq!(shell.password_manager().display_text(), "••••••••");
+    }
 
     #[test]
     fn unverified_online_device_cannot_enter_session_by_click_or_retry() {
