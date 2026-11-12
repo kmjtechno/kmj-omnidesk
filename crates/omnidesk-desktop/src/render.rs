@@ -794,12 +794,11 @@ fn draw_locked_header(
     p: Palette,
 ) {
     // Header: branding, search affordance and account utilities, as in lock.
-    canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, p.surface);
-    canvas.fill_rect(0, 0, canvas.width, 2, p.accent);
+    canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, p.background);
     canvas.h_line(0, layout.top_bar_height - 1, canvas.width, p.border);
     if let Some(mark) = official_kmj_mark() {
         canvas.image_rgba(
-            (14, 12, 44, 44),
+            (26, 17, 40, 40),
             (
                 usize::try_from(mark.width).unwrap_or(0),
                 usize::try_from(mark.height).unwrap_or(0),
@@ -807,22 +806,23 @@ fn draw_locked_header(
             &mark.rgba,
         );
     }
-    canvas.text(70, 19, "KMJ TECHNO", 2, p.foreground);
-    canvas.text(70, 45, "INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
+    canvas.text(73, 20, "KMJ TECHNO", 1, p.foreground);
+    canvas.text(73, 42, "INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
 
     // Hide the decorative command strip on compact windows: it is not
     // searchable yet and must never overlap the KMJ TECHNO wordmark.
     if canvas.width >= 1024 {
-        let search_x = canvas.width / 3;
-        let search_w = canvas.width / 3;
-        canvas.fill_rect(search_x, 15, search_w, 37, p.background);
-        canvas.stroke_rect(search_x, 15, search_w, 37, 1, p.border);
+        let search_x = layout.remote_screen.x + 155;
+        let search_w = (canvas.width * 23 / 100).clamp(270, 365);
+        canvas.rounded_panel(
+            search_x, 18, search_w, 37, 9, p.background, p.border,
+        );
         locked_label(
             canvas,
             search_x + 14,
             29,
             search_w.saturating_sub(28),
-            "OMNIDESK  /  SECURE REMOTE WORKSPACE",
+            "OMNIDESK  /  REMOTE WORKSPACE",
             p.muted,
         );
     }
