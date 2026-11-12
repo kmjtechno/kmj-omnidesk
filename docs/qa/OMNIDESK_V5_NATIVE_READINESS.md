@@ -124,6 +124,16 @@ The following earlier local P520 receipt (528 tests, fmt/Clippy PASS, Windows ex
 
 **Current branch release gate remains OPEN:** exact-commit Windows compilation/tests, 12 PNG review, real running Windows screenshot parity and safe installation are not verified. CodeBridge `worktree_lane_prepare` returned `WORKTREE_HEAD_MISMATCH`; no shared checkout or installed executable was overwritten.
 
+## 2026-11-12 — owner screenshot: approved V5 native UI mismatch
+
+The owner supplied a **1309×777 Windows screenshot** showing an older native layout with an inspector column alongside narrow Connect/Share cards, cramped label baselines and a toolbar packed into the first viewport. This must **not** be called approved V5 design parity.
+
+The *approved HTML reference* explicitly hides the inspector at widths **up to and including 1510px**, and collapses the left navigation to an icon rail at widths **up to and including 1020px**. The native Rust layout previously used an incorrect 1450px fold and a height restriction on inspector visibility. That mismatch is corrected in `layout.rs`; native card geometry/interaction tests now explicitly cover `1309×777`, `1510×900`, `1511×900`, `1020×768` and `1021×768`, checking inspector/nav visibility and nonoverlapping Connect/Share forms.
+
+The offline Rust-render QA example and SHA-pinned Windows preview builder now share a **13 PNG** contract including `12_owner_screenshot_1309.png` at 1309×777. The script validates filename, dimensions, PNG signature and image hash before producing the preview gallery. Previous 12-image receipts are superseded for this branch.
+
+**Important:** the screenshot is of the owner's *currently running Windows app*, not of the latest GitHub Rust branch. These source commits do not install a new executable. A fresh exact-head Windows build, actual native app screenshot and side-by-side visual signoff are still **NOT VERIFIED**; no claimed 100% parity or production remote-control functionality.
+
 ## Latest validation status (historical receipts below, not current HEAD)
 
 | Gate | Evidence |
