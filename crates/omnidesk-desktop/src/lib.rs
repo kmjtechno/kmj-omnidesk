@@ -241,8 +241,14 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         clipboard_sync_enabled: shell.clipboard_sync_enabled(),
         unattended_access_enabled: shell.unattended_access_enabled(),
         transfer_record_count: shell.file_transfers().len(),
-        latest_transfer_filename: shell.file_transfers().last().map(|item| item.filename.clone()),
-        latest_transfer_status: shell.file_transfers().last().map(|item| item.status.clone()),
+        latest_transfer_filename: shell
+            .file_transfers()
+            .last()
+            .map(|item| item.filename.clone()),
+        latest_transfer_status: shell
+            .file_transfers()
+            .last()
+            .map(|item| item.status.clone()),
         local_audit_event_count: shell.audit_log().len(),
     }
 }
@@ -560,7 +566,8 @@ pub fn action_at_point(
             && y >= layout.viewer.y
         {
             y.saturating_add(
-                shell.workspace_scroll_y()
+                shell
+                    .workspace_scroll_y()
                     .min(LockedDashboardLayout::max_scroll_y(height)),
             )
         } else {
@@ -648,7 +655,11 @@ pub fn action_at_point(
             if shell.nav_tab() == NavTab::TrustedDevices {
                 let model = presentation_for(shell);
                 for (index, control) in model.controls.iter().enumerate().take(9) {
-                    if control.enabled && locked.trusted_device_tile_rect(index).contains(x, content_y) {
+                    if control.enabled
+                        && locked
+                            .trusted_device_tile_rect(index)
+                            .contains(x, content_y)
+                    {
                         return Some(control.action);
                     }
                 }
@@ -1369,7 +1380,10 @@ mod tests {
         shell.add_audit_event("local-session-request", "No network permission granted", 42);
         let actual = presentation_for(&shell);
         assert_eq!(actual.transfer_record_count, 1);
-        assert_eq!(actual.latest_transfer_filename.as_deref(), Some("report.pdf"));
+        assert_eq!(
+            actual.latest_transfer_filename.as_deref(),
+            Some("report.pdf")
+        );
         assert_eq!(actual.latest_transfer_status.as_deref(), Some("Queued"));
         assert_eq!(actual.local_audit_event_count, 1);
     }
@@ -1406,8 +1420,7 @@ mod tests {
 
         let session = presentation_for(&shell);
         assert_eq!(
-            session.status,
-            "Transport unverified",
+            session.status, "Transport unverified",
             "Performance counters must not make an unauthenticated peer look connected"
         );
         assert!(session.details.iter().any(|line| line == "Device: desk-1"));
