@@ -114,6 +114,7 @@ pub struct ProductShell {
     quality_preset: QualityPreset,
     connection_stats: Option<ConnectionStats>,
     nav_tab: NavTab,
+    workspace_scroll_y: usize,
     device_filter: DeviceFilter,
     help_open: bool,
     local_device_id: String,
@@ -147,6 +148,7 @@ impl ProductShell {
             quality_preset: QualityPreset::Balanced,
             connection_stats: None,
             nav_tab: NavTab::Devices,
+            workspace_scroll_y: 0,
             device_filter: DeviceFilter::All,
             help_open: false,
             local_device_id: String::new(),
@@ -413,8 +415,20 @@ impl ProductShell {
         self.nav_tab
     }
 
+    /// Scroll offset for V5's center column; left rail and inspector stay fixed.
+    #[must_use]
+    pub const fn workspace_scroll_y(&self) -> usize {
+        self.workspace_scroll_y
+    }
+
+    /// The Windows host clamps this to the actual viewport height.
+    pub const fn set_workspace_scroll_y(&mut self, scroll: usize) {
+        self.workspace_scroll_y = scroll.min(1240);
+    }
+
     pub fn set_nav_tab(&mut self, tab: NavTab) {
         self.nav_tab = tab;
+        self.workspace_scroll_y = 0;
         // The Help overlay is page-specific; a sidebar choice must reveal
         // the selected page rather than leave Help covering the workspace.
         self.help_open = false;
