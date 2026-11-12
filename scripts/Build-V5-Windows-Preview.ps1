@@ -91,7 +91,7 @@ try {
         '04_remote_access_1024.png' = @(1024, 768)
         '03_remote_access_compact.png' = @(1419, 611)
         '10_remote_access_laptop.png' = @(1280, 800)
-        '12_owner_screenshot_1308.png' = @(1308, 777)
+        '12_owner_screenshot_1309.png' = @(1309, 777)
         '11_remote_access_wide.png' = @(1920, 1080)
         '06_trusted_devices.png' = @(1419, 800)
         '07_sessions.png' = @(1419, 800)
@@ -228,7 +228,7 @@ working remote sessions, or production acceptance evidence.</p>
     # Explicit physical Windows acceptance matrix. Offline renderer PNGs never
     # satisfy these gates; a human must inspect the actual preview window.
     # Keep the status fail-closed even when the -Launch switch is used.
-    # Both 1308 and 1309 widths are required: the owner supplied two screenshot
+    # Both 1308 and 1309 physical widths are required: the owner supplied two screenshot
     # dimensions. Include 1600x920 for the inspector-visible reference state.
     # These remain NOT_VERIFIED until real Windows window captures are reviewed.
     $physicalViewports = @('800x600','960x640','1024x768','1308x777','1309x777','1419x611','1600x920','1920x1080')
