@@ -23,6 +23,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Attest exact Rust source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -307,6 +312,16 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Attest exact Windows source SHA
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne '${{ github.event.pull_request.head.sha || github.sha }}') {
+            throw "Windows source SHA mismatch: $actual"
+          }
       - name: M9 protected signer path refusal gate (unsigned negative tests)
         shell: pwsh
         run: pwsh -NoProfile -File scripts/test_windows_release_signing_gate.ps1
@@ -345,7 +360,7 @@ jobs:
       - name: Package fail-closed Windows release candidate
         shell: pwsh
         run: |
-          python scripts/package_release_candidate.py --binary target/release/omnidesk-desktop.exe --output artifacts/release-candidate --version "ci-${{ github.sha }}" --platform windows --arch x86_64 --channel beta | Tee-Object -FilePath artifacts/release-candidate-result.json
+          python scripts/package_release_candidate.py --binary target/release/omnidesk-desktop.exe --output artifacts/release-candidate --version "ci-${{ github.event.pull_request.head.sha || github.sha }}" --platform windows --arch x86_64 --channel beta | Tee-Object -FilePath artifacts/release-candidate-result.json
           $result = Get-Content -Raw artifacts/release-candidate-result.json | ConvertFrom-Json
           if ($result.manifest.release_state -ne 'UNSIGNED_CANDIDATE') { throw 'candidate state is not fail-closed' }
           if ($result.manifest.publishable -ne $false) { throw 'unsigned candidate became publishable' }
