@@ -2311,6 +2311,10 @@ fn draw_locked_inspector(
     }
 }
 
+/// Preserve the approved V5 fold at every height. Only the center
+/// workspace scrolls; the KMJ header, left rail and session inspector stay
+/// fixed. Rendering is event-driven so the temporary ~5 MB RGB buffer is
+/// allocated only on a frame request, not by a continuous animation loop.
 fn draw_locked_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -2318,19 +2322,59 @@ fn draw_locked_dashboard(
     p: Palette,
 ) {
     draw_locked_header(canvas, presentation, layout, p);
-    for rect in [layout.navigation, layout.viewer] {
-        locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
-    }
-    if layout.inspector.width > 0 {
-        let rect = layout.inspector;
-        locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
-    }
+    locked_frame(
+        canvas,
+        layout.navigation.x, layout.navigation.y,
+        layout.navigation.width, layout.navigation.height, p,
+    );
     draw_locked_navigation(canvas, presentation, layout, p);
-    draw_locked_remote_view(canvas, presentation, layout, p);
-    draw_locked_session_tiles(canvas, presentation, layout, p);
-    draw_locked_devices(canvas, presentation, layout, p);
+
     if layout.inspector.width > 0 {
         draw_locked_inspector(canvas, presentation, layout, p);
+    }
+
+    let virtual_height = LockedDashboardLayout::CONTENT_HEIGHT.max(canvas.height);
+    let Some(virtual_layout) = LockedDashboardLayout::for_window(canvas.width, virtual_height)
+    else {
+        return;
+    };
+    let mut content_pixels = vec![p.background; canvas.width.saturating_mul(virtual_height)];
+    let mut content_canvas = Canvas {
+        pixels: &mut content_pixels,
+        width: canvas.width,
+        height: virtual_height,
+    };
+    draw_locked_remote_view(&mut content_canvas, presentation, &virtual_layout, p);
+    draw_locked_session_tiles(&mut content_canvas, presentation, &virtual_layout, p);
+    draw_locked_devices(&mut content_canvas, presentation, &virtual_layout, p);
+
+    let left = layout.viewer.x;
+    let right = left.saturating_add(layout.viewer.width).min(canvas.width);
+    let top = layout.viewer.y;
+    let bottom = top.saturating_add(layout.viewer.height).min(canvas.height);
+    let scroll = presentation
+        .workspace_scroll_y
+        .min(LockedDashboardLayout::max_scroll_y(canvas.height));
+    if right > left {
+        for visible_y in top..bottom {
+            let document_y = visible_y.saturating_add(scroll);
+            if document_y >= virtual_height {
+                break;
+            }
+            let start = visible_y * canvas.width + left;
+            let source = document_y * canvas.width + left;
+            canvas.pixels[start..start + (right - left)]
+                .copy_from_slice(&content_pixels[source..source + (right - left)]);
+        }
+    }
+    // Subtle viewport scroll cue; not a fake session metric.
+    if LockedDashboardLayout::max_scroll_y(canvas.height) > 0 && right > left + 10 {
+        let track_height = bottom.saturating_sub(top);
+        let handle_height = (track_height * track_height / virtual_height).max(28);
+        let max_scroll = LockedDashboardLayout::max_scroll_y(canvas.height);
+        let handle_top = top + (track_height.saturating_sub(handle_height)) * scroll / max_scroll;
+        canvas.fill_rect(right - 5, top, 2, track_height, p.border);
+        canvas.fill_rect(right - 6, handle_top, 4, handle_height, p.muted);
     }
 }
 
