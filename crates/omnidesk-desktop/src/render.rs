@@ -1294,173 +1294,70 @@ fn draw_locked_remote_id_card(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    let remote_id_card = layout.remote_id_card_rect();
-    canvas.fill_rect(
-        remote_id_card.x,
-        remote_id_card.y,
-        remote_id_card.width,
-        remote_id_card.height,
-        p.surface,
-    );
-    canvas.stroke_rect(
-        remote_id_card.x,
-        remote_id_card.y,
-        remote_id_card.width,
-        remote_id_card.height,
-        1,
-        p.border,
-    );
-    canvas.fill_rect(
-        remote_id_card.x + 1,
-        remote_id_card.y + 1,
-        remote_id_card.width.saturating_sub(2),
-        2,
-        p.accent,
-    );
-    locked_label(
-        canvas,
-        remote_id_card.x + 16,
-        remote_id_card.y + 14,
-        remote_id_card.width.saturating_sub(32),
-        "01  /  TAKE CONTROL",
-        p.accent,
-    );
-    locked_label(
-        canvas,
-        remote_id_card.x + 16,
-        remote_id_card.y + 29,
-        remote_id_card.width.saturating_sub(32),
-        "Connect to another desktop",
-        p.foreground,
-    );
+    let card = layout.remote_id_card_rect();
+    canvas.rounded_panel(card.x, card.y, card.width, card.height, 14, p.surface, p.border);
+    canvas.rounded_panel(card.x + 24, card.y + 24, 40, 40, 10, p.background, p.accent);
+    canvas.stroke_rect(card.x + 35, card.y + 36, 18, 13, 1, p.accent);
+    locked_label(canvas, card.x + 76, card.y + 26,
+        card.width.saturating_sub(100), "01  /  TAKE CONTROL", p.accent);
+    locked_label(canvas, card.x + 76, card.y + 48,
+        card.width.saturating_sub(100), "Connect to another desktop", p.foreground);
 
-    // Explicit field captions match the locked V5 connection workflow.
-    locked_label(
-        canvas,
-        remote_id_card.x + 16,
-        remote_id_card.y + 40,
-        remote_id_card.width.saturating_sub(32),
-        "REMOTE ID",
-        p.muted,
-    );
+    locked_label(canvas, card.x + 24, card.y + 94,
+        card.width.saturating_sub(48), "Remote device ID", p.foreground);
     draw_locked_remote_id_input(canvas, presentation, layout.remote_id_input_rect(), p);
 
-    let connect_btn = layout.remote_id_connect_btn_rect();
-    // A valid-looking ID is only a locator, not authenticated access.
-    // This flag controls only the visual/pointer readiness of the CTA.
-    let connect_enabled = presentation.remote_access_form_ready;
-    canvas.fill_rect(
-        connect_btn.x,
-        connect_btn.y,
-        connect_btn.width,
-        connect_btn.height,
-        if connect_enabled { p.accent } else { p.border },
-    );
-    canvas.stroke_rect(
-        connect_btn.x,
-        connect_btn.y,
-        connect_btn.width,
-        connect_btn.height,
-        1,
-        if connect_enabled { p.accent } else { p.border },
-    );
-    locked_label(
-        canvas,
-        connect_btn.x + 18,
-        connect_btn.y + 11,
-        connect_btn.width.saturating_sub(36),
-        "CONNECT SECURELY",
-        if connect_enabled {
-            p.foreground
-        } else {
-            p.muted
-        },
-    );
-    locked_label(
-        canvas,
-        remote_id_card.x + 16,
-        remote_id_card.y + if layout.compact_height() { 82 } else { 88 },
-        remote_id_card.width.saturating_sub(32),
-        "SESSION PASSWORD",
-        p.muted,
-    );
-    // Remote session password input
-    let password = layout.remote_password_status_rect();
-    canvas.fill_rect(
-        password.x,
-        password.y,
-        password.width,
-        password.height,
+    locked_label(canvas, card.x + 24, card.y + 174,
+        card.width.saturating_sub(48), "Session password", p.foreground);
+    let field = layout.remote_password_status_rect();
+    canvas.rounded_panel(
+        field.x, field.y, field.width, field.height, 9,
         p.background,
+        if presentation.remote_password_focused { p.accent } else { p.border },
     );
-    let pw_border_color = if presentation.remote_password_focused {
-        p.accent
+    let placeholder = presentation.remote_password_display.is_empty();
+    let value = if placeholder {
+        "Enter remote password"
     } else {
-        p.border
+        &presentation.remote_password_display
     };
-    canvas.stroke_rect(
-        password.x,
-        password.y,
-        password.width,
-        password.height,
-        if presentation.remote_password_focused {
-            2
-        } else {
-            1
-        },
-        pw_border_color,
+    canvas.text_clipped(
+        field.x + 13, field.y + 14, value, 1,
+        field.width.saturating_sub(76),
+        if placeholder { p.muted } else { p.foreground },
     );
-    if presentation.remote_password_display.is_empty() {
-        locked_label(
-            canvas,
-            password.x + 10,
-            password.y + 11,
-            password.width.saturating_sub(76),
-            if presentation.remote_password_focused {
-                "|"
-            } else {
-                "Enter session password"
-            },
-            if presentation.remote_password_focused {
-                p.accent
-            } else {
-                p.muted
-            },
-        );
-    } else {
-        let text = if presentation.remote_password_focused {
-            format!("{}|", presentation.remote_password_display)
-        } else {
-            presentation.remote_password_display.clone()
-        };
-        locked_label(
-            canvas,
-            password.x + 10,
-            password.y + 11,
-            password.width.saturating_sub(76),
-            &text,
-            p.foreground,
-        );
-    }
-    let reveal = layout.remote_password_reveal_btn_rect();
-    canvas.fill_rect(reveal.x, reveal.y, reveal.width, reveal.height, p.surface);
-    canvas.stroke_rect(reveal.x, reveal.y, reveal.width, reveal.height, 1, p.border);
+    let show = layout.remote_password_reveal_btn_rect();
+    canvas.rounded_panel(
+        show.x, show.y, show.width, show.height, 6,
+        p.background, p.border,
+    );
+    locked_label(canvas, show.x + 7, show.y + 10,
+        show.width.saturating_sub(12),
+        if presentation.remote_password_revealed { "HIDE" } else { "SHOW" },
+        if placeholder { p.muted } else { p.foreground });
+
+    let connect = layout.remote_id_connect_btn_rect();
+    let ready = presentation.remote_access_form_ready;
+    canvas.rounded_panel(
+        connect.x, connect.y, connect.width, connect.height, 9,
+        if ready { p.accent } else { p.border },
+        if ready { p.accent } else { p.border },
+    );
     locked_label(
-        canvas,
-        reveal.x + 6,
-        reveal.y + 7,
-        reveal.width.saturating_sub(12),
-        if presentation.remote_password_revealed {
-            "HIDE"
-        } else {
-            "SHOW"
-        },
-        if presentation.remote_password_display.is_empty() {
-            p.muted
-        } else {
-            p.foreground
-        },
+        canvas, connect.x + 17, connect.y + 14,
+        connect.width.saturating_sub(25), "Connect securely",
+        if ready { p.foreground } else { p.muted },
     );
+    locked_label(
+        canvas, connect.x + connect.width + 12, connect.y + 8,
+        card.width.saturating_sub(connect.width + 64),
+        "Requires a verified peer and an allowed session.", p.muted,
+    );
+    canvas.dot(card.x + 30, card.y + 335, 4, p.accent);
+    locked_label(canvas, card.x + 42, card.y + 329,
+        card.width.saturating_sub(65),
+        "ID locates the device; password and permission must be verified.",
+        p.muted);
 }
 
 fn draw_locked_dual_role_cards(
