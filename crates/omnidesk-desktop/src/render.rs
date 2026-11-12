@@ -2055,60 +2055,37 @@ fn draw_locked_inspector(
     p: Palette,
 ) {
     let inspector = layout.inspector;
-    // Match the locked V5 right rail: connection status, session tools,
-    // then verification checklist. All three fit compact 611px windows.
-    let first = inspector.height * 44 / 100;
-    let second = inspector.height * 25 / 100;
-    let status_y = inspector.y + 5;
-    let actions_y = status_y + first + 6;
-    let verification_y = actions_y + second + 6;
-    locked_frame(
-        canvas,
-        inspector.x + 6,
-        status_y,
-        inspector.width - 12,
-        first,
-        p,
-    );
-    locked_frame(
-        canvas,
-        inspector.x + 6,
-        actions_y,
-        inspector.width - 12,
-        second,
-        p,
-    );
-    locked_frame(
-        canvas,
-        inspector.x + 6,
-        verification_y,
-        inspector.width - 12,
-        inspector.y + inspector.height - verification_y - 5,
-        p,
-    );
-    let info_x = inspector.x + 20;
-    let info_w = inspector.width.saturating_sub(40);
+    // Owner-approved inspector at 1600x920: fixed 278/143/181px
+    // premium panels with their own labels and rounded 12px corners.
+    let status_y = inspector.y + 78;
+    let actions_y = inspector.y + 372;
+    let verification_y = inspector.y + 531;
+    let info_x = inspector.x + 17;
+    let info_w = inspector.width.saturating_sub(34);
+    canvas.h_line(inspector.x, inspector.y, 1, p.border);
     locked_label(
-        canvas,
-        info_x,
-        status_y + 18,
-        info_w,
-        "SESSION INSPECTOR",
-        p.foreground,
+        canvas, info_x, inspector.y + 28, info_w, "Session inspector", p.foreground,
     );
     locked_label(
-        canvas,
-        info_x,
-        status_y + 37,
-        info_w,
-        "Connection status",
-        p.muted,
+        canvas, info_x, inspector.y + 52,
+        info_w, "Everything important, one glance away.", p.muted,
     );
-    canvas.dot(info_x + 7, status_y + 67, 6, p.muted);
+    for (y, height) in [(status_y, 278), (actions_y, 143), (verification_y, 181)] {
+        canvas.rounded_panel(
+            inspector.x + 17, y, inspector.width.saturating_sub(34),
+            height, 12, p.surface, p.border,
+        );
+    }
+    locked_label(
+        canvas, info_x + 15, status_y + 18,
+        info_w.saturating_sub(30),
+        "CONNECTION STATUS", p.muted,
+    );
+    canvas.dot(info_x + 24, status_y + 73, 6, p.muted);
     locked_label(
         canvas,
-        info_x + 22,
-        status_y + 62,
+        info_x + 40,
+        status_y + 68,
         info_w.saturating_sub(22),
         match presentation.primary_view {
             omnidesk_core::product_shell::PrimaryView::Devices => "Not connected",
@@ -2120,14 +2097,16 @@ fn draw_locked_inspector(
     locked_label(
         canvas,
         info_x,
-        status_y + 94,
+        status_y + 101,
         info_w,
         "Waiting for verified remote access",
         p.muted,
     );
-    canvas.h_line(info_x, status_y + 119, info_w, p.border);
-    draw_locked_details(canvas, p, info_x, info_w, status_y + 139);
-    draw_locked_action_buttons(canvas, p, info_x, info_w, actions_y);
+    canvas.h_line(info_x + 15, status_y + 132, info_w.saturating_sub(30), p.border);
+    draw_locked_details(canvas, p, info_x + 15, info_w.saturating_sub(30), status_y + 150);
+    draw_locked_action_buttons(
+        canvas, p, info_x + 10, info_w.saturating_sub(20), actions_y,
+    );
 
     locked_label(
         canvas,
