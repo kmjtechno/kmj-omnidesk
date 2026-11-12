@@ -1142,172 +1142,85 @@ fn draw_locked_your_id_card(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    let your_id_card = layout.your_id_card_rect();
-    canvas.fill_rect(
-        your_id_card.x,
-        your_id_card.y,
-        your_id_card.width,
-        your_id_card.height,
-        p.surface,
-    );
-    canvas.stroke_rect(
-        your_id_card.x,
-        your_id_card.y,
-        your_id_card.width,
-        your_id_card.height,
-        1,
-        p.border,
-    );
-    canvas.fill_rect(
-        your_id_card.x + 1,
-        your_id_card.y + 1,
-        your_id_card.width.saturating_sub(2),
-        2,
-        p.border,
-    );
-    locked_label(
-        canvas,
-        your_id_card.x + 16,
-        your_id_card.y + 14,
-        your_id_card.width.saturating_sub(32),
-        "02  /  SHARE THIS DEVICE",
-        p.accent,
-    );
-    locked_label(
-        canvas,
-        your_id_card.x + 16,
-        your_id_card.y + 30,
-        your_id_card.width.saturating_sub(32),
-        "Your ID & password",
-        p.foreground,
-    );
+    let card = layout.your_id_card_rect();
+    canvas.rounded_panel(card.x, card.y, card.width, card.height, 14, p.surface, p.border);
+    // Approved V5 has icon + title hierarchy, not three overlapping labels.
+    canvas.rounded_panel(card.x + 24, card.y + 24, 40, 40, 10, p.background, p.border);
+    canvas.stroke_rect(card.x + 36, card.y + 36, 17, 14, 1, p.muted);
+    locked_label(canvas, card.x + 76, card.y + 26, card.width.saturating_sub(100),
+        "02  /  SHARE THIS DESK", p.muted);
+    locked_label(canvas, card.x + 76, card.y + 48, card.width.saturating_sub(100),
+        "Your ID & password", p.foreground);
 
-    locked_label(
-        canvas,
-        your_id_card.x + 16,
-        your_id_card.y + 41,
-        your_id_card.width.saturating_sub(145),
-        "YOUR DEVICE ID",
-        p.muted,
+    locked_label(canvas, card.x + 24, card.y + 94, card.width.saturating_sub(48),
+        "Your OmniDesk ID", p.foreground);
+    let id_row_x = card.x + 24;
+    let id_row_y = card.y + 111;
+    let id_row_width = card.width.saturating_sub(48);
+    canvas.rounded_panel(
+        id_row_x, id_row_y, id_row_width, 50, 9, p.background, p.border,
     );
-    let id_str = if presentation.local_device_id.is_empty() {
-        "KMJ-..."
+    let id_text = if presentation.local_device_id.is_empty() {
+        "Not assigned"
     } else {
         &presentation.local_device_id
     };
-    locked_label(
-        canvas,
-        your_id_card.x + 16,
-        your_id_card.y + 50,
-        your_id_card.width.saturating_sub(140),
-        id_str,
-        p.foreground,
+    canvas.text_clipped(
+        id_row_x + 13, id_row_y + 17, id_text, 1,
+        id_row_width.saturating_sub(132), p.foreground,
     );
+    let copy_id = layout.your_id_copy_btn_rect();
+    canvas.rounded_panel(
+        copy_id.x, copy_id.y, copy_id.width, copy_id.height, 7, p.border, p.muted,
+    );
+    locked_label(canvas, copy_id.x + 15, copy_id.y + 11,
+        copy_id.width.saturating_sub(28), "Copy ID", p.foreground);
 
-    let copy_btn = layout.your_id_copy_btn_rect();
-    canvas.fill_rect(
-        copy_btn.x,
-        copy_btn.y,
-        copy_btn.width,
-        copy_btn.height,
-        p.border,
+    let caption = layout.your_password_status_rect();
+    locked_label(canvas, caption.x, caption.y, caption.width, "Your password", p.foreground);
+    let field = layout.your_password_field_rect();
+    canvas.rounded_panel(
+        field.x, field.y, field.width, field.height, 9, p.background, p.border,
     );
-    canvas.stroke_rect(
-        copy_btn.x,
-        copy_btn.y,
-        copy_btn.width,
-        copy_btn.height,
-        1,
-        p.muted,
-    );
-    locked_label(
-        canvas,
-        copy_btn.x + 14,
-        copy_btn.y + 10,
-        copy_btn.width.saturating_sub(28),
-        "COPY ID",
-        p.foreground,
-    );
-
-    // Real host session password lifecycle display
-    let password = layout.your_password_status_rect();
-    canvas.h_line(
-        password.x,
-        password.y.saturating_sub(12),
-        password.width,
-        p.border,
-    );
-    locked_label(
-        canvas,
-        password.x,
-        password.y,
-        password.width,
-        &format!("YOUR PASSWORD: {}", presentation.local_password_display),
-        p.foreground,
-    );
-
-    let rev_btn = layout.your_password_reveal_btn_rect();
-    canvas.stroke_rect(
-        rev_btn.x,
-        rev_btn.y,
-        rev_btn.width,
-        rev_btn.height,
-        1,
-        p.border,
-    );
-    locked_label(
-        canvas,
-        rev_btn.x + 8,
-        rev_btn.y + 4,
-        rev_btn.width.saturating_sub(16),
-        if presentation.local_password_revealed {
-            "HIDE"
-        } else {
-            "SHOW"
-        },
-        p.muted,
-    );
-
-    let cp_btn = layout.your_password_copy_btn_rect();
-    canvas.stroke_rect(cp_btn.x, cp_btn.y, cp_btn.width, cp_btn.height, 1, p.border);
-    locked_label(
-        canvas,
-        cp_btn.x + 8,
-        cp_btn.y + 4,
-        cp_btn.width.saturating_sub(16),
-        "COPY",
-        p.muted,
-    );
-
-    let rot_btn = layout.your_password_rotate_btn_rect();
-    canvas.stroke_rect(
-        rot_btn.x,
-        rot_btn.y,
-        rot_btn.width,
-        rot_btn.height,
-        1,
-        p.border,
-    );
-    locked_label(
-        canvas,
-        rot_btn.x + 8,
-        rot_btn.y + 4,
-        rot_btn.width.saturating_sub(16),
-        "NEW",
-        p.muted,
-    );
-    locked_label(
-        canvas,
-        your_id_card.x + 16,
-        your_id_card.y + 159,
-        your_id_card.width.saturating_sub(32),
+    canvas.text_clipped(
+        field.x + 12, field.y + 13,
+        &presentation.local_password_display,
+        1, field.width.saturating_sub(65),
         if presentation.local_password_display == "NOT CONFIGURED" {
-            "Generate a temporary password to share this device"
+            p.muted
         } else {
-            "Secure access still requires verified transport and permission"
+            p.foreground
         },
-        p.muted,
     );
+    let has_password = presentation.local_password_display != "NOT CONFIGURED";
+    let show = layout.your_password_reveal_btn_rect();
+    canvas.rounded_panel(
+        show.x, show.y, show.width, show.height, 6,
+        p.background, p.border,
+    );
+    locked_label(canvas, show.x + 3, show.y + 10,
+        show.width.saturating_sub(6),
+        if presentation.local_password_revealed { "HIDE" } else { "SHOW" },
+        if has_password { p.foreground } else { p.muted });
+    let copy = layout.your_password_copy_btn_rect();
+    canvas.rounded_panel(copy.x, copy.y, copy.width, copy.height,
+        8, p.border, p.muted);
+    locked_label(canvas, copy.x + 24, copy.y + 15,
+        copy.width.saturating_sub(40), "Copy",
+        if has_password { p.foreground } else { p.muted });
+
+    canvas.dot(card.x + 30, card.y + 301, 4, p.muted);
+    locked_label(canvas, card.x + 41, card.y + 294,
+        card.width.saturating_sub(220),
+        "Unattended access: OFF", p.muted);
+    let rotate = layout.your_password_rotate_btn_rect();
+    canvas.rounded_panel(rotate.x, rotate.y, rotate.width, rotate.height,
+        7, p.background, p.border);
+    locked_label(canvas, rotate.x + 11, rotate.y + 9,
+        rotate.width.saturating_sub(18), "New password", p.foreground);
+    locked_label(canvas, card.x + 24, card.y + 330,
+        card.width.saturating_sub(48),
+        "Credentials are local; verified encrypted access is required.", p.muted);
 }
 
 fn draw_locked_remote_id_input(
