@@ -4,6 +4,12 @@
 **Status:** **BLOCKED — UI source revised, but exact-branch build, native screenshot and secure remote-control release are not verified.**  
 **Branch:** `feat/omnidesk-v5-native-modernization-20261110`
 
+## 13 November 2026 — current native QA acceptance boundary
+
+The current `scripts/Build-V5-Windows-Preview.ps1` source requires exactly **13 offline Rust renderer PNGs**, including `12_owner_screenshot_1309.png` (1309×777), and emits a separate **eight-viewport physical Windows screenshot matrix**: 800×600, 960×640, 1024×768, 1308×777, 1309×777, 1419×611, 1600×920 and 1920×1080. Every physical screenshot, keyboard/hit-target and contrast receipt remains `NOT_VERIFIED` until evidence from a running exact-HEAD Windows executable is reviewed. Earlier 11/12-capture and 528/529-test counts anywhere in this document describe historical revisions only; they do not attest the current feature HEAD.
+
+P520 shared `E:\KMJ\KMJ OmniDesk` is dirty and must not be reset, cleaned or overwritten. Previous isolated CodeBridge attempts failed `WORKTREE_HEAD_MISMATCH` / `WORKTREE_GIT_FAILED`; do not treat a connected agent as an authorized exact-feature-HEAD build. Require independent branch SHA verification and an approved isolated Windows execution lane before Cargo fmt, Clippy, tests, renderer capture and physical-app review. No hosted paid CI, installed EXE replacement, main merge or remote-control authorization is implied by this document.
+
 ## Critical correction to earlier readiness claims
 
 An earlier version of this report asserted complete UI parity, 522/522 passing tests, encrypted remote control, measured 2 ms latency / 60 FPS, and a deployed Windows executable. Those are **not accepted as current release evidence**. The user's 2026-11-10 11:06 screenshot showed an outdated four-column interface, and source inspection identified hard-coded connection metrics and a plain-TCP password-proof path that automatically granted access. No exact-head build/CI evidence after the corrective commits has been observed.
@@ -48,7 +54,7 @@ The `Transport` interface now defaults `is_peer_authenticated_and_encrypted()` t
 
 The priority was explicitly changed to completing the previously approved **V5 native visual layout before continuing technology upgrades**. See `docs/design/KMJ_OMNIDESK_V5_NATIVE_DESIGN_LOCK_RECEIPT_20261110.md` for implementation mapping.
 
-Committed on this feature branch: KMJ branded task-first header and sidebar; responsive 800px icon rail, compact/large Connect and Share cards, complete Your Password row with separate Show/Copy/New controls, Remote ID + Password + validation-gated Connect securely, explicit Remote Password Show/Hide (masked by default and re-masked after edit/focus/disconnect), dedicated always-visible Remote Display stage, compact trusted-device strip, distinct Sessions/Transfer/Actions/Automation/Security/Preferences views, truthful premium Session Inspector, screen-reader field roles and matching hit targets. Eleven offline renderer receipt targets are in `crates/omnidesk-desktop/examples/capture_v5_screens.rs`.
+Committed on this feature branch: KMJ branded task-first header and sidebar; responsive 800px icon rail, compact/large Connect and Share cards, complete Your Password row with separate Show/Copy/New controls, Remote ID + Password + validation-gated Connect securely, explicit Remote Password Show/Hide (masked by default and re-masked after edit/focus/disconnect), dedicated always-visible Remote Display stage, compact trusted-device strip, distinct Sessions/Transfer/Actions/Automation/Security/Preferences views, truthful premium Session Inspector, screen-reader field roles and matching hit targets. The current renderer contract contains **13 offline PNG capture targets**, including `12_owner_screenshot_1309.png`, in `crates/omnidesk-desktop/examples/capture_v5_screens.rs`. Earlier eleven-target language is historical.
 
 **Native implementation status:** source committed; actual feature-branch Windows screenshot, Rust compilation and installed preview **NOT VERIFIED**.
 
@@ -69,7 +75,7 @@ During the 2026-11-10 continuation, the GitHub source was inspected for V5 locke
 
 ## Native PNG visual-review path — committed, pending execution
 
-To reduce the unresolved V5 visual-QA blocker, the existing Rust renderer example now targets **12 true PNG pixel-buffer captures** using the already-declared `image` crate (`image::save_buffer_with_format`), with non-network receipt text. It does not fabricate connected-session screenshots.
+To reduce the unresolved V5 visual-QA blocker, the existing Rust renderer example now targets **13 true PNG pixel-buffer captures** using the already-declared `image` crate (`image::save_buffer_with_format`), with non-network receipt text. It does not fabricate connected-session screenshots.
 
 The Windows preview script `scripts/Build-V5-Windows-Preview.ps1` now:
 
@@ -77,8 +83,8 @@ The Windows preview script `scripts/Build-V5-Windows-Preview.ps1` now:
 - Optionally checks `-ExpectedSha` against the exact cloned 40-character Git commit
 - Runs `cargo fmt`, `clippy`, `test` and release `build` and stops on any failure
 - Builds and executes the capture example and refuses missing, malformed or incorrect PNG counts
-- Writes SHA256 checksums for all 12 PNG files, executable SHA256 and exact source SHA to the preview receipt
-- Generates a self-contained local `index.html` gallery of the 12 offline native-render images, clearly labelled **not a Windows desktop screenshot**
+- Writes SHA256 checksums for all 13 PNG files, executable SHA256 and exact source SHA to the preview receipt
+- Generates a self-contained local `index.html` gallery of the 13 offline native-render images, clearly labelled **not a Windows desktop screenshot**
 - Never installs over, stops or overwrites the running OmniDesk Windows application
 
 This provides an actionable zero-additional-cost QA route **when an exact-branch Windows execution profile becomes authorized/available**. The current CodeBridge profiles are limited to the shared checkout or old clean lanes, and this script **has not executed in this chat**. The actual V5 UI remains unverified until a real Windows preview capture and owner visual comparison pass.
