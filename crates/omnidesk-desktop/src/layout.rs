@@ -416,10 +416,12 @@ impl LockedDashboardLayout {
     /// Full document height of the scrollable V5 center column.
     pub const CONTENT_HEIGHT: usize = 1240;
 
-    /// Maximum possible vertical scroll for a physical Windows viewport.
+    /// Maximum scroll for the center document below the fixed 75px header.
+    /// The viewport starts at `viewer.y`, not at the top of the window.
     #[must_use]
     pub const fn max_scroll_y(window_height: usize) -> usize {
-        Self::CONTENT_HEIGHT.saturating_sub(window_height)
+        let visible_center_height = window_height.saturating_sub(75);
+        Self::CONTENT_HEIGHT.saturating_sub(visible_center_height)
     }
 
     #[must_use]
@@ -791,6 +793,24 @@ mod locked_dashboard_tests {
                 "inspector must collapse on 1308px compact Windows desktop"
             );
             assert!(LockedDashboardLayout::max_scroll_y(height) > 0);
+        }
+    }
+
+    #[test]
+    fn v5_scroll_excludes_fixed_header_from_visible_center_height() {
+        // 1240px document is inside the center viewer, below the 75px header.
+        assert_eq!(LockedDashboardLayout::max_scroll_y(777), 538);
+        assert_eq!(LockedDashboardLayout::max_scroll_y(768), 547);
+        assert_eq!(LockedDashboardLayout::max_scroll_y(920), 395);
+        assert_eq!(LockedDashboardLayout::max_scroll_y(1315), 0);
+        assert_eq!(LockedDashboardLayout::max_scroll_y(0), 1240);
+        for height in [600, 611, 768, 777, 920, 1080, 1315] {
+            let viewer_height = height.saturating_sub(75);
+            let scroll = LockedDashboardLayout::max_scroll_y(height);
+            assert!(scroll <= LockedDashboardLayout::CONTENT_HEIGHT);
+            if viewer_height <= LockedDashboardLayout::CONTENT_HEIGHT {
+                assert_eq!(scroll + viewer_height, LockedDashboardLayout::CONTENT_HEIGHT);
+            }
         }
     }
 
