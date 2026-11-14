@@ -140,7 +140,10 @@ The offline Rust-render QA example and SHA-pinned Windows preview builder now sh
 
 **Important:** the screenshot is of the owner's *currently running Windows app*, not of the latest GitHub Rust branch. These source commits do not install a new executable. A fresh exact-head Windows build, actual native app screenshot and side-by-side visual signoff are still **NOT VERIFIED**; no claimed 100% parity or production remote-control functionality.
 
-## Latest validation status (historical receipts below, not current HEAD)
+## Historical validation table — NOT current feature HEAD acceptance
+
+> **Evidence boundary (14 November 2026):** The following 529-test / 11-PNG / compiled-EXE receipt belongs to an older local build. Its exact source SHA has not been attested against feature HEAD `df4a74fca649809e4bfb082ec0ceaed381c61318`. The table's `Exact-HEAD` labels refer only to that historical local checkout, **not** the current feature branch. The current contract requires 13 PNGs, including `12_owner_screenshot_1309.png`, plus eight independent real Windows screenshot gates. Current-HEAD fmt, Clippy, tests, renderer captures and physical-app visual parity are all **NOT VERIFIED**. Do not use this historical table to approve release.
+
 
 | Gate | Evidence |
 |---|---|
@@ -156,7 +159,11 @@ The offline Rust-render QA example and SHA-pinned Windows preview builder now sh
 | Signed installer + rollback | **NOT VERIFIED** |
 | Paid hosted CI | Not used (100% local zero-cost execution) |
 
-## Next owner-testable step
+## Next owner-testable step (current 13-PNG contract)
+
+Run the SHA-pinned `scripts/Build-V5-Windows-Preview.ps1` only in an approved isolated P520 lane after verifying device/project grants and the expected remote HEAD. Inspect all 13 renderer PNGs and the separate running-EXE screenshots at 800×600, 960×640, 1024×768, 1308×777, 1309×777, 1419×611, 1600×920 and 1920×1080. Preserve the dirty shared checkout and installed executable. No paid CI or main-branch merge.
+
+### Superseded historical suggestions
 
 1. Review the historical 11 generated native V5 PNG captures in `target/v5_captures/` and compare with approved `docs/prototypes/omnidesk-v5/index.html`.
 2. Launch the isolated Windows release binary (`target/release/omnidesk-desktop.exe`) on P520 to inspect live interactive rendering across 100%, 125%, 150% DPI without touching or overwriting any production installation.
