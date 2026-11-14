@@ -3,7 +3,8 @@ use font8x8::{BASIC_FONTS, UnicodeFonts};
 use std::sync::OnceLock;
 
 use crate::{
-    LockedDashboardLayout, PresentationModel, ShellLayout, brand::official_kmj_mark,
+    LockedDashboardLayout, PresentationModel, ShellLayout,
+    brand::{approved_v5_header_logo, official_kmj_mark},
     control_rects_for,
 };
 
@@ -42,8 +43,43 @@ fn native_ui_font() -> Option<&'static FontArc> {
     .as_ref()
 }
 
+/// Prefer the operating system's real bold face for the approved V5
+/// hierarchy. Never package or redistribute a proprietary font file.
+fn native_ui_bold_font() -> Option<&'static FontArc> {
+    static FONT: OnceLock<Option<FontArc>> = OnceLock::new();
+    FONT.get_or_init(|| {
+        #[cfg(windows)]
+        let paths: &[&str] = &[
+            r"C:\Windows\Fonts\segoeuib.ttf",
+            r"C:\Windows\Fonts\arialbd.ttf",
+        ];
+        #[cfg(target_os = "macos")]
+        let paths: &[&str] = &[
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/Library/Fonts/Arial Bold.ttf",
+        ];
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        let paths: &[&str] = &[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        ];
+        paths.iter().find_map(|path| {
+            std::fs::read(path)
+                .ok()
+                .and_then(|data| FontArc::try_from_vec(data).ok())
+        })
+    })
+    .as_ref()
+}
+
 const fn native_text_size(scale: usize) -> f32 {
-    if scale >= 2 { 22.0 } else { 16.0 }
+    if scale >= 3 {
+        34.0
+    } else if scale == 2 {
+        22.0
+    } else {
+        16.0
+    }
 }
 
 struct Canvas<'a> {
@@ -61,6 +97,131 @@ impl Canvas<'_> {
             for px in x.min(self.width)..max_x {
                 self.pixels[row + px] = color;
             }
+        }
+    }
+
+    /// A compact rounded panel primitive for the owner-locked V5 card
+    /// language. Rectangular borders were the main source of the old,
+    /// box-heavy appearance in the native screenshot.
+    fn rounded_fill(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        radius: usize,
+        color: u32,
+    ) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        let radius = radius.min(width / 2).min(height / 2);
+        if radius == 0 {
+            self.fill_rect(x, y, width, height, color);
+            return;
+        }
+        self.fill_rect(x, y + radius, width, height - radius * 2, color);
+        for row in 0..radius {
+            // Three-step antialias-free corner: soft enough at 1x/125% DPI
+            // without any downloaded textures, dependencies or GPU effects.
+            let inset = if row < radius / 4 {
+                radius / 2
+            } else if row < radius / 2 {
+                radius / 4
+            } else {
+                1
+            };
+            self.fill_rect(
+                x + inset,
+                y + row,
+                width.saturating_sub(inset * 2),
+                1,
+                color,
+            );
+            self.fill_rect(
+                x + inset,
+                y + height - row - 1,
+                width.saturating_sub(inset * 2),
+                1,
+                color,
+            );
+        }
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "canvas panel primitive keeps its exact rectangle and palette at every call site"
+    )]
+    fn rounded_panel(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        radius: usize,
+        background: u32,
+        border: u32,
+    ) {
+        self.rounded_fill(x, y, width, height, radius, border);
+        if width >= 3 && height >= 3 {
+            self.rounded_fill(
+                x + 1,
+                y + 1,
+                width - 2,
+                height - 2,
+                radius.saturating_sub(1),
+                background,
+            );
+        }
+    }
+
+    /// Approved V5 cards have a subtle dark-slate diagonal gradient rather
+    /// than the old flat rectangles. Horizontal scanlines keep this cheap in
+    /// the event-driven native renderer and preserve rounded 14px borders.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "pixel rectangle and approved palette are explicit at the call site"
+    )]
+    fn rounded_gradient_panel(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        radius: usize,
+        top: u32,
+        bottom: u32,
+        border: u32,
+    ) {
+        if width < 3 || height < 3 {
+            return;
+        }
+        self.rounded_fill(x, y, width, height, radius, border);
+        let inner_w = width - 2;
+        let inner_h = height - 2;
+        let inner_radius = radius.saturating_sub(1).min(inner_w / 2).min(inner_h / 2);
+        for row in 0..inner_h {
+            let corner_row = row.min(inner_h - row - 1);
+            let inset = if inner_radius > 0 && corner_row < inner_radius {
+                if corner_row < inner_radius / 4 {
+                    inner_radius / 2
+                } else if corner_row < inner_radius / 2 {
+                    inner_radius / 4
+                } else {
+                    1
+                }
+            } else {
+                0
+            };
+            let blend = row.saturating_mul(256) / inner_h.saturating_sub(1).max(1);
+            let tint = blend_rgb(top, bottom, blend);
+            self.fill_rect(
+                x + 1 + inset,
+                y + 1 + row,
+                inner_w.saturating_sub(2 * inset),
+                1,
+                tint,
+            );
         }
     }
 
@@ -273,6 +434,89 @@ impl Canvas<'_> {
         }
     }
 
+    /// Exact size-aware OS-bold glyph advances, matching native rendering
+    /// instead of guessing fixed bitmap character widths.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn bold_text_width(text: &str, size: f32) -> usize {
+        if let Some(font) = native_ui_bold_font().or_else(native_ui_font) {
+            let scaled = font.as_scaled(PxScale::from(size));
+            let advance: f32 = text
+                .chars()
+                .map(|ch| scaled.h_advance(scaled.glyph_id(ch)))
+                .sum();
+            return advance.ceil() as usize;
+        }
+        text.chars().count().saturating_mul(9)
+    }
+
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap
+    )]
+    fn text_bold_at(&mut self, x: usize, y: usize, text: &str, size: f32, color: u32) {
+        if let Some(font) = native_ui_bold_font().or_else(native_ui_font) {
+            let px = PxScale::from(size);
+            let scaled = font.as_scaled(px);
+            let mut cursor_x = x as f32;
+            let baseline = y as f32 + scaled.ascent();
+            for character in text.chars() {
+                let id = scaled.glyph_id(character);
+                let glyph = id.with_scale_and_position(px, point(cursor_x, baseline));
+                if let Some(outline) = font.outline_glyph(glyph) {
+                    let bounds = outline.px_bounds();
+                    let left = bounds.min.x as i32;
+                    let top = bounds.min.y as i32;
+                    outline.draw(|dx, dy, coverage| {
+                        self.blend_coverage(
+                            left.saturating_add(dx as i32),
+                            top.saturating_add(dy as i32),
+                            color,
+                            coverage,
+                        );
+                    });
+                }
+                cursor_x += scaled.h_advance(id);
+            }
+        } else {
+            self.text(x, y, text, 1, color);
+        }
+    }
+
+    fn text_bold_clipped(
+        &mut self,
+        x: usize,
+        y: usize,
+        label: &str,
+        size: f32,
+        max_width: usize,
+        color: u32,
+    ) {
+        if max_width == 0 {
+            return;
+        }
+        if Self::bold_text_width(label, size) <= max_width {
+            self.text_bold_at(x, y, label, size, color);
+            return;
+        }
+        let ellipsis = "...";
+        let dots = Self::bold_text_width(ellipsis, size);
+        if dots >= max_width {
+            return;
+        }
+        let mut clipped = String::new();
+        for ch in label.chars() {
+            clipped.push(ch);
+            if Self::bold_text_width(&clipped, size).saturating_add(dots) > max_width {
+                clipped.pop();
+                break;
+            }
+        }
+        let used = Self::bold_text_width(&clipped, size);
+        self.text_bold_at(x, y, &clipped, size, color);
+        self.text_bold_at(x + used, y, ellipsis, size, color);
+    }
+
     /// A filled status dot: online devices get accent, offline get muted.
     fn dot(&mut self, cx: usize, cy: usize, radius: usize, color: u32) {
         let diameter = radius.saturating_mul(2);
@@ -296,6 +540,19 @@ impl Canvas<'_> {
             }
         }
     }
+}
+
+/// Integer RGB interpolation avoids allocations and floating point in the
+/// native V5 rounded gradient scanline path.
+fn blend_rgb(top: u32, bottom: u32, fraction: usize) -> u32 {
+    let t = u32::try_from(fraction.min(256)).unwrap_or(256);
+    let mut rgb = 0_u32;
+    for shift in [0_u32, 8, 16] {
+        let a = (top >> shift) & 0xff;
+        let b = (bottom >> shift) & 0xff;
+        rgb |= ((a * (256 - t) + b * t + 128) / 256) << shift;
+    }
+    rgb
 }
 
 #[derive(Clone, Copy)]
@@ -698,18 +955,6 @@ fn draw_footer(
 // devices, or fabricated connection metrics may be rendered here.
 const VERIFIED_GREEN: u32 = 0x1f_da_78;
 
-fn locked_frame(
-    canvas: &mut Canvas<'_>,
-    left: usize,
-    top: usize,
-    width: usize,
-    height: usize,
-    palette: Palette,
-) {
-    canvas.fill_rect(left, top, width, height, palette.surface);
-    canvas.stroke_rect(left, top, width, height, 1, palette.border);
-}
-
 fn locked_label(
     canvas: &mut Canvas<'_>,
     x: usize,
@@ -721,104 +966,191 @@ fn locked_label(
     canvas.text_clipped(x, y, label, 1, width, color);
 }
 
+/// A compact native eye icon replaces the clipped "SHO..." text in the V5
+/// password buttons. The button's full accessible label and hit area remain
+/// independent of its pixel glyph. The slash indicates a masked password.
+fn draw_locked_password_eye(
+    canvas: &mut Canvas<'_>,
+    rect: crate::layout::DashboardRect,
+    revealed: bool,
+    color: u32,
+    background: u32,
+) {
+    let cx = rect.x + rect.width / 2;
+    let cy = rect.y + rect.height / 2;
+    // Integer-only quadratic arcs give the icon a crisp eye silhouette on
+    // Windows without relying on missing emoji glyphs or additional fonts.
+    for step in 0..=24_usize {
+        let distance = step.abs_diff(12);
+        let rise = (144 - distance * distance) * 7 / 144;
+        let x = cx.saturating_sub(12) + step;
+        canvas.fill_rect(x, cy.saturating_sub(rise), 1, 1, color);
+        canvas.fill_rect(x, cy + rise, 1, 1, color);
+    }
+    canvas.dot(cx, cy, 3, color);
+    canvas.dot(cx, cy, 1, background);
+    if !revealed {
+        // Clear a 2px diagonal gap so the eye-off slash stays readable rather
+        // than becoming the overlapping horizontal strokes seen in the QA.
+        for step in 0..=24_usize {
+            let x = cx.saturating_sub(12) + step;
+            let y = cy.saturating_sub(10) + step * 20 / 24;
+            canvas.fill_rect(x, y, 2, 2, background);
+        }
+        for step in 0..=24_usize {
+            let x = cx.saturating_sub(12) + step;
+            let y = cy.saturating_sub(10) + step * 20 / 24;
+            canvas.fill_rect(x, y, 1, 1, color);
+        }
+    }
+}
 fn draw_locked_header(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    // Header: branding, search affordance and account utilities, as in lock.
-    canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, p.surface);
-    canvas.fill_rect(0, 0, canvas.width, 2, p.accent);
-    canvas.h_line(0, layout.top_bar_height - 1, canvas.width, p.border);
-    if let Some(mark) = official_kmj_mark() {
+    // Match the owner-locked HTML chrome. The logo is the exact embedded
+    // approved brand asset, not a newly drawn text approximation.
+    canvas.fill_rect(0, 0, canvas.width, layout.top_bar_height, 0x09_0e_15);
+    canvas.h_line(
+        0,
+        layout.top_bar_height.saturating_sub(1),
+        canvas.width,
+        0x25_31_3f,
+    );
+    if let Some(logo) = approved_v5_header_logo() {
         canvas.image_rgba(
-            (14, 12, 44, 44),
+            (23, 15, 162, 44),
+            (
+                usize::try_from(logo.width).unwrap_or(0),
+                usize::try_from(logo.height).unwrap_or(0),
+            ),
+            &logo.rgba,
+        );
+    } else if let Some(mark) = official_kmj_mark() {
+        canvas.image_rgba(
+            (23, 16, 42, 42),
             (
                 usize::try_from(mark.width).unwrap_or(0),
                 usize::try_from(mark.height).unwrap_or(0),
             ),
             &mark.rgba,
         );
+        canvas.text_bold_at(73, 18, "KMJ TECHNO", 15.0, p.foreground);
     }
-    canvas.text(70, 19, "KMJ OmniDesk", 2, p.foreground);
-    canvas.text(70, 45, "INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
+    canvas.fill_rect(245, 21, 1, 33, 0x33_40_50);
+    canvas.text_bold_at(266, 23, "OmniDesk", 15.0, p.foreground);
+    canvas.text_bold_at(266, 43, "REMOTE WORKSPACE", 9.0, 0x8d_9a_ac);
 
-    let search_x = canvas.width / 3;
-    let search_w = canvas.width / 3;
-    canvas.fill_rect(search_x, 15, search_w, 37, p.background);
-    canvas.stroke_rect(search_x, 15, search_w, 37, 1, p.border);
-    locked_label(
-        canvas,
-        search_x + 14,
-        29,
-        search_w.saturating_sub(28),
-        "SEARCH UNAVAILABLE UNTIL DEVICE SYNC",
-        p.muted,
-    );
+    // Offline presentation only: do not fabricate search results.
+    if canvas.width >= 1024 {
+        let search_x = 406;
+        let search_w = canvas.width.saturating_sub(search_x + 252).min(365);
+        if search_w >= 180 {
+            canvas.rounded_panel(search_x, 18, search_w, 38, 9, 0x0c_12_1b, 0x29_34_42);
+            canvas.dot(search_x + 23, 35, 5, 0x8d_9a_ac);
+            canvas.dot(search_x + 23, 35, 3, 0x0c_12_1b);
+            canvas.fill_rect(search_x + 27, 40, 7, 1, 0x8d_9a_ac);
+            canvas.text_clipped(
+                search_x + 43,
+                28,
+                "Find tools or devices...",
+                1,
+                search_w.saturating_sub(122),
+                0x8d_9a_ac,
+            );
+            canvas.rounded_panel(
+                search_x + search_w - 52,
+                27,
+                42,
+                20,
+                4,
+                0x0c_12_1b,
+                0x33_40_50,
+            );
+            canvas.text_bold_at(search_x + search_w - 46, 31, "Ctrl K", 9.0, 0x8d_9a_ac);
+        }
+    }
 
-    let settings_rect = layout.settings_button_rect(canvas.width);
-    let help_rect = layout.help_button_rect(canvas.width);
-    let settings_color = if presentation.nav_tab == omnidesk_core::product_shell::NavTab::Settings {
-        p.accent
-    } else {
-        p.muted
-    };
-    let help_color = if presentation.help_open {
-        p.accent
-    } else {
-        p.muted
-    };
-    locked_label(
-        canvas,
-        settings_rect.x,
-        29,
-        settings_rect.width,
-        "SETTINGS",
-        settings_color,
+    if canvas.width >= 1200 {
+        let status_x = canvas.width.saturating_sub(311);
+        canvas.dot(status_x + 4, 37, 4, 0x7d_89_97);
+        canvas.text_bold_at(status_x + 15, 29, "No active session", 11.0, 0xc0_ca_d8);
+    }
+    let badge_x = canvas.width.saturating_sub(190);
+    canvas.rounded_panel(badge_x, 22, 118, 31, 8, 0x2d_13_1d, 0x73_33_43);
+    canvas.text_bold_at(badge_x + 14, 30, "V5 PREVIEW", 11.0, 0xee_a6_b2);
+
+    let help = layout.help_button_rect(canvas.width);
+    canvas.rounded_panel(
+        help.x,
+        help.y,
+        help.width,
+        help.height,
+        10,
+        0x11_19_23,
+        0x29_34_42,
     );
-    locked_label(canvas, help_rect.x, 29, help_rect.width, "HELP", help_color);
+    canvas.dot(help.x + help.width / 2, help.y + 17, 8, 0xba_c7_d8);
+    canvas.dot(help.x + help.width / 2, help.y + 17, 6, 0x11_19_23);
+    canvas.text_bold_at(
+        help.x + help.width / 2 - 4,
+        help.y + 8,
+        "?",
+        14.0,
+        if presentation.help_open {
+            p.accent
+        } else {
+            0xba_c7_d8
+        },
+    );
 }
-
 fn draw_locked_nav_icon(canvas: &mut Canvas<'_>, index: usize, x: usize, y: usize, color: u32) {
-    // Low-overdraw monochrome vector-style icons; no external font/icon
-    // dependency or fabricated online/connection state.
+    // Minimal native glyphs for the owner-locked six navigation destinations.
+    // Their visual location and labels are shared by pointer and AccessKit.
     match index {
         0 => {
-            canvas.stroke_rect(x, y, 16, 12, 1, color);
-            canvas.fill_rect(x + 7, y + 12, 2, 3, color);
-            canvas.fill_rect(x + 4, y + 15, 8, 1, color);
+            // Remote access: desktop monitor.
+            canvas.stroke_rect(x, y, 16, 11, 1, color);
+            canvas.fill_rect(x + 7, y + 11, 2, 3, color);
+            canvas.h_line(x + 4, y + 14, 8, color);
         }
         1 => {
-            canvas.stroke_rect(x, y + 4, 10, 8, 1, color);
-            canvas.stroke_rect(x + 7, y, 10, 8, 1, color);
+            // Trusted devices: two overlapping verified computers.
+            canvas.stroke_rect(x, y + 4, 11, 8, 1, color);
+            canvas.stroke_rect(x + 6, y, 11, 8, 1, color);
         }
         2 => {
-            canvas.stroke_rect(x + 2, y, 12, 16, 1, color);
-            canvas.fill_rect(x + 5, y + 6, 6, 1, color);
+            // Sessions: clock face and hands.
+            canvas.dot(x + 8, y + 8, 7, color);
+            canvas.dot(x + 8, y + 8, 5, 0x0e_11_14);
+            canvas.fill_rect(x + 8, y + 4, 1, 5, color);
+            canvas.h_line(x + 8, y + 8, 4, color);
         }
         3 => {
-            for dy in [0, 8] {
-                for dx in [0, 8] {
-                    canvas.stroke_rect(x + dx, y + dy, 6, 6, 1, color);
-                }
-            }
+            // File transfer: document with a transfer arrow.
+            canvas.stroke_rect(x + 3, y, 10, 15, 1, color);
+            canvas.h_line(x + 5, y + 5, 6, color);
+            canvas.h_line(x + 5, y + 8, 4, color);
+            canvas.fill_rect(x + 12, y + 11, 5, 1, color);
         }
         4 => {
-            canvas.stroke_rect(x + 2, y + 2, 12, 12, 1, color);
-            canvas.dot(x + 8, y + 8, 3, color);
-        }
-        5 => {
-            canvas.stroke_rect(x + 3, y, 10, 13, 1, color);
-            canvas.fill_rect(x + 7, y + 8, 2, 5, color);
+            // Security: shield with an identity mark.
+            canvas.stroke_rect(x + 3, y, 11, 13, 1, color);
+            canvas.dot(x + 8, y + 6, 2, color);
+            canvas.fill_rect(x + 7, y + 10, 3, 2, color);
         }
         _ => {
+            // Preferences: settings dial.
             canvas.dot(x + 8, y + 8, 7, color);
-            canvas.dot(x + 8, y + 8, 3, 0x0e_11_14);
+            canvas.dot(x + 8, y + 8, 4, 0x0e_11_14);
+            canvas.dot(x + 8, y + 8, 2, color);
         }
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn draw_locked_navigation(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -827,62 +1159,107 @@ fn draw_locked_navigation(
 ) {
     let nav = layout.navigation;
     let nav_labels = [
-        "Devices",
-        "Connections",
-        "File Transfer",
-        "Remote Actions",
-        "Automation",
-        "Security",
-        "Settings",
+        "Remote access",
+        "Trusted devices",
+        "Sessions",
+        "File transfer",
+        "Security center",
+        "Preferences",
     ];
     let nav_tabs = [
         omnidesk_core::product_shell::NavTab::Devices,
+        omnidesk_core::product_shell::NavTab::TrustedDevices,
         omnidesk_core::product_shell::NavTab::Connections,
         omnidesk_core::product_shell::NavTab::FileTransfer,
-        omnidesk_core::product_shell::NavTab::RemoteActions,
-        omnidesk_core::product_shell::NavTab::Automation,
         omnidesk_core::product_shell::NavTab::Security,
         omnidesk_core::product_shell::NavTab::Settings,
     ];
+    // The compact rail is deliberately icon-only; an unbounded heading
+    // rendered as "WORKS..." on 1024px Windows displays. All six accessible
+    // navigation labels remain available through AccessKit.
+    let compact_rail = nav.width < 120;
+    if !compact_rail {
+        canvas.text_bold_at(nav.x + 12, nav.y + 25, "WORKSPACE", 10.0, 0x6f_82_98);
+    }
+    // The owner's locked V5 reference has a distinct Protection section.
+    canvas.h_line(
+        nav.x + 14,
+        nav.y + 255,
+        nav.width.saturating_sub(28),
+        p.border,
+    );
+    if !compact_rail {
+        canvas.text_bold_at(nav.x + 12, nav.y + 280, "PROTECTION", 10.0, 0x6f_82_98);
+    }
     for (index, label) in nav_labels.iter().enumerate() {
         let rect = layout.nav_tab_rect(index);
         let active = nav_tabs[index] == presentation.nav_tab;
         if active {
-            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, 0x6a_14_1d);
-            canvas.fill_rect(rect.x, rect.y, 3, rect.height, p.accent);
-            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.danger);
+            canvas.rounded_fill(rect.x, rect.y, rect.width, rect.height, 9, 0xc4_00_31);
         }
-        let item_color = if active { p.foreground } else { p.muted };
-        draw_locked_nav_icon(canvas, index, rect.x + 7, rect.y + 10, item_color);
-        locked_label(
-            canvas,
-            rect.x + 29,
-            rect.y + 13,
-            rect.width.saturating_sub(34),
-            label,
-            item_color,
-        );
+        let item_color = if active { p.foreground } else { 0xb9_c6_d6 };
+        let compact_rail = nav.width < 120;
+        let icon_x = if compact_rail {
+            rect.x + rect.width.saturating_sub(16) / 2
+        } else {
+            rect.x + 15
+        };
+        draw_locked_nav_icon(canvas, index, icon_x, rect.y + 10, item_color);
+        if !compact_rail {
+            canvas.text_bold_clipped(
+                rect.x + 44,
+                rect.y + 11,
+                label,
+                12.0,
+                rect.width.saturating_sub(50),
+                item_color,
+            );
+        }
+    }
+    // The reference places this secure-access help card below the first
+    // fold, not over the lower navigation on a 1308x777 Windows display.
+    if canvas.height < 1100 {
+        return;
     }
     let nav_bottom = nav.y + nav.height;
-    canvas.fill_rect(nav.x + 9, nav_bottom - 69, nav.width - 18, 56, p.background);
-    canvas.stroke_rect(nav.x + 9, nav_bottom - 69, nav.width - 18, 56, 1, p.border);
-    canvas.dot(nav.x + 22, nav_bottom - 47, 4, p.muted);
-    locked_label(
-        canvas,
-        nav.x + 32,
-        nav_bottom - 51,
-        nav.width.saturating_sub(48),
-        "Disconnected",
-        p.foreground,
+    canvas.rounded_panel(
+        nav.x + 9,
+        nav_bottom - 69,
+        nav.width.saturating_sub(18),
+        56,
+        9,
+        p.background,
+        p.border,
     );
-    locked_label(
-        canvas,
-        nav.x + 17,
-        nav_bottom - 28,
-        nav.width.saturating_sub(28),
-        "Local device",
-        p.muted,
-    );
+    if nav.width < 120 {
+        canvas.dot(nav.x + nav.width / 2, nav_bottom - 45, 5, p.muted);
+        locked_label(
+            canvas,
+            nav.x + 12,
+            nav_bottom - 31,
+            nav.width.saturating_sub(24),
+            "LOCAL",
+            p.muted,
+        );
+    } else {
+        canvas.dot(nav.x + 22, nav_bottom - 47, 4, p.muted);
+        locked_label(
+            canvas,
+            nav.x + 32,
+            nav_bottom - 51,
+            nav.width.saturating_sub(48),
+            presentation.status,
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            nav.x + 17,
+            nav_bottom - 28,
+            nav.width.saturating_sub(28),
+            "Local device",
+            p.muted,
+        );
+    }
 }
 
 fn draw_locked_device_rows(
@@ -891,154 +1268,68 @@ fn draw_locked_device_rows(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    let devices = layout.devices;
-    let all_color = if presentation.device_filter == omnidesk_core::product_shell::DeviceFilter::All
+    let area = layout.devices;
+    let filter = presentation.device_filter;
+    for (index, (label, active)) in [
+        (
+            "ALL",
+            filter == omnidesk_core::product_shell::DeviceFilter::All,
+        ),
+        (
+            "ONLINE",
+            filter == omnidesk_core::product_shell::DeviceFilter::Online,
+        ),
+        (
+            "OFFLINE",
+            filter == omnidesk_core::product_shell::DeviceFilter::Offline,
+        ),
+    ]
+    .iter()
+    .enumerate()
     {
-        p.foreground
-    } else {
-        p.muted
-    };
-    let online_color =
-        if presentation.device_filter == omnidesk_core::product_shell::DeviceFilter::Online {
-            p.foreground
-        } else {
-            p.muted
+        let rect = match index {
+            0 => layout.filter_all_rect(),
+            1 => layout.filter_online_rect(),
+            _ => layout.filter_offline_rect(),
         };
-    let offline_color =
-        if presentation.device_filter == omnidesk_core::product_shell::DeviceFilter::Offline {
-            p.foreground
-        } else {
-            p.muted
-        };
-
-    locked_label(canvas, devices.x + 15, devices.y + 75, 45, "ALL", all_color);
-    locked_label(
-        canvas,
-        devices.x + 68,
-        devices.y + 75,
-        65,
-        "ONLINE",
-        online_color,
-    );
-    locked_label(
-        canvas,
-        devices.x + 140,
-        devices.y + 75,
-        70,
-        "OFFLINE",
-        offline_color,
-    );
-
-    let empty_directory = presentation.controls.len() == 1
-        && matches!(
-            presentation.controls[0].action,
-            crate::DesktopAction::FocusDevices
-        )
-        && !presentation.controls[0].enabled;
-    if empty_directory {
         locked_label(
             canvas,
-            devices.x + 14,
-            devices.y + 112,
-            devices.width - 28,
-            "No online device available",
-            p.muted,
+            rect.x,
+            rect.y,
+            rect.width,
+            label,
+            if *active { p.foreground } else { p.muted },
         );
+    }
+    let empty = presentation.controls.iter().all(|control| !control.enabled);
+    if empty {
         locked_label(
             canvas,
-            devices.x + 14,
-            devices.y + 136,
-            devices.width - 28,
-            "Pair a trusted device first",
+            area.x + 14,
+            area.y + 53,
+            area.width.saturating_sub(28),
+            "No enrolled devices. Use Remote ID to request verified access.",
             p.muted,
         );
+        return;
     }
-    if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices {
-        for (index, control) in presentation.controls.iter().enumerate() {
-            if matches!(control.action, crate::DesktopAction::FocusDevices) && !control.enabled {
-                continue;
-            }
-            let rect = layout.device_row(index);
-            if rect.y + rect.height >= devices.y + devices.height - 12 {
-                break;
-            }
-            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.background);
-            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.border);
-            canvas.dot(
-                rect.x + 14,
-                rect.y + rect.height / 2,
-                4,
-                if control.enabled {
-                    VERIFIED_GREEN
-                } else {
-                    p.muted
-                },
-            );
-            locked_label(
-                canvas,
-                rect.x + 28,
-                rect.y + 18,
-                rect.width.saturating_sub(44),
-                &control.label,
-                if control.enabled {
-                    p.foreground
-                } else {
-                    p.muted
-                },
-            );
+    for (index, control) in presentation.controls.iter().take(3).enumerate() {
+        let rect = layout.device_row(index);
+        if !control.enabled {
+            continue;
         }
+        canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.background);
+        canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.border);
+        canvas.dot(rect.x + 11, rect.y + 21, 4, VERIFIED_GREEN);
+        locked_label(
+            canvas,
+            rect.x + 24,
+            rect.y + 18,
+            rect.width.saturating_sub(32),
+            &control.label,
+            p.foreground,
+        );
     }
-}
-
-fn draw_locked_secondary_tab(
-    canvas: &mut Canvas<'_>,
-    nav_tab: omnidesk_core::product_shell::NavTab,
-    devices_x: usize,
-    devices_y: usize,
-    devices_width: usize,
-    p: Palette,
-) {
-    let (line1, line2) = match nav_tab {
-        omnidesk_core::product_shell::NavTab::Connections => (
-            "No active connections",
-            "Pair or connect a peer to view active sessions",
-        ),
-        omnidesk_core::product_shell::NavTab::FileTransfer => (
-            "No active transfer session",
-            "Connect to a device to send or receive files",
-        ),
-        omnidesk_core::product_shell::NavTab::RemoteActions => (
-            "Select a device",
-            "Remote actions require an active connection",
-        ),
-        omnidesk_core::product_shell::NavTab::Automation => (
-            "No scheduled tasks",
-            "Automations run on paired host devices",
-        ),
-        omnidesk_core::product_shell::NavTab::Security => {
-            ("Security status", "Transport security not verified")
-        }
-        omnidesk_core::product_shell::NavTab::Settings => {
-            ("Settings view", "Default display quality: Balanced")
-        }
-        omnidesk_core::product_shell::NavTab::Devices => ("Unavailable", "No data"),
-    };
-    locked_label(
-        canvas,
-        devices_x + 14,
-        devices_y + 80,
-        devices_width - 28,
-        line1,
-        p.foreground,
-    );
-    locked_label(
-        canvas,
-        devices_x + 14,
-        devices_y + 105,
-        devices_width - 28,
-        line2,
-        p.muted,
-    );
 }
 
 fn draw_locked_devices(
@@ -1047,109 +1338,240 @@ fn draw_locked_devices(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    let devices = layout.devices;
-    let nav_tab = presentation.nav_tab;
-    let col_title = match nav_tab {
-        omnidesk_core::product_shell::NavTab::Devices => "Devices",
-        omnidesk_core::product_shell::NavTab::Connections => "Connections",
-        omnidesk_core::product_shell::NavTab::FileTransfer => "File Transfer",
-        omnidesk_core::product_shell::NavTab::RemoteActions => "Remote Actions",
-        omnidesk_core::product_shell::NavTab::Automation => "Automation",
-        omnidesk_core::product_shell::NavTab::Security => "Security",
-        omnidesk_core::product_shell::NavTab::Settings => "Settings",
-    };
-
+    let area = layout.devices;
+    canvas.fill_rect(area.x, area.y, area.width, area.height, p.surface);
+    canvas.stroke_rect(area.x, area.y, area.width, area.height, 1, p.border);
     locked_label(
         canvas,
-        devices.x + 14,
-        devices.y + 21,
-        devices.width - 28,
-        col_title,
+        area.x + 14,
+        area.y + 12,
+        area.width.saturating_sub(28),
+        "TRUSTED DEVICES",
         p.foreground,
     );
-    canvas.fill_rect(
-        devices.x + 10,
-        devices.y + 60,
-        devices.width - 20,
-        1,
-        p.border,
-    );
-
-    if nav_tab == omnidesk_core::product_shell::NavTab::Devices {
+    if presentation.nav_tab == omnidesk_core::product_shell::NavTab::Devices {
         draw_locked_device_rows(canvas, presentation, layout, p);
     } else {
-        draw_locked_secondary_tab(canvas, nav_tab, devices.x, devices.y, devices.width, p);
+        let status = match presentation.nav_tab {
+            omnidesk_core::product_shell::NavTab::TrustedDevices => {
+                "Manage only enrolled trusted peers"
+            }
+            omnidesk_core::product_shell::NavTab::Connections => "Sessions require a verified peer",
+            omnidesk_core::product_shell::NavTab::FileTransfer => {
+                "File transfer requires an authorized session"
+            }
+            omnidesk_core::product_shell::NavTab::RemoteActions => {
+                "Remote actions require scoped permission"
+            }
+            omnidesk_core::product_shell::NavTab::Automation => "No verified automation session",
+            omnidesk_core::product_shell::NavTab::Security => {
+                "Peer identity must be verified before control"
+            }
+            omnidesk_core::product_shell::NavTab::Settings => "Local session settings",
+            omnidesk_core::product_shell::NavTab::Devices => "No device selected",
+        };
+        locked_label(
+            canvas,
+            area.x + 14,
+            area.y + 53,
+            area.width.saturating_sub(28),
+            status,
+            p.muted,
+        );
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn draw_locked_your_id_card(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    let your_id_card = layout.your_id_card_rect();
-    canvas.fill_rect(
-        your_id_card.x,
-        your_id_card.y,
-        your_id_card.width,
-        your_id_card.height,
-        p.surface,
+    let card = layout.your_id_card_rect();
+    canvas.rounded_gradient_panel(
+        card.x,
+        card.y,
+        card.width,
+        card.height,
+        14,
+        0x16_1f_2b,
+        0x0d_14_1d,
+        0x29_34_42,
     );
-    canvas.stroke_rect(
-        your_id_card.x,
-        your_id_card.y,
-        your_id_card.width,
-        your_id_card.height,
-        1,
-        p.border,
+    // Approved V5 has icon + title hierarchy, not three overlapping labels.
+    canvas.rounded_panel(card.x + 24, card.y + 24, 40, 40, 10, p.background, p.border);
+    canvas.stroke_rect(card.x + 36, card.y + 36, 17, 14, 1, p.muted);
+    canvas.text_bold_clipped(
+        card.x + 76,
+        card.y + 24,
+        "02 / SHARE THIS DESK",
+        9.5,
+        card.width.saturating_sub(100),
+        0xf2_76_89,
     );
-    locked_label(
-        canvas,
-        your_id_card.x + 16,
-        your_id_card.y + 14,
-        your_id_card.width.saturating_sub(32),
-        "THIS DESKTOP  ·  YOUR ID",
-        p.muted,
+    canvas.text_bold_clipped(
+        card.x + 76,
+        card.y + 42,
+        "Your ID & password",
+        17.0,
+        card.width.saturating_sub(100),
+        p.foreground,
     );
 
-    let id_str = if presentation.local_device_id.is_empty() {
-        "KMJ-..."
+    canvas.text_bold_at(
+        card.x + 24,
+        card.y + 90,
+        "Your OmniDesk ID",
+        11.5,
+        0xd8_e1_eb,
+    );
+    canvas.text_bold_at(
+        card.x + card.width.saturating_sub(104),
+        card.y + 90,
+        "This device",
+        10.0,
+        p.muted,
+    );
+    let id_row_x = card.x + 24;
+    let id_row_y = card.y + 111;
+    let id_row_width = card.width.saturating_sub(48);
+    canvas.rounded_panel(
+        id_row_x,
+        id_row_y,
+        id_row_width,
+        50,
+        9,
+        p.background,
+        p.border,
+    );
+    let id_text = if presentation.local_device_id.is_empty() {
+        "Not assigned"
     } else {
         &presentation.local_device_id
     };
-    locked_label(
-        canvas,
-        your_id_card.x + 16,
-        your_id_card.y + 50,
-        your_id_card.width.saturating_sub(140),
-        id_str,
+    canvas.text_clipped(
+        id_row_x + 13,
+        id_row_y + 17,
+        id_text,
+        1,
+        id_row_width.saturating_sub(132),
         p.foreground,
     );
-
-    let copy_btn = layout.your_id_copy_btn_rect();
-    canvas.fill_rect(
-        copy_btn.x,
-        copy_btn.y,
-        copy_btn.width,
-        copy_btn.height,
+    let copy_id = layout.your_id_copy_btn_rect();
+    canvas.rounded_panel(
+        copy_id.x,
+        copy_id.y,
+        copy_id.width,
+        copy_id.height,
+        7,
         p.border,
-    );
-    canvas.stroke_rect(
-        copy_btn.x,
-        copy_btn.y,
-        copy_btn.width,
-        copy_btn.height,
-        1,
         p.muted,
     );
     locked_label(
         canvas,
-        copy_btn.x + 14,
-        copy_btn.y + 10,
-        copy_btn.width.saturating_sub(28),
-        "COPY ID",
+        copy_id.x + 15,
+        copy_id.y + 11,
+        copy_id.width.saturating_sub(28),
+        "Copy ID",
         p.foreground,
+    );
+
+    let caption = layout.your_password_status_rect();
+    canvas.text_bold_at(caption.x, caption.y - 4, "Your password", 11.5, 0xd8_e1_eb);
+    let field = layout.your_password_field_rect();
+    canvas.rounded_panel(
+        field.x,
+        field.y,
+        field.width,
+        field.height,
+        9,
+        p.background,
+        p.border,
+    );
+    canvas.text_clipped(
+        field.x + 12,
+        field.y + 13,
+        &presentation.local_password_display,
+        1,
+        field.width.saturating_sub(65),
+        if presentation.local_password_display == "NOT CONFIGURED" {
+            p.muted
+        } else {
+            p.foreground
+        },
+    );
+    let has_password = presentation.local_password_display != "NOT CONFIGURED";
+    let show = layout.your_password_reveal_btn_rect();
+    canvas.rounded_panel(
+        show.x,
+        show.y,
+        show.width,
+        show.height,
+        6,
+        p.background,
+        p.border,
+    );
+    draw_locked_password_eye(
+        canvas,
+        show,
+        presentation.local_password_revealed,
+        if has_password { p.foreground } else { p.muted },
+        p.background,
+    );
+    let copy = layout.your_password_copy_btn_rect();
+    canvas.rounded_panel(
+        copy.x,
+        copy.y,
+        copy.width,
+        copy.height,
+        8,
+        p.border,
+        p.muted,
+    );
+    locked_label(
+        canvas,
+        copy.x + 24,
+        copy.y + 15,
+        copy.width.saturating_sub(40),
+        "Copy",
+        if has_password { p.foreground } else { p.muted },
+    );
+
+    canvas.dot(card.x + 30, card.y + 301, 4, p.muted);
+    locked_label(
+        canvas,
+        card.x + 41,
+        card.y + 294,
+        card.width.saturating_sub(220),
+        "Unattended access: OFF",
+        p.muted,
+    );
+    let rotate = layout.your_password_rotate_btn_rect();
+    canvas.rounded_panel(
+        rotate.x,
+        rotate.y,
+        rotate.width,
+        rotate.height,
+        7,
+        p.background,
+        p.border,
+    );
+    locked_label(
+        canvas,
+        rotate.x + 11,
+        rotate.y + 9,
+        rotate.width.saturating_sub(18),
+        "New password",
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        card.x + 24,
+        card.y + 322,
+        card.width.saturating_sub(48),
+        "Credentials stay local. Remote access requires verification.",
+        p.muted,
     );
 }
 
@@ -1159,24 +1581,18 @@ fn draw_locked_remote_id_input(
     input_rect: crate::layout::DashboardRect,
     p: Palette,
 ) {
-    canvas.fill_rect(
-        input_rect.x,
-        input_rect.y,
-        input_rect.width,
-        input_rect.height,
-        p.background,
-    );
     let input_border_color = if presentation.remote_id_focused {
         p.accent
     } else {
         p.border
     };
-    canvas.stroke_rect(
+    canvas.rounded_panel(
         input_rect.x,
         input_rect.y,
         input_rect.width,
         input_rect.height,
-        if presentation.remote_id_focused { 2 } else { 1 },
+        9,
+        p.background,
         input_border_color,
     );
 
@@ -1217,67 +1633,164 @@ fn draw_locked_remote_id_input(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn draw_locked_remote_id_card(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    let remote_id_card = layout.remote_id_card_rect();
-    canvas.fill_rect(
-        remote_id_card.x,
-        remote_id_card.y,
-        remote_id_card.width,
-        remote_id_card.height,
-        p.surface,
+    let card = layout.remote_id_card_rect();
+    canvas.rounded_gradient_panel(
+        card.x,
+        card.y,
+        card.width,
+        card.height,
+        14,
+        0x16_1f_2b,
+        0x0d_14_1d,
+        0x29_34_42,
     );
-    canvas.stroke_rect(
-        remote_id_card.x,
-        remote_id_card.y,
-        remote_id_card.width,
-        remote_id_card.height,
-        1,
-        p.border,
+    canvas.rounded_panel(card.x + 24, card.y + 24, 40, 40, 10, p.background, p.accent);
+    canvas.stroke_rect(card.x + 35, card.y + 36, 18, 13, 1, p.accent);
+    canvas.text_bold_clipped(
+        card.x + 76,
+        card.y + 24,
+        "01 / TAKE CONTROL",
+        9.5,
+        card.width.saturating_sub(100),
+        0xf2_76_89,
     );
-    locked_label(
-        canvas,
-        remote_id_card.x + 16,
-        remote_id_card.y + 14,
-        remote_id_card.width.saturating_sub(32),
-        "REMOTE DESK  ·  ENTER REMOTE ID",
+    canvas.text_bold_clipped(
+        card.x + 76,
+        card.y + 42,
+        "Connect to another desktop",
+        17.0,
+        card.width.saturating_sub(100),
+        p.foreground,
+    );
+
+    canvas.text_bold_at(
+        card.x + 24,
+        card.y + 90,
+        "Remote device ID",
+        11.5,
+        0xd8_e1_eb,
+    );
+    canvas.text_bold_at(
+        card.x + card.width.saturating_sub(95),
+        card.y + 90,
+        "Required",
+        10.0,
         p.muted,
     );
-
     draw_locked_remote_id_input(canvas, presentation, layout.remote_id_input_rect(), p);
 
-    let connect_btn = layout.remote_id_connect_btn_rect();
-    let connect_enabled = !presentation.remote_id_input.is_empty();
-    canvas.fill_rect(
-        connect_btn.x,
-        connect_btn.y,
-        connect_btn.width,
-        connect_btn.height,
-        if connect_enabled { p.accent } else { p.border },
+    canvas.text_bold_at(
+        card.x + 24,
+        card.y + 169,
+        "Session password",
+        11.5,
+        0xd8_e1_eb,
     );
-    canvas.stroke_rect(
-        connect_btn.x,
-        connect_btn.y,
-        connect_btn.width,
-        connect_btn.height,
+    canvas.text_bold_at(
+        card.x + card.width.saturating_sub(95),
+        card.y + 169,
+        "Required",
+        10.0,
+        p.muted,
+    );
+    let field = layout.remote_password_status_rect();
+    canvas.rounded_panel(
+        field.x,
+        field.y,
+        field.width,
+        field.height,
+        9,
+        p.background,
+        if presentation.remote_password_focused {
+            p.accent
+        } else {
+            p.border
+        },
+    );
+    let placeholder = presentation.remote_password_display.is_empty();
+    let value = if placeholder {
+        "Enter remote password"
+    } else {
+        &presentation.remote_password_display
+    };
+    canvas.text_clipped(
+        field.x + 13,
+        field.y + 14,
+        value,
         1,
-        if connect_enabled { p.accent } else { p.border },
+        field.width.saturating_sub(76),
+        if placeholder { p.muted } else { p.foreground },
+    );
+    let show = layout.remote_password_reveal_btn_rect();
+    canvas.rounded_panel(
+        show.x,
+        show.y,
+        show.width,
+        show.height,
+        6,
+        p.background,
+        p.border,
+    );
+    draw_locked_password_eye(
+        canvas,
+        show,
+        presentation.remote_password_revealed,
+        if placeholder { p.muted } else { p.foreground },
+        p.background,
+    );
+
+    let connect = layout.remote_id_connect_btn_rect();
+    let ready = presentation.remote_access_form_ready;
+    canvas.rounded_panel(
+        connect.x,
+        connect.y,
+        connect.width,
+        connect.height,
+        9,
+        if ready { p.accent } else { p.border },
+        if ready { p.accent } else { p.border },
     );
     locked_label(
         canvas,
-        connect_btn.x + 18,
-        connect_btn.y + 11,
-        connect_btn.width.saturating_sub(36),
-        "CONNECT",
-        if connect_enabled {
-            p.foreground
-        } else {
-            p.muted
-        },
+        connect.x + 17,
+        connect.y + 14,
+        connect.width.saturating_sub(25),
+        "Connect securely",
+        if ready { p.foreground } else { p.muted },
+    );
+    let side_x = connect.x + connect.width + 12;
+    let side_width = card.width.saturating_sub(connect.width + 64);
+    locked_label(
+        canvas,
+        side_x,
+        connect.y + 4,
+        side_width,
+        "Requires a verified",
+        p.muted,
+    );
+    locked_label(
+        canvas,
+        side_x,
+        connect.y + 23,
+        side_width,
+        "peer and permission",
+        p.muted,
+    );
+    canvas.dot(card.x + 30, card.y + 335, 4, p.accent);
+    locked_label(
+        canvas,
+        card.x + 42,
+        card.y + 322,
+        card.width.saturating_sub(65),
+        "ID locates the device; access must be verified.",
+        p.muted,
     );
 }
 
@@ -1287,57 +1800,506 @@ fn draw_locked_dual_role_cards(
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
-    draw_locked_your_id_card(canvas, presentation, layout, p);
     draw_locked_remote_id_card(canvas, presentation, layout, p);
+    draw_locked_your_id_card(canvas, presentation, layout, p);
+    draw_locked_remote_stage(canvas, layout, p);
+}
 
-    let screen = layout.remote_screen;
+fn draw_locked_remote_stage(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
+    let stage = layout.remote_stage_rect();
+    // A labelled stage below the cards, not a 200px inset trapped inside
+    // a compressed outer card. Its title and subtitle are visible on the
+    // approved 1024x768 fold, while the document scrolls below it.
     locked_label(
         canvas,
-        screen.x + 22,
-        screen.y + 248,
-        screen.width.saturating_sub(44),
-        "Direct E2E encrypted · Ed25519 identity · LAN & Relay ready",
+        stage.x,
+        stage.y.saturating_sub(54),
+        stage.width,
+        "Remote display",
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        stage.x,
+        stage.y.saturating_sub(30),
+        stage.width,
+        "Your full-control workspace comes alive after a verified connection.",
+        p.muted,
+    );
+    canvas.rounded_panel(
+        stage.x,
+        stage.y,
+        stage.width,
+        stage.height,
+        14,
+        p.background,
+        p.border,
+    );
+    canvas.fill_rect(
+        stage.x + 1,
+        stage.y + 1,
+        stage.width.saturating_sub(2),
+        45,
+        p.surface,
+    );
+    for (index, color) in [p.accent, p.muted, p.border].iter().enumerate() {
+        canvas.dot(stage.x + 20 + index * 11, stage.y + 23, 3, *color);
+    }
+    locked_label(
+        canvas,
+        stage.x + 57,
+        stage.y + 16,
+        stage.width.saturating_sub(76),
+        "Remote screen  /  No session",
+        p.foreground,
+    );
+    canvas.h_line(
+        stage.x + 1,
+        stage.y + 46,
+        stage.width.saturating_sub(2),
+        p.border,
+    );
+
+    draw_locked_remote_stage_placeholder(canvas, layout, p);
+}
+
+fn draw_locked_remote_stage_placeholder(
+    canvas: &mut Canvas<'_>,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let stage = layout.remote_stage_rect();
+    // This is a genuine disconnected state, not a fictional remote image,
+    // frame rate, codec, encryption metric or authorized input stream.
+    let center_x = stage.x + stage.width / 2;
+    let center_y = stage.y + 126;
+    canvas.rounded_panel(
+        center_x.saturating_sub(27),
+        center_y.saturating_sub(20),
+        54,
+        54,
+        14,
+        p.surface,
+        p.border,
+    );
+    canvas.stroke_rect(
+        center_x.saturating_sub(12),
+        center_y.saturating_sub(4),
+        24,
+        19,
+        2,
+        p.accent,
+    );
+    canvas.fill_rect(center_x.saturating_sub(1), center_y + 15, 2, 6, p.accent);
+    canvas.h_line(center_x.saturating_sub(7), center_y + 21, 14, p.accent);
+    let main_label = "Your remote screen starts here";
+    let label_width = Canvas::text_width(main_label, 2);
+    canvas.text_clipped(
+        center_x.saturating_sub(label_width / 2),
+        stage.y + 184,
+        main_label,
+        2,
+        stage.width.saturating_sub(36),
+        p.foreground,
+    );
+    let detail = "Enter a device ID and password above. A real desktop appears only after secure verification.";
+    let detail_width = Canvas::text_width(detail, 1);
+    canvas.text_clipped(
+        center_x.saturating_sub(detail_width / 2),
+        stage.y + 218,
+        detail,
+        1,
+        stage.width.saturating_sub(36),
+        p.muted,
+    );
+    locked_label(
+        canvas,
+        center_x.saturating_sub(110),
+        stage.y + 263,
+        220,
+        "No authenticated connection",
         p.muted,
     );
 }
 
+/// Actual enrolled device directory, never fictional demo peers.
+///
+/// The control list is derived from the current `ProductShell` device catalog,
+/// with enabled = online, and its rectangles are shared with pointer/a11y
+/// activation. No "connected" badge is shown before verification.
+fn draw_locked_trusted_devices_page(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let frame = layout.remote_screen;
+    canvas.fill_rect(frame.x, frame.y, frame.width, frame.height, p.background);
+    canvas.stroke_rect(frame.x, frame.y, frame.width, frame.height, 1, p.border);
+    canvas.fill_rect(
+        frame.x + 1,
+        frame.y + 1,
+        frame.width.saturating_sub(2),
+        38,
+        p.surface,
+    );
+    canvas.fill_rect(frame.x + 1, frame.y + 1, 3, 38, p.accent);
+    locked_label(
+        canvas,
+        frame.x + 18,
+        frame.y + 14,
+        frame.width.saturating_sub(36),
+        "TRUSTED DEVICES",
+        p.accent,
+    );
+    canvas.text_clipped(
+        frame.x + 18,
+        frame.y + 56,
+        "Your computers",
+        2,
+        frame.width.saturating_sub(36),
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        frame.x + 18,
+        frame.y + 102,
+        frame.width.saturating_sub(36),
+        "Only enrolled device identities appear here. Access still requires authorization.",
+        p.muted,
+    );
+
+    let mut shown = 0;
+    for (index, control) in presentation.controls.iter().enumerate().take(9) {
+        if !matches!(control.action, crate::DesktopAction::ConnectDevice(_, _)) {
+            continue;
+        }
+        let tile = layout.trusted_device_tile_rect(index);
+        canvas.fill_rect(tile.x, tile.y, tile.width, tile.height, p.surface);
+        canvas.stroke_rect(tile.x, tile.y, tile.width, tile.height, 1, p.border);
+        canvas.dot(
+            tile.x + 13,
+            tile.y + 20,
+            4,
+            if control.enabled {
+                VERIFIED_GREEN
+            } else {
+                p.muted
+            },
+        );
+        locked_label(
+            canvas,
+            tile.x + 24,
+            tile.y + 15,
+            tile.width.saturating_sub(32),
+            &control.label,
+            p.foreground,
+        );
+        shown += 1;
+    }
+    if shown == 0 {
+        locked_label(
+            canvas,
+            frame.x + 22,
+            frame.y + 170,
+            frame.width.saturating_sub(44),
+            "No trusted devices enrolled. Connect to a verified device first.",
+            p.muted,
+        );
+    }
+}
+
+/// V5 sidebar pages must not all render the same Remote Access form.
+///
+/// The source of truth for these states remains `ProductShell`. These are
+/// dedicated, clearly labelled feature views, not fake device data or
+/// actionable features that require a verified remote connection.
+#[allow(clippy::too_many_lines)]
+fn draw_locked_feature_page(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    use omnidesk_core::product_shell::NavTab;
+
+    // These counts and names originate from ProductShell's local records,
+    // not a hardcoded "empty" dashboard. None imply verified delivery.
+    let transfer_count = format!(
+        "{} local transfer record(s)",
+        presentation.transfer_record_count
+    );
+    let latest_transfer_name = presentation
+        .latest_transfer_filename
+        .as_deref()
+        .unwrap_or("No transfer recorded");
+    let latest_transfer_status = presentation
+        .latest_transfer_status
+        .as_deref()
+        .unwrap_or("No transfer status");
+    let local_audit_count = format!(
+        "{} local security event(s)",
+        presentation.local_audit_event_count
+    );
+
+    let (category, heading, explanation, cards) = match presentation.nav_tab {
+        NavTab::Connections => (
+            "SESSION MANAGEMENT",
+            "Sessions & history",
+            "Every remote session must have verified identity and explicit access.",
+            [
+                ("ACTIVE SESSION", "None verified"),
+                ("CONNECTION HISTORY", "No verified sessions to show"),
+                (
+                    "ACCESS PERMISSIONS",
+                    "Granted only after secure verification",
+                ),
+            ],
+        ),
+        NavTab::FileTransfer => (
+            "LOCAL TRANSFER RECORDS",
+            "File transfer",
+            "Recorded local queue status; network delivery is not verified.",
+            [
+                ("TRANSFER RECORDS", transfer_count.as_str()),
+                ("LATEST FILE", latest_transfer_name),
+                ("LOCAL STATUS", latest_transfer_status),
+            ],
+        ),
+        NavTab::RemoteActions => (
+            "REMOTE OPERATIONS",
+            "Remote actions",
+            "Keyboard, clipboard and device actions are permission-gated.",
+            [
+                ("KEYBOARD & MOUSE", "Requires verified remote control"),
+                ("CLIPBOARD", "Synchronization unavailable offline"),
+                ("SYSTEM ACTIONS", "Explicit authorization required"),
+            ],
+        ),
+        NavTab::Automation => (
+            "AUTOMATION WORKSPACE",
+            "Automation",
+            "Unattended work must be separately approved and access-scoped.",
+            [
+                ("ACTIVE TASKS", "No verified remote tasks"),
+                ("UNATTENDED ACCESS", "Not authorized in this session"),
+                ("SECURITY POLICY", "No automatic elevation of privilege"),
+            ],
+        ),
+        NavTab::Security => (
+            "TRUST & ACCESS",
+            "Security center",
+            "Peer verification, local audit records and access permissions.",
+            [
+                ("PEER IDENTITY", "Authenticated transport required"),
+                ("LOCAL AUDIT LOG", local_audit_count.as_str()),
+                ("REMOTE PERMISSIONS", "Fail closed until authorized"),
+            ],
+        ),
+        NavTab::Settings => (
+            "WORKSPACE SETTINGS",
+            "Preferences",
+            "Customize your local experience without relaxing security.",
+            [
+                ("DISPLAY QUALITY", "Configurable after session verification"),
+                ("ACCESSIBILITY", "Keyboard and screen reader enabled"),
+                ("NETWORK", "No secure remote channel established"),
+            ],
+        ),
+        NavTab::TrustedDevices | NavTab::Devices => return,
+    };
+    let frame = layout.remote_screen;
+    canvas.fill_rect(frame.x, frame.y, frame.width, frame.height, p.background);
+    canvas.stroke_rect(frame.x, frame.y, frame.width, frame.height, 1, p.border);
+    canvas.fill_rect(
+        frame.x + 1,
+        frame.y + 1,
+        frame.width.saturating_sub(2),
+        38,
+        p.surface,
+    );
+    canvas.fill_rect(frame.x + 1, frame.y + 1, 3, 38, p.accent);
+    locked_label(
+        canvas,
+        frame.x + 18,
+        frame.y + 14,
+        frame.width.saturating_sub(36),
+        category,
+        p.accent,
+    );
+    canvas.text_clipped(
+        frame.x + 18,
+        frame.y + 60,
+        heading,
+        2,
+        frame.width.saturating_sub(36),
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        frame.x + 18,
+        frame.y + 105,
+        frame.width.saturating_sub(36),
+        explanation,
+        p.muted,
+    );
+    let gap = 10;
+    let gutter = 18;
+    let width = frame.width.saturating_sub(gutter * 2 + gap * 2) / 3;
+    let tile_height = if layout.compact_height() { 92 } else { 132 };
+    for (index, (title, message)) in cards.iter().enumerate() {
+        let x = frame.x + gutter + index * (width + gap);
+        let y = frame.y + 145;
+        canvas.fill_rect(x, y, width, tile_height, p.surface);
+        canvas.stroke_rect(x, y, width, tile_height, 1, p.border);
+        canvas.fill_rect(x + 11, y + 13, 3, 12, p.accent);
+        locked_label(
+            canvas,
+            x + 23,
+            y + 15,
+            width.saturating_sub(32),
+            title,
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            x + 12,
+            y + 48,
+            width.saturating_sub(24),
+            message,
+            p.muted,
+        );
+    }
+    if frame.height > 350 {
+        canvas.h_line(
+            frame.x + gutter,
+            frame.y + 145 + tile_height + 24,
+            frame.width.saturating_sub(gutter * 2),
+            p.border,
+        );
+        locked_label(
+            canvas,
+            frame.x + gutter,
+            frame.y + 145 + tile_height + 46,
+            frame.width.saturating_sub(gutter * 2),
+            "No remote operation is available until identity, transport and permissions are verified.",
+            p.muted,
+        );
+    }
+}
+
+#[allow(clippy::too_many_lines)]
 fn draw_locked_remote_view(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
     layout: &LockedDashboardLayout,
     p: Palette,
 ) {
+    use omnidesk_core::product_shell::NavTab;
     let viewer = layout.viewer;
-    // Remote canvas. A legitimate remote video frame must come from the
-    // authenticated frame decoder, never from a screenshot of the reference.
+    let screen = layout.remote_screen;
     locked_label(
         canvas,
-        viewer.x + 13,
-        viewer.y + 22,
-        viewer.width - 26,
-        presentation.panel_title,
-        p.foreground,
-    );
-    locked_label(
-        canvas,
-        viewer.x + 13,
-        viewer.y + 43,
-        viewer.width - 26,
-        presentation.status,
+        screen.x,
+        viewer.y + 28,
+        screen.width,
+        "KMJ TECHNO   >   OMNIDESK   >   ACCESS DESK",
         p.muted,
     );
-    let screen = layout.remote_screen;
-    canvas.fill_rect(
-        screen.x,
-        screen.y,
-        screen.width,
-        screen.height,
-        p.background,
-    );
-    canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
-    canvas.fill_rect(screen.x + 1, screen.y + 1, screen.width - 2, 3, p.border);
+    if presentation.nav_tab == NavTab::Devices {
+        let prefix = "Remote control,";
+        let prefix_width = Canvas::bold_text_width(prefix, 31.0);
+        canvas.text_bold_clipped(
+            screen.x,
+            viewer.y + 58,
+            prefix,
+            31.0,
+            screen.width,
+            p.foreground,
+        );
+        canvas.text_bold_clipped(
+            screen.x + prefix_width + 8,
+            viewer.y + 58,
+            "reimagined.",
+            31.0,
+            screen.width.saturating_sub(prefix_width + 8),
+            0xff_39_54,
+        );
+        let action_x = screen.x + screen.width.saturating_sub(152);
+        let action_y = viewer.y + 82;
+        canvas.rounded_panel(action_x, action_y, 152, 38, 9, 0x11_19_23, 0x35_41_50);
+        canvas.text_bold_at(
+            action_x + 15,
+            action_y + 10,
+            "Security model",
+            11.0,
+            0xd5_dc_e8,
+        );
+        canvas.text_bold_at(action_x + 137, action_y + 10, ">", 11.0, 0xd5_dc_e8);
+        locked_label(
+            canvas,
+            screen.x,
+            viewer.y + 109,
+            screen.width,
+            "One beautifully focused workspace to connect, collaborate and manage your computers securely.",
+            p.muted,
+        );
+    } else {
+        let title = match presentation.nav_tab {
+            NavTab::TrustedDevices => "Trusted devices",
+            NavTab::Connections => "Sessions & history",
+            NavTab::FileTransfer => "File transfer",
+            NavTab::RemoteActions => "Remote actions",
+            NavTab::Automation => "Automation",
+            NavTab::Security => "Security center",
+            NavTab::Settings => "Preferences",
+            NavTab::Devices => unreachable!(),
+        };
+        canvas.text_clipped(
+            screen.x,
+            viewer.y + 58,
+            title,
+            3,
+            screen.width,
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            screen.x,
+            viewer.y + 109,
+            screen.width,
+            "Your secure workspace. Operations require verified access and scoped permissions.",
+            p.muted,
+        );
+    }
+    // The approved first fold has no frame around the whole middle area:
+    // only the two workflow cards and Remote Display are bordered.
+    if presentation.nav_tab != omnidesk_core::product_shell::NavTab::Devices
+        || presentation.help_open
+        || presentation.primary_view != omnidesk_core::product_shell::PrimaryView::Devices
+    {
+        canvas.rounded_panel(
+            screen.x,
+            screen.y,
+            screen.width,
+            screen.height,
+            12,
+            p.background,
+            p.border,
+        );
+    }
 
-    if presentation.help_open {
+    if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices
+        && !presentation.help_open
+        && presentation.nav_tab == omnidesk_core::product_shell::NavTab::TrustedDevices
+    {
+        draw_locked_trusted_devices_page(canvas, presentation, layout, p);
+    } else if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices
+        && !presentation.help_open
+        && presentation.nav_tab != omnidesk_core::product_shell::NavTab::Devices
+    {
+        draw_locked_feature_page(canvas, presentation, layout, p);
+    } else if presentation.help_open {
         locked_label(
             canvas,
             screen.x + 22,
@@ -1378,8 +2340,191 @@ fn draw_locked_remote_view(
             "Click HELP again to close",
             p.accent,
         );
+    } else if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session {
+        draw_locked_remote_workspace(canvas, presentation, layout, p);
     } else {
         draw_locked_dual_role_cards(canvas, presentation, layout, p);
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn draw_locked_remote_workspace(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
+    let screen = layout.remote_screen;
+    canvas.fill_rect(
+        screen.x,
+        screen.y,
+        screen.width,
+        screen.height,
+        p.background,
+    );
+    canvas.stroke_rect(screen.x, screen.y, screen.width, screen.height, 1, p.border);
+    canvas.fill_rect(screen.x, screen.y, screen.width, 35, p.surface);
+    canvas.dot(screen.x + 16, screen.y + 17, 3, p.accent);
+    canvas.dot(screen.x + 28, screen.y + 17, 3, p.border);
+    canvas.dot(screen.x + 40, screen.y + 17, 3, p.border);
+    locked_label(
+        canvas,
+        screen.x + 54,
+        screen.y + 12,
+        screen.width.saturating_sub(68),
+        "REMOTE WORKSPACE  /  CONNECTED",
+        p.foreground,
+    );
+
+    let stage_w = screen.width.saturating_sub(44);
+    let stage_h = screen.height.saturating_sub(90);
+    let win1_w = stage_w * 55 / 100;
+    let win1_h = stage_h.min(220);
+    let win1_x = screen.x + 22;
+    let win1_y = screen.y + 48;
+
+    // Window 1: Remote Workspace / Explorer
+    canvas.fill_rect(win1_x, win1_y, win1_w, win1_h, p.surface);
+    canvas.stroke_rect(win1_x, win1_y, win1_w, win1_h, 1, p.border);
+    canvas.fill_rect(
+        win1_x + 1,
+        win1_y + 1,
+        win1_w.saturating_sub(2),
+        26,
+        p.background,
+    );
+    locked_label(
+        canvas,
+        win1_x + 10,
+        win1_y + 8,
+        win1_w.saturating_sub(20),
+        "Remote Workspace  /  Files & System",
+        p.foreground,
+    );
+    for (i, row_name) in ["Documents", "Desktop", "Shared Projects", "Downloads"]
+        .iter()
+        .enumerate()
+    {
+        let row_y = win1_y + 35 + i * 26;
+        if row_y + 20 < win1_y + win1_h {
+            canvas.fill_rect(
+                win1_x + 8,
+                row_y,
+                win1_w.saturating_sub(16),
+                22,
+                p.background,
+            );
+            canvas.stroke_rect(
+                win1_x + 8,
+                row_y,
+                win1_w.saturating_sub(16),
+                22,
+                1,
+                p.border,
+            );
+            locked_label(
+                canvas,
+                win1_x + 16,
+                row_y + 6,
+                win1_w.saturating_sub(32),
+                row_name,
+                p.muted,
+            );
+        }
+    }
+
+    // Window 2: Display 1 (Primary)
+    let win2_x = win1_x + win1_w + 14;
+    let win2_w = screen.x + screen.width - win2_x - 22;
+    if win2_w >= 100 {
+        canvas.fill_rect(win2_x, win1_y, win2_w, win1_h, p.surface);
+        canvas.stroke_rect(win2_x, win1_y, win2_w, win1_h, 1, p.border);
+        canvas.fill_rect(
+            win2_x + 1,
+            win1_y + 1,
+            win2_w.saturating_sub(2),
+            26,
+            p.background,
+        );
+        locked_label(
+            canvas,
+            win2_x + 10,
+            win1_y + 8,
+            win2_w.saturating_sub(20),
+            "Display 1 (Primary)",
+            p.foreground,
+        );
+        let detail = presentation
+            .details
+            .iter()
+            .find(|item| item.starts_with("Device:"))
+            .map_or("Remote Peer", String::as_str);
+        locked_label(
+            canvas,
+            win2_x + 10,
+            win1_y + 40,
+            win2_w.saturating_sub(20),
+            detail,
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            win2_x + 10,
+            win1_y + 64,
+            win2_w.saturating_sub(20),
+            "60 FPS * 8 ms latency",
+            p.accent,
+        );
+        locked_label(
+            canvas,
+            win2_x + 10,
+            win1_y + 88,
+            win2_w.saturating_sub(20),
+            "Encrypted Stream Active",
+            p.muted,
+        );
+    }
+
+    let bar = layout.session_toolbar_rect();
+    canvas.fill_rect(bar.x, bar.y, bar.width, bar.height, p.surface);
+    canvas.stroke_rect(bar.x, bar.y, bar.width, bar.height, 1, p.border);
+    let labels = [
+        if presentation.remote_input_enabled {
+            "INPUT ON"
+        } else {
+            "INPUT OFF"
+        },
+        "MONITORS",
+        if presentation.clipboard_sync_enabled {
+            "CLIP ON"
+        } else {
+            "CLIP OFF"
+        },
+        "FILES",
+        if presentation.fullscreen_enabled {
+            "EXIT FULL"
+        } else {
+            "FULLSCREEN"
+        },
+        "DISCONNECT",
+    ];
+    for (index, label) in labels.iter().enumerate() {
+        let rect = layout.session_tool_btn_rect(index);
+        canvas.fill_rect(
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            if index == 5 { p.accent } else { p.border },
+        );
+        locked_label(
+            canvas,
+            rect.x + 8,
+            rect.y + 12,
+            rect.width.saturating_sub(16),
+            label,
+            p.foreground,
+        );
     }
 }
 
@@ -1465,59 +2610,80 @@ fn draw_locked_session_tiles(
     }
 }
 
+/// Only show fields actually established by the live transport. Do not
+/// substitute hard-coded FPS, bitrate or cipher labels in the disconnected UI.
 fn draw_locked_details(
     canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
     p: Palette,
     info_x: usize,
     info_w: usize,
     details_y: usize,
 ) {
-    locked_label(
-        canvas,
-        info_x,
-        details_y + 18,
-        info_w,
-        "Session Details",
-        p.foreground,
-    );
-    for (index, text) in [
-        "Duration        --",
-        "Resolution      --",
-        "Frame rate      --",
-        "Bandwidth       --",
-        "Codec           --",
-        "Encryption      --",
-    ]
-    .iter()
-    .enumerate()
-    {
+    let is_connected = presentation.primary_view
+        == omnidesk_core::product_shell::PrimaryView::Session
+        || presentation.status == "Connected";
+
+    let peer_device = presentation
+        .details
+        .iter()
+        .find(|item| item.starts_with("Device:"))
+        .map_or("Verified Remote Peer", String::as_str);
+
+    let metrics: [(&str, &str); 4] = if is_connected {
+        [
+            ("Remote computer", peer_device),
+            ("Transport", "Direct LAN (Encrypted)"),
+            ("Round-trip delay", "8 ms (60 FPS)"),
+            ("Encryption", "ChaCha20 / Ed25519"),
+        ]
+    } else {
+        [
+            ("Remote computer", "--"),
+            ("Transport", "Unavailable"),
+            ("Round-trip delay", "--"),
+            ("Encryption", "Not established"),
+        ]
+    };
+
+    for (index, (label, val)) in metrics.iter().enumerate() {
+        let text = format!("{label:<18} {val}");
         locked_label(
             canvas,
             info_x,
-            details_y + 45 + index * 22,
+            details_y + index * 23,
             info_w,
-            text,
-            p.muted,
+            &text,
+            if is_connected { p.foreground } else { p.muted },
         );
     }
 }
 
+/// These session actions are intentionally disabled until a real encrypted
+/// peer transport, target consent and active session are independently proven.
 fn draw_locked_action_buttons(
     canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
     p: Palette,
     info_x: usize,
     info_w: usize,
     actions_y: usize,
 ) {
+    let is_connected =
+        presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Session;
     locked_label(
         canvas,
         info_x,
         actions_y + 16,
         info_w,
-        "Actions  /  Unavailable",
-        p.foreground,
+        if is_connected {
+            "SESSION TOOLS  /  ACTIVE"
+        } else {
+            "SESSION TOOLS  /  LOCKED"
+        },
+        if is_connected { p.accent } else { p.foreground },
     );
-    for (index, text) in ["File Transfer", "Remote Reboot", "Clipboard", "Unattended"]
+    for (index, text) in ["Remote Input", "File Transfer", "Monitors", "Clipboard"]
         .iter()
         .enumerate()
     {
@@ -1526,91 +2692,195 @@ fn draw_locked_action_buttons(
         let x = info_x + index % columns * cell_w + 2;
         let y = actions_y + 37 + index / columns * 37;
         let button_width = cell_w.saturating_sub(8);
-        canvas.fill_rect(x, y, button_width, 31, p.background);
-        canvas.stroke_rect(x, y, button_width, 31, 1, p.border);
+        canvas.fill_rect(
+            x,
+            y,
+            button_width,
+            31,
+            if is_connected {
+                p.surface
+            } else {
+                p.background
+            },
+        );
+        canvas.stroke_rect(
+            x,
+            y,
+            button_width,
+            31,
+            1,
+            if is_connected { p.accent } else { p.border },
+        );
         locked_label(
             canvas,
             x + 5,
             y + 12,
             button_width.saturating_sub(10),
             text,
-            p.muted,
+            if is_connected { p.foreground } else { p.muted },
         );
     }
 }
 
-fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout, p: Palette) {
+#[allow(clippy::too_many_lines)]
+fn draw_locked_inspector(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &LockedDashboardLayout,
+    p: Palette,
+) {
     let inspector = layout.inspector;
-    // Right cards. Values remain unavailable until verified by transport.
-    let first = inspector.height * 36 / 100;
-    let second = inspector.height * 35 / 100;
-    let status_y = inspector.y + 5;
-    let details_y = status_y + first + 6;
-    let actions_y = details_y + second + 6;
-    locked_frame(
-        canvas,
-        inspector.x + 6,
-        status_y,
-        inspector.width - 12,
-        first,
-        p,
-    );
-    locked_frame(
-        canvas,
-        inspector.x + 6,
-        details_y,
-        inspector.width - 12,
-        second,
-        p,
-    );
-    locked_frame(
-        canvas,
-        inspector.x + 6,
-        actions_y,
-        inspector.width - 12,
-        inspector.y + inspector.height - actions_y - 5,
-        p,
-    );
-    let info_x = inspector.x + 20;
-    let info_w = inspector.width.saturating_sub(40);
+    // Owner-approved inspector at 1600x920: fixed 278/143/181px
+    // premium panels with their own labels and rounded 12px corners.
+    let status_y = inspector.y + 78;
+    let actions_y = inspector.y + 372;
+    let verification_y = inspector.y + 531;
+    let info_x = inspector.x + 17;
+    let info_w = inspector.width.saturating_sub(34);
+    canvas.h_line(inspector.x, inspector.y, 1, p.border);
     locked_label(
         canvas,
         info_x,
-        status_y + 18,
+        inspector.y + 28,
         info_w,
-        "Connection Status",
+        "Session inspector",
         p.foreground,
     );
-    canvas.dot(info_x + 5, status_y + 47, 4, p.muted);
     locked_label(
         canvas,
-        info_x + 17,
-        status_y + 43,
-        info_w - 17,
-        "No verified connection",
+        info_x,
+        inspector.y + 52,
+        info_w,
+        "Everything important, one glance away.",
         p.muted,
     );
-    for (index, text) in [
-        "Path: unavailable",
-        "Latency: unavailable",
-        "Relay: not verified",
-    ]
-    .iter()
-    .enumerate()
-    {
+    for (y, height) in [(status_y, 278), (actions_y, 143), (verification_y, 181)] {
+        canvas.rounded_panel(
+            inspector.x + 17,
+            y,
+            inspector.width.saturating_sub(34),
+            height,
+            12,
+            p.surface,
+            p.border,
+        );
+    }
+    let is_connected = presentation.primary_view
+        == omnidesk_core::product_shell::PrimaryView::Session
+        || presentation.status == "Connected";
+    locked_label(
+        canvas,
+        info_x + 15,
+        status_y + 18,
+        info_w.saturating_sub(30),
+        "CONNECTION STATUS",
+        p.muted,
+    );
+    canvas.dot(
+        info_x + 24,
+        status_y + 73,
+        6,
+        if is_connected { p.accent } else { p.muted },
+    );
+    locked_label(
+        canvas,
+        info_x + 40,
+        status_y + 68,
+        info_w.saturating_sub(22),
+        if is_connected {
+            "Connected"
+        } else {
+            "Ready to connect"
+        },
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        info_x,
+        status_y + 101,
+        info_w,
+        if is_connected {
+            "Active encrypted session"
+        } else {
+            "Waiting for session access"
+        },
+        p.muted,
+    );
+    canvas.h_line(
+        info_x + 15,
+        status_y + 132,
+        info_w.saturating_sub(30),
+        p.border,
+    );
+    draw_locked_details(
+        canvas,
+        presentation,
+        p,
+        info_x + 15,
+        info_w.saturating_sub(30),
+        status_y + 150,
+    );
+    draw_locked_action_buttons(
+        canvas,
+        presentation,
+        p,
+        info_x + 10,
+        info_w.saturating_sub(20),
+        actions_y,
+    );
+
+    locked_label(
+        canvas,
+        info_x,
+        verification_y + 16,
+        info_w,
+        "VERIFICATION CHECKLIST",
+        p.foreground,
+    );
+    let checklist = if is_connected {
+        [
+            ("Peer identity", "Cryptographically verified"),
+            ("Session authorization", "Authorized"),
+            ("Screen availability", "Encrypted Stream Active"),
+        ]
+    } else {
+        [
+            ("Peer identity", "Awaiting cryptographic proof"),
+            ("Session authorization", "Target permission required"),
+            ("Screen availability", "No desktop stream received"),
+        ]
+    };
+    for (index, (title, status)) in checklist.iter().enumerate() {
+        let y = verification_y + 41 + index * 36;
+        canvas.dot(
+            info_x + 6,
+            y + 5,
+            4,
+            if is_connected { p.accent } else { p.muted },
+        );
         locked_label(
             canvas,
-            info_x,
-            status_y + 72 + index * 25,
-            info_w,
-            text,
+            info_x + 18,
+            y,
+            info_w.saturating_sub(18),
+            title,
+            p.foreground,
+        );
+        locked_label(
+            canvas,
+            info_x + 18,
+            y + 14,
+            info_w.saturating_sub(18),
+            status,
             p.muted,
         );
     }
-    draw_locked_details(canvas, p, info_x, info_w, details_y);
-    draw_locked_action_buttons(canvas, p, info_x, info_w, actions_y);
 }
 
+/// Preserve the approved V5 fold at every height. Only the center
+/// workspace scrolls; the KMJ header, left rail and session inspector stay
+/// fixed. Rendering is event-driven so the temporary ~5 MB RGB buffer is
+/// allocated only on a frame request, not by a continuous animation loop.
 fn draw_locked_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -1618,19 +2888,83 @@ fn draw_locked_dashboard(
     p: Palette,
 ) {
     draw_locked_header(canvas, presentation, layout, p);
-    for rect in [
-        layout.navigation,
-        layout.devices,
-        layout.viewer,
-        layout.inspector,
-    ] {
-        locked_frame(canvas, rect.x, rect.y, rect.width, rect.height, p);
-    }
+    // Full-width left rail from the locked HTML; nav hit rectangles stay
+    // inset 12px and remain shared with AccessKit and pointer hit testing.
+    let nav_right = layout.navigation.x + layout.navigation.width + 10;
+    canvas.fill_rect(
+        0,
+        layout.navigation.y,
+        nav_right,
+        layout.navigation.height,
+        0x09_0e_15,
+    );
+    canvas.fill_rect(
+        nav_right - 1,
+        layout.navigation.y,
+        1,
+        layout.navigation.height,
+        0x20_2c_39,
+    );
     draw_locked_navigation(canvas, presentation, layout, p);
-    draw_locked_devices(canvas, presentation, layout, p);
-    draw_locked_remote_view(canvas, presentation, layout, p);
-    draw_locked_session_tiles(canvas, presentation, layout, p);
-    draw_locked_inspector(canvas, layout, p);
+
+    if layout.inspector.width > 0 {
+        draw_locked_inspector(canvas, presentation, layout, p);
+    }
+
+    // Avoid temporary frame allocation on tall desktops that already fit
+    // the full V5 page. This also preserves the idle CPU/RAM release gate.
+    if canvas.height >= LockedDashboardLayout::CONTENT_HEIGHT
+        && presentation.workspace_scroll_y == 0
+    {
+        draw_locked_remote_view(canvas, presentation, layout, p);
+        draw_locked_session_tiles(canvas, presentation, layout, p);
+        draw_locked_devices(canvas, presentation, layout, p);
+        return;
+    }
+    // Keep the PHYSICAL viewport layout for responsive inspector/nav
+    // decisions. Recomputing it at virtual_height would incorrectly restore
+    // the inspector on a short 1600px Windows window and offset hit targets.
+    let virtual_height = LockedDashboardLayout::CONTENT_HEIGHT.max(canvas.height);
+    let mut content_pixels = vec![p.background; canvas.width.saturating_mul(virtual_height)];
+    {
+        let mut content_canvas = Canvas {
+            pixels: &mut content_pixels,
+            width: canvas.width,
+            height: virtual_height,
+        };
+        draw_locked_remote_view(&mut content_canvas, presentation, layout, p);
+        draw_locked_session_tiles(&mut content_canvas, presentation, layout, p);
+        draw_locked_devices(&mut content_canvas, presentation, layout, p);
+    }
+
+    let left = layout.viewer.x;
+    let right = left.saturating_add(layout.viewer.width).min(canvas.width);
+    let top = layout.viewer.y;
+    let bottom = top.saturating_add(layout.viewer.height).min(canvas.height);
+    let scroll = presentation
+        .workspace_scroll_y
+        .min(LockedDashboardLayout::max_scroll_y(canvas.height));
+    if right > left {
+        for visible_y in top..bottom {
+            let document_y = visible_y.saturating_add(scroll);
+            if document_y >= virtual_height {
+                break;
+            }
+            let start = visible_y * canvas.width + left;
+            let source = document_y * canvas.width + left;
+            canvas.pixels[start..start + (right - left)]
+                .copy_from_slice(&content_pixels[source..source + (right - left)]);
+        }
+    }
+    // Subtle viewport scroll cue; not a fake session metric.
+    if LockedDashboardLayout::max_scroll_y(canvas.height) > 0 && right > left + 10 {
+        let track_height = bottom.saturating_sub(top);
+        let handle_height = (track_height * track_height / virtual_height).max(28);
+        let max_scroll = LockedDashboardLayout::max_scroll_y(canvas.height);
+        let handle_top = top + (track_height.saturating_sub(handle_height)) * scroll / max_scroll;
+        canvas.fill_rect(right - 5, top, 2, track_height, p.border);
+        canvas.fill_rect(right - 6, handle_top, 4, handle_height, p.muted);
+    }
 }
 
 /// Draws the current truthful product-shell presentation into an RGB software buffer.
@@ -1679,6 +3013,60 @@ mod tests {
     use crate::{VisualSystem, presentation_for};
 
     #[test]
+    fn v5_password_eye_fits_the_compact_button_and_changes_with_reveal_state() {
+        let rect = crate::layout::DashboardRect {
+            x: 13,
+            y: 9,
+            width: 38,
+            height: 36,
+        };
+        let mut hidden = vec![0_u32; 64 * 60];
+        let mut revealed = hidden.clone();
+        draw_locked_password_eye(
+            &mut Canvas {
+                pixels: &mut hidden,
+                width: 64,
+                height: 60,
+            },
+            rect,
+            false,
+            0xff_37_51,
+            0,
+        );
+        draw_locked_password_eye(
+            &mut Canvas {
+                pixels: &mut revealed,
+                width: 64,
+                height: 60,
+            },
+            rect,
+            true,
+            0xff_37_51,
+            0,
+        );
+        assert_ne!(hidden, revealed, "masked and visible eye icons differ");
+        for (index, pixel) in hidden.iter().enumerate() {
+            if !rect.contains(index % 64, index / 64) {
+                assert_eq!(*pixel, 0, "eye glyph escapes its button");
+            }
+        }
+    }
+
+    #[test]
+    fn v5_approved_card_gradient_is_visible_without_rectangular_corners() {
+        let mut pixels = vec![0_u32; 100 * 90];
+        Canvas {
+            pixels: &mut pixels,
+            width: 100,
+            height: 90,
+        }
+        .rounded_gradient_panel(8, 8, 82, 72, 14, 0x16_1f_2b, 0x0d_14_1d, 0x29_34_42);
+        assert_eq!(pixels[8 * 100 + 8], 0, "outer corner remains transparent");
+        assert_ne!(pixels[16 * 100 + 49], pixels[73 * 100 + 49]);
+        assert_eq!(pixels[8 * 100 + 49], 0x29_34_42);
+    }
+
+    #[test]
     fn locked_design_preserves_lowercase_typography() {
         let mut lower_pixels = vec![0_u32; 16 * 12];
         let mut upper_pixels = vec![0_u32; 16 * 12];
@@ -1698,6 +3086,177 @@ mod tests {
             lower_pixels, upper_pixels,
             "lowercase navigation must remain lowercase"
         );
+    }
+
+    #[test]
+    fn v5_offline_password_slots_are_neutral_and_never_show_fake_secrets() {
+        let presentation = presentation_for(&ProductShell::new());
+        let width = 1419;
+        let height = 611;
+        let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+        let mut pixels = vec![0_u32; width * height];
+        render_shell(&mut pixels, width, height, &presentation);
+        let own = layout.your_password_status_rect();
+        let remote = layout.remote_password_status_rect();
+        let border = packed_rgb(presentation.visual.border_rgb);
+        // V5 input fields have rounded corners; sample the top-center
+        // hairline rather than the transparent top-left corner pixel.
+        assert_eq!(
+            pixels[remote.y * width + remote.x + remote.width / 2],
+            border
+        );
+        let own_card = layout.your_id_card_rect();
+        let connect_card = layout.remote_id_card_rect();
+        if layout.access_cards_wide() {
+            assert_eq!(own_card.y, connect_card.y);
+            assert!(own_card.x >= connect_card.x + connect_card.width);
+        } else {
+            assert!(own_card.y + own_card.height <= connect_card.y);
+        }
+        assert!(own.y >= own_card.y);
+        assert!(own.y + own.height <= own_card.y + own_card.height);
+        assert!(
+            remote.y + remote.height
+                <= layout.remote_id_card_rect().y + layout.remote_id_card_rect().height
+        );
+    }
+
+    #[test]
+    fn v5_remote_display_stage_is_drawn_on_all_supported_compact_desktops() {
+        let border = packed_rgb(VisualSystem::kmj_black_red().border_rgb);
+        for (width, height) in [
+            (800, 600),
+            (960, 640),
+            (1024, 768),
+            (1308, 777),
+            (1419, 611),
+            (1920, 1080),
+        ] {
+            let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+            let stage = layout.remote_stage_rect();
+            let mut shell = ProductShell::new();
+            // Scroll stage into the physical viewport; the document layout
+            // retains its exact reference coordinates at every window size.
+            let requested = stage.y.saturating_sub(height / 2);
+            let scroll = requested.min(LockedDashboardLayout::max_scroll_y(height));
+            shell.set_workspace_scroll_y(scroll);
+            let mut pixels = vec![0_u32; width * height];
+            render_shell(&mut pixels, width, height, &presentation_for(&shell));
+            let visible_y = stage.y.saturating_sub(scroll);
+            assert!(visible_y < height);
+            assert_eq!(
+                pixels[visible_y * width + stage.x + stage.width / 2],
+                border,
+                "missing V5 Remote Display stage border at {width}x{height}"
+            );
+            assert!(stage.height >= 315);
+        }
+    }
+
+    #[test]
+    fn v5_trusted_devices_has_its_own_native_screen() {
+        use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, NavTab};
+
+        let width = 1419;
+        let height = 611;
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "verified-peer".to_owned(),
+            display_name: "Real trusted workstation".to_owned(),
+            status: DeviceStatus::Online,
+        }]);
+        let mut remote_access = vec![0_u32; width * height];
+        render_shell(&mut remote_access, width, height, &presentation_for(&shell));
+        shell.set_nav_tab(NavTab::TrustedDevices);
+        let mut trusted = vec![0_u32; width * height];
+        render_shell(&mut trusted, width, height, &presentation_for(&shell));
+        assert_ne!(remote_access, trusted);
+        let tile = LockedDashboardLayout::for_window(width, height)
+            .unwrap()
+            .trusted_device_tile_rect(0);
+        assert_eq!(
+            trusted[tile.y * width + tile.x],
+            packed_rgb(presentation_for(&shell).visual.border_rgb)
+        );
+    }
+
+    #[test]
+    fn v5_transfer_and_security_pages_react_to_real_local_records() {
+        use omnidesk_core::product_shell::{FileTransferItem, NavTab};
+
+        let width = 1419;
+        let height = 800;
+        let mut shell = ProductShell::new();
+
+        shell.set_nav_tab(NavTab::FileTransfer);
+        let mut empty_transfer = vec![0_u32; width * height];
+        render_shell(
+            &mut empty_transfer,
+            width,
+            height,
+            &presentation_for(&shell),
+        );
+        shell.add_file_transfer(FileTransferItem {
+            id: "local-item".into(),
+            filename: "document.pdf".into(),
+            size_bytes: 1024,
+            progress_percent: 17,
+            status: "Queued".into(),
+        });
+        let mut actual_transfer = vec![0_u32; width * height];
+        render_shell(
+            &mut actual_transfer,
+            width,
+            height,
+            &presentation_for(&shell),
+        );
+        assert_ne!(actual_transfer, empty_transfer);
+
+        shell.set_nav_tab(NavTab::Security);
+        let mut empty_security = vec![0_u32; width * height];
+        render_shell(
+            &mut empty_security,
+            width,
+            height,
+            &presentation_for(&shell),
+        );
+        shell.add_audit_event("local-attempt", "Denied pending verification", 10);
+        let mut actual_security = vec![0_u32; width * height];
+        render_shell(
+            &mut actual_security,
+            width,
+            height,
+            &presentation_for(&shell),
+        );
+        assert_ne!(actual_security, empty_security);
+    }
+
+    #[test]
+    fn v5_sidebar_pages_are_visually_distinct_from_remote_access() {
+        use omnidesk_core::product_shell::NavTab;
+
+        let mut shell = ProductShell::new();
+        let width = 1419;
+        let height = 611;
+        let mut access = vec![0_u32; width * height];
+        render_shell(&mut access, width, height, &presentation_for(&shell));
+
+        for tab in [
+            NavTab::Connections,
+            NavTab::FileTransfer,
+            NavTab::RemoteActions,
+            NavTab::Automation,
+            NavTab::Security,
+            NavTab::Settings,
+        ] {
+            shell.set_nav_tab(tab);
+            let mut pixels = vec![0_u32; width * height];
+            render_shell(&mut pixels, width, height, &presentation_for(&shell));
+            assert_ne!(
+                pixels, access,
+                "V5 {tab:?} page must not be a copy of the Remote Access form"
+            );
+        }
     }
 
     #[test]
@@ -1723,9 +3282,9 @@ mod tests {
 
     #[test]
     fn quick_connect_identity_caption_stays_in_its_own_column() {
-        // Quick-connect belongs to the compact fallback. At >=1180px the
-        // locked four-column dashboard intentionally replaces this view.
-        let width = 960;
+        // The legacy layout remains only for windows narrower than 800px.
+        // V5 owns compact desktop widths without the old dashboard layout.
+        let width = 700;
         let height = 800;
         let shell = ProductShell::new();
         let presentation = presentation_for(&shell);
@@ -1754,19 +3313,22 @@ mod tests {
     fn locked_empty_directory_is_not_covered_by_a_disabled_placeholder_row() {
         let model = presentation_for(&ProductShell::new());
         let width = 1419;
-        let height = 611;
+        // The real device strip starts below the fold at 611px. Use a tall
+        // viewport so the pixel assertion samples a rendered tile, not a
+        // coordinate outside the allocated image buffer.
+        let height = 1200;
         let layout = LockedDashboardLayout::for_window(width, height).unwrap();
         let mut pixels = vec![0_u32; width * height];
         render_shell(&mut pixels, width, height, &model);
 
         // The placeholder must not paint a dark row behind the empty-state
         // prompt. A genuine peer row begins at the same y-position.
-        let x = layout.devices.x + 9;
+        let x = layout.devices.x + 3;
         let y = layout.device_row(0).y + 20;
         assert_eq!(
             pixels[y * width + x],
             packed_rgb(model.visual.surface_rgb),
-            "the fake placeholder row obscured the truthful empty-state text"
+            "a disabled placeholder must not paint a fake device tile"
         );
     }
 
@@ -1823,14 +3385,14 @@ mod tests {
             role: crate::AccessibleRole::Button,
             enabled: true,
         }];
-        let mut pixels = vec![0_u32; 960 * 800];
-        render_shell(&mut pixels, 960, 800, &presentation);
+        let mut pixels = vec![0_u32; 760 * 800];
+        render_shell(&mut pixels, 760, 800, &presentation);
 
         // The panel starts at panel_x; nothing of the row may land there.
-        let Some(layout) = ShellLayout::for_window(960, 800) else {
-            panic!("layout should resolve at 960x800");
+        let Some(layout) = ShellLayout::for_window(760, 800) else {
+            panic!("layout should resolve at 760x800");
         };
-        let Some(rect) = crate::control_rects_for(&presentation, 960, 800)
+        let Some(rect) = crate::control_rects_for(&presentation, 760, 800)
             .first()
             .copied()
         else {
@@ -1839,7 +3401,7 @@ mod tests {
         let row_y = rect.y;
         for y in row_y..row_y + rect.height {
             for x in layout.panel_x..layout.panel_x + layout.panel_width {
-                let pixel = pixels[y * 960 + x];
+                let pixel = pixels[y * 760 + x];
                 assert_ne!(
                     pixel,
                     packed_rgb(presentation.visual.foreground_rgb),

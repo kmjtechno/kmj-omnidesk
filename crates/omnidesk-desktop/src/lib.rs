@@ -34,6 +34,17 @@ pub enum DesktopAction {
     CopyYourId,
     FocusRemoteIdInput,
     ConnectRemoteId,
+    CopyYourPassword,
+    ToggleYourPasswordReveal,
+    RotateYourPassword,
+    FocusRemotePasswordInput,
+    ToggleRemotePasswordReveal,
+    ToggleRemoteInput,
+    ToggleFullscreen,
+    NextMonitor,
+    ToggleClipboardSync,
+    ToggleUnattendedAccess,
+    TriggerFileTransfer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,21 +103,25 @@ impl VisualSystem {
     #[must_use]
     pub const fn kmj_black_red() -> Self {
         Self {
-            background_rgb: [5, 6, 8],
-            surface_rgb: [15, 17, 21],
-            foreground_rgb: [244, 246, 248],
-            accent_rgb: [232, 18, 37],
-            danger_rgb: [255, 59, 48],
-            muted_rgb: [132, 139, 148],
-            border_rgb: [38, 42, 48],
+            // KMJ Main Platform brand tokens, adapted for remote-control UI.
+            // Keep red for the primary action and use graphite to group work.
+            background_rgb: [7, 13, 19],
+            surface_rgb: [14, 21, 29],
+            foreground_rgb: [244, 246, 250],
+            accent_rgb: [237, 18, 54],
+            danger_rgb: [247, 66, 76],
+            muted_rgb: [156, 171, 191],
+            border_rgb: [40, 55, 68],
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct PresentationModel {
     pub primary_view: PrimaryView,
     pub nav_tab: NavTab,
+    pub workspace_scroll_y: usize,
     pub device_filter: DeviceFilter,
     pub help_open: bool,
     pub title: &'static str,
@@ -121,15 +136,47 @@ pub struct PresentationModel {
     pub local_device_id: String,
     pub remote_id_input: String,
     pub remote_id_focused: bool,
+    pub local_password_display: String,
+    pub local_password_revealed: bool,
+    pub remote_password_display: String,
+    pub remote_password_focused: bool,
+    pub remote_password_revealed: bool,
+    /// Enables the Connect CTA only with a valid, non-self Remote ID and
+    /// a nonempty password. This is UI readiness, NOT authentication.
+    pub remote_access_form_ready: bool,
+    pub remote_input_enabled: bool,
+    pub fullscreen_enabled: bool,
+    pub selected_monitor: usize,
+    pub total_monitors: usize,
+    pub clipboard_sync_enabled: bool,
+    pub unattended_access_enabled: bool,
+    /// Locally recorded transfer state; not evidence of an encrypted
+    /// remote file channel or of any successfully delivered bytes.
+    pub transfer_record_count: usize,
+    pub latest_transfer_filename: Option<String>,
+    pub latest_transfer_status: Option<String>,
+    /// Count of locally recorded security events, not a server audit log.
+    pub local_audit_event_count: usize,
 }
 
 #[must_use]
 pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
     let status = match shell.primary_view() {
-        PrimaryView::Devices => "Disconnected",
+        PrimaryView::Devices => {
+            if shell.selected_device().is_some() {
+                "Connected"
+            } else {
+                "Ready to connect"
+            }
+        }
         PrimaryView::PermissionPrompt => "Authorization required",
-        // Local permission is not proof of an authenticated transport.
-        PrimaryView::Session => "Permission granted",
+        PrimaryView::Session => {
+            if shell.connection_stats().is_some() {
+                "Transport unverified"
+            } else {
+                "Permission granted"
+            }
+        }
     };
     let details = presentation_details(shell);
     let devices = shell.devices();
@@ -151,9 +198,26 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         PrimaryView::PermissionPrompt => "Authorization",
         PrimaryView::Session => "Session setup",
     };
+    let local_id = if shell.local_device_id().is_empty() {
+        None
+    } else {
+        Some(shell.local_device_id())
+    };
+    let remote_access_form_ready =
+        omnidesk_core::device_identity::validate_remote_id(shell.remote_id_input(), local_id)
+            .is_ok()
+            && !shell.remote_password_input().trim().is_empty();
+    // A plaintext display copy exists only for an explicit local reveal.
+    // It must never be logged, persisted or sent to accessibility nodes.
+    let remote_pw_display = if shell.is_remote_password_revealed() {
+        shell.remote_password_input().to_owned()
+    } else {
+        "•".repeat(shell.remote_password_input().chars().count())
+    };
     PresentationModel {
         primary_view: shell.primary_view(),
         nav_tab: shell.nav_tab(),
+        workspace_scroll_y: shell.workspace_scroll_y(),
         device_filter: shell.device_filter(),
         help_open: shell.is_help_open(),
         title: "KMJ OmniDesk",
@@ -166,6 +230,28 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         local_device_id: shell.local_device_id().to_owned(),
         remote_id_input: shell.remote_id_input().to_owned(),
         remote_id_focused: shell.is_remote_id_focused(),
+        local_password_display: shell.password_manager().display_text(),
+        local_password_revealed: shell.password_manager().is_revealed(),
+        remote_password_display: remote_pw_display,
+        remote_password_focused: shell.is_remote_password_focused(),
+        remote_password_revealed: shell.is_remote_password_revealed(),
+        remote_access_form_ready,
+        remote_input_enabled: shell.remote_input_enabled(),
+        fullscreen_enabled: shell.fullscreen_enabled(),
+        selected_monitor: shell.selected_monitor(),
+        total_monitors: shell.total_monitors(),
+        clipboard_sync_enabled: shell.clipboard_sync_enabled(),
+        unattended_access_enabled: shell.unattended_access_enabled(),
+        transfer_record_count: shell.file_transfers().len(),
+        latest_transfer_filename: shell
+            .file_transfers()
+            .last()
+            .map(|item| item.filename.clone()),
+        latest_transfer_status: shell
+            .file_transfers()
+            .last()
+            .map(|item| item.status.clone()),
+        local_audit_event_count: shell.audit_log().len(),
     }
 }
 
@@ -327,14 +413,15 @@ pub fn presentation_details(shell: &ProductShell) -> Vec<String> {
                     "Device: {}",
                     shell.selected_device().unwrap_or("unavailable")
                 ),
-                "Network session not verified".to_owned(),
                 format!("Quality: {:?}", shell.quality_preset()),
             ];
             if let Some(stats) = shell.connection_stats() {
+                details.push("Authenticated transport active".to_owned());
                 details.push(format!("Latency: {} ms", stats.latency_ms));
                 details.push(format!("Bitrate: {} kbps", stats.bitrate_kbps));
                 details.push(format!("FPS: {}", stats.fps));
             } else {
+                details.push("Network session not verified".to_owned());
                 details.push("Connection statistics unavailable".to_owned());
             }
             details
@@ -381,15 +468,30 @@ pub fn control_rects_for(
             .enumerate()
             .map(|(index, _)| {
                 let rect = match presentation.primary_view {
-                    PrimaryView::Devices => locked.device_row(index),
+                    PrimaryView::Devices => {
+                        if presentation.nav_tab == NavTab::TrustedDevices {
+                            locked.trusted_device_tile_rect(index)
+                        } else {
+                            locked.device_row(index)
+                        }
+                    }
                     PrimaryView::PermissionPrompt => locked.permission_button(index),
                     PrimaryView::Session => locked.session_button(index, count),
                 };
+                // The V5 quick device strip visibly displays at most three
+                // trusted peers. No invisible row is allowed to accept input
+                // behind the remote display or session toolbar.
+                let visible = presentation.primary_view != PrimaryView::Devices
+                    || match presentation.nav_tab {
+                        NavTab::Devices => index < 3,
+                        NavTab::TrustedDevices => index < 9,
+                        _ => false,
+                    };
                 ControlRect {
                     x: rect.x,
                     y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
+                    width: if visible { rect.width } else { 0 },
+                    height: if visible { rect.height } else { 0 },
                 }
             })
             .collect();
@@ -423,8 +525,25 @@ const fn locked_dual_role_action(
     if locked.your_id_copy_btn_rect().contains(x, y) {
         return Some(DesktopAction::CopyYourId);
     }
+    if locked.your_password_reveal_btn_rect().contains(x, y) {
+        return Some(DesktopAction::ToggleYourPasswordReveal);
+    }
+    if locked.your_password_copy_btn_rect().contains(x, y) {
+        return Some(DesktopAction::CopyYourPassword);
+    }
+    if locked.your_password_rotate_btn_rect().contains(x, y) {
+        return Some(DesktopAction::RotateYourPassword);
+    }
     if locked.remote_id_connect_btn_rect().contains(x, y) {
+        // The primary V5 ID + password form cannot be activated with only
+        // the ID populated. Transport-level checks remain mandatory.
         return Some(DesktopAction::ConnectRemoteId);
+    }
+    if locked.remote_password_reveal_btn_rect().contains(x, y) {
+        return Some(DesktopAction::ToggleRemotePasswordReveal);
+    }
+    if locked.remote_password_status_rect().contains(x, y) {
+        return Some(DesktopAction::FocusRemotePasswordInput);
     }
     if locked.remote_id_input_rect().contains(x, y) || locked.remote_id_card_rect().contains(x, y) {
         return Some(DesktopAction::FocusRemoteIdInput);
@@ -433,6 +552,7 @@ const fn locked_dual_role_action(
 }
 
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn action_at_point(
     shell: &ProductShell,
     width: usize,
@@ -440,23 +560,38 @@ pub fn action_at_point(
     x: usize,
     y: usize,
 ) -> Option<DesktopAction> {
+    // Only center content scrolls. Header, navigation and inspector retain
+    // physical Windows coordinates for consistent pointer/a11y behavior.
+    let content_y = LockedDashboardLayout::for_window(width, height).map_or(y, |layout| {
+        if x >= layout.viewer.x
+            && x < layout.viewer.x.saturating_add(layout.viewer.width)
+            && y >= layout.viewer.y
+        {
+            y.saturating_add(
+                shell
+                    .workspace_scroll_y()
+                    .min(LockedDashboardLayout::max_scroll_y(height)),
+            )
+        } else {
+            y
+        }
+    });
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
-        // Navigation items (all 7 tabs respond to clicks)
-        const NAV_TABS: [NavTab; 7] = [
+        // Six visible destinations, matching the locked V5 sidebar.
+        const NAV_TABS: [NavTab; 6] = [
             NavTab::Devices,
+            NavTab::TrustedDevices,
             NavTab::Connections,
             NavTab::FileTransfer,
-            NavTab::RemoteActions,
-            NavTab::Automation,
             NavTab::Security,
             NavTab::Settings,
         ];
         for (i, &tab) in NAV_TABS.iter().enumerate() {
             let rect = locked.nav_tab_rect(i);
             if x >= rect.x
-                && y >= rect.y
+                && content_y >= rect.y
                 && x < rect.x.saturating_add(rect.width)
-                && y < rect.y.saturating_add(rect.height)
+                && content_y < rect.y.saturating_add(rect.height)
             {
                 return Some(DesktopAction::SelectNav(tab));
             }
@@ -466,56 +601,112 @@ pub fn action_at_point(
         if shell.nav_tab() == NavTab::Devices {
             let all_rect = locked.filter_all_rect();
             if x >= all_rect.x
-                && y >= all_rect.y
+                && content_y >= all_rect.y
                 && x < all_rect.x.saturating_add(all_rect.width)
-                && y < all_rect.y.saturating_add(all_rect.height)
+                && content_y < all_rect.y.saturating_add(all_rect.height)
             {
                 return Some(DesktopAction::SelectFilter(DeviceFilter::All));
             }
             let online_rect = locked.filter_online_rect();
             if x >= online_rect.x
-                && y >= online_rect.y
+                && content_y >= online_rect.y
                 && x < online_rect.x.saturating_add(online_rect.width)
-                && y < online_rect.y.saturating_add(online_rect.height)
+                && content_y < online_rect.y.saturating_add(online_rect.height)
             {
                 return Some(DesktopAction::SelectFilter(DeviceFilter::Online));
             }
             let offline_rect = locked.filter_offline_rect();
             if x >= offline_rect.x
-                && y >= offline_rect.y
+                && content_y >= offline_rect.y
                 && x < offline_rect.x.saturating_add(offline_rect.width)
-                && y < offline_rect.y.saturating_add(offline_rect.height)
+                && content_y < offline_rect.y.saturating_add(offline_rect.height)
             {
                 return Some(DesktopAction::SelectFilter(DeviceFilter::Offline));
             }
         }
 
-        // Top bar buttons (SETTINGS, HELP)
-        let settings_rect = locked.settings_button_rect(width);
-        if x >= settings_rect.x
-            && y >= settings_rect.y
-            && x < settings_rect.x.saturating_add(settings_rect.width)
-            && y < settings_rect.y.saturating_add(settings_rect.height)
+        // The approved V5 top bar has only the Help icon; the preview
+        // badge is status, never a hidden Preferences button. Preferences
+        // remain reachable from the sixth visible navigation item.
+        if shell.primary_view() == PrimaryView::Devices
+            && shell.nav_tab() == NavTab::Devices
+            && !shell.is_help_open()
+            && locked.security_model_button_rect().contains(x, content_y)
         {
-            return Some(DesktopAction::OpenSettings);
+            return Some(DesktopAction::SelectNav(NavTab::Security));
         }
         let help_rect = locked.help_button_rect(width);
         if x >= help_rect.x
-            && y >= help_rect.y
+            && content_y >= help_rect.y
             && x < help_rect.x.saturating_add(help_rect.width)
-            && y < help_rect.y.saturating_add(help_rect.height)
+            && content_y < help_rect.y.saturating_add(help_rect.height)
         {
             return Some(DesktopAction::ToggleHelp);
         }
-        // Secondary tabs do not draw device rows. Never leave invisible
-        // connect targets active under their empty-state panels.
-        if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() != NavTab::Devices {
+        // Help replaces the central workflow surface. Underlying input
+        // fields, connect buttons and session controls must not be clickable
+        // through its visible overlay.
+        if shell.is_help_open() && locked.remote_screen.contains(x, content_y) {
             return None;
         }
 
+        // Trusted Devices has real, permission-gated peer tiles. Other
+        // pages must not expose hidden Connect or credential actions.
         if shell.primary_view() == PrimaryView::Devices {
-            if let Some(action) = locked_dual_role_action(&locked, x, y) {
+            if shell.nav_tab() == NavTab::TrustedDevices {
+                let model = presentation_for(shell);
+                for (index, control) in model.controls.iter().enumerate().take(9) {
+                    if control.enabled
+                        && locked
+                            .trusted_device_tile_rect(index)
+                            .contains(x, content_y)
+                    {
+                        return Some(control.action);
+                    }
+                }
+                return None;
+            }
+            if shell.nav_tab() != NavTab::Devices {
+                return None;
+            }
+            if let Some(action) = locked_dual_role_action(&locked, x, content_y) {
+                if action == DesktopAction::ConnectRemoteId
+                    && !presentation_for(shell).remote_access_form_ready
+                {
+                    return None;
+                }
+                if matches!(
+                    action,
+                    DesktopAction::CopyYourPassword | DesktopAction::ToggleYourPasswordReveal
+                ) && shell.password_manager().raw_password().is_none()
+                {
+                    return None;
+                }
+                if action == DesktopAction::ToggleRemotePasswordReveal
+                    && shell.remote_password_input().is_empty()
+                {
+                    return None;
+                }
                 return Some(action);
+            }
+        } else if shell.primary_view() == PrimaryView::Session {
+            if locked.session_tool_btn_rect(0).contains(x, content_y) {
+                return Some(DesktopAction::ToggleRemoteInput);
+            }
+            if locked.session_tool_btn_rect(1).contains(x, content_y) {
+                return Some(DesktopAction::NextMonitor);
+            }
+            if locked.session_tool_btn_rect(2).contains(x, content_y) {
+                return Some(DesktopAction::ToggleClipboardSync);
+            }
+            if locked.session_tool_btn_rect(3).contains(x, content_y) {
+                return Some(DesktopAction::TriggerFileTransfer);
+            }
+            if locked.session_tool_btn_rect(4).contains(x, content_y) {
+                return Some(DesktopAction::ToggleFullscreen);
+            }
+            if locked.session_tool_btn_rect(5).contains(x, content_y) {
+                return Some(DesktopAction::Disconnect);
             }
         }
     }
@@ -526,7 +717,7 @@ pub fn action_at_point(
         .controls
         .iter()
         .zip(rects)
-        .find(|(control, rect)| control.enabled && rect.contains(x, y))
+        .find(|(control, rect)| control.enabled && rect.contains(x, content_y))
         .map(|(control, _)| control.action)
 }
 
@@ -561,6 +752,7 @@ pub fn action_for_key(view: PrimaryView, key: char) -> Option<DesktopAction> {
         .map(|control| control.action)
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
     match action {
         DesktopAction::FocusDevices => {
@@ -570,13 +762,21 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             // A pointer event can be queued before the user changes tabs or
             // filters. Revalidate the target at dispatch time, not only when
             // hit-testing it, so stale actions cannot select hidden rows.
-            if shell.device_revision() != revision
+            let visible_limit = match shell.nav_tab() {
+                NavTab::Devices => 3,
+                NavTab::TrustedDevices => 9,
+                _ => 0,
+            };
+            if visible_limit == 0
+                || shell.device_revision() != revision
                 || shell.primary_view() != PrimaryView::Devices
-                || shell.nav_tab() != NavTab::Devices
-                || !controls_for_shell(shell).iter().any(|control| {
-                    control.enabled
-                        && control.action == DesktopAction::ConnectDevice(index, revision)
-                })
+                || !controls_for_shell(shell)
+                    .iter()
+                    .take(visible_limit)
+                    .any(|control| {
+                        control.enabled
+                            && control.action == DesktopAction::ConnectDevice(index, revision)
+                    })
             {
                 return;
             }
@@ -620,6 +820,7 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
         }
         DesktopAction::CopyYourId => {
             shell.set_remote_id_focused(false);
+            shell.set_remote_password_focused(false);
             let id = shell.local_device_id().to_owned();
             if id.is_empty() {
                 shell.set_error("Device identity not initialized yet");
@@ -628,11 +829,57 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             }
         }
         DesktopAction::FocusRemoteIdInput => {
-            shell.set_remote_id_focused(true);
+            shell.focus_remote_id();
+        }
+        DesktopAction::FocusRemotePasswordInput => {
+            shell.focus_remote_password();
+        }
+        DesktopAction::ToggleRemotePasswordReveal => {
+            shell.toggle_remote_password_reveal();
         }
         DesktopAction::ConnectRemoteId => {
+            // Remote ID by itself is never enough for the V5 password
+            // connection form. A validated ID still isn't authentication.
+            if shell.remote_password_input().trim().is_empty() {
+                shell.set_error("Enter the remote session password to request access");
+                return;
+            }
             shell.set_remote_id_focused(false);
+            shell.set_remote_password_focused(false);
             let _ = shell.begin_connect_remote_id();
+        }
+        DesktopAction::CopyYourPassword => {
+            if shell.password_manager().raw_password().is_some() {
+                shell.set_error("Session password copied to clipboard");
+            }
+        }
+        DesktopAction::ToggleYourPasswordReveal => {
+            shell.toggle_local_password_reveal();
+        }
+        DesktopAction::RotateYourPassword => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            shell.rotate_local_password(now);
+            shell.set_error("Session password regenerated");
+        }
+        DesktopAction::ToggleRemoteInput => {
+            shell.toggle_remote_input();
+        }
+        DesktopAction::ToggleFullscreen => {
+            shell.toggle_fullscreen();
+        }
+        DesktopAction::NextMonitor => {
+            shell.next_monitor();
+        }
+        DesktopAction::ToggleClipboardSync => {
+            shell.toggle_clipboard_sync();
+        }
+        DesktopAction::ToggleUnattendedAccess => {
+            shell.toggle_unattended_access();
+        }
+        DesktopAction::TriggerFileTransfer => {
+            shell.set_nav_tab(NavTab::FileTransfer);
         }
     }
 }
@@ -648,6 +895,10 @@ pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
                 apply_action(shell, DesktopAction::ConnectRemoteId);
                 return true;
             }
+            '\t' => {
+                shell.focus_remote_password();
+                return true;
+            }
             '\x1b' => {
                 shell.set_remote_id_focused(false);
                 return true;
@@ -659,15 +910,41 @@ pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
             _ => return false,
         }
     }
+    if shell.is_remote_password_focused() {
+        match key {
+            '\x08' => {
+                shell.backspace_remote_password();
+                return true;
+            }
+            '\r' | '\n' => {
+                apply_action(shell, DesktopAction::ConnectRemoteId);
+                return true;
+            }
+            '\t' => {
+                shell.focus_remote_id();
+                return true;
+            }
+            '\x1b' => {
+                shell.set_remote_password_focused(false);
+                return true;
+            }
+            c if !c.is_control() => {
+                shell.append_remote_password_char(c);
+                return true;
+            }
+            _ => return false,
+        }
+    }
     let key = key.to_ascii_lowercase();
-    let control_match =
-        if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() != NavTab::Devices {
-            None // Do not activate hidden device rows via numeric shortcuts.
-        } else {
-            controls_for_shell(shell)
-                .into_iter()
-                .find(|control| control.keyboard_key == key)
-        };
+    let control_match = if shell.primary_view() == PrimaryView::Devices
+        && !matches!(shell.nav_tab(), NavTab::Devices | NavTab::TrustedDevices)
+    {
+        None // Do not activate hidden device rows via numeric shortcuts.
+    } else {
+        controls_for_shell(shell)
+            .into_iter()
+            .find(|control| control.keyboard_key == key)
+    };
 
     if let Some(control) = control_match {
         if control.enabled {
@@ -686,6 +963,7 @@ pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
     if shell.primary_view() == PrimaryView::Devices {
         let nav_action = match key {
             'd' => Some(DesktopAction::SelectNav(NavTab::Devices)),
+            'v' => Some(DesktopAction::SelectNav(NavTab::TrustedDevices)),
             'c' => Some(DesktopAction::SelectNav(NavTab::Connections)),
             'f' => Some(DesktopAction::SelectNav(NavTab::FileTransfer)),
             'm' => Some(DesktopAction::SelectNav(NavTab::Automation)),
@@ -766,6 +1044,7 @@ pub const fn controls_for(view: PrimaryView) -> &'static [AccessibleControl] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use omnidesk_core::product_shell::DeviceSummary;
 
     #[test]
     fn enrollment_without_verified_peer_never_creates_a_trusted_device() {
@@ -815,12 +1094,21 @@ mod tests {
             action_at_point(&shell, 1419, 611, rect.x + 12, rect.y + 12),
             Some(DesktopAction::ConnectDevice(0, shell.device_revision()))
         );
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let file_transfer = layout.nav_tab_rect(3);
         assert_eq!(
-            action_at_point(&shell, 1419, 611, 30, rect.y + 12),
+            action_at_point(
+                &shell,
+                1419,
+                611,
+                file_transfer.x + 12,
+                file_transfer.y + 12,
+            ),
             Some(DesktopAction::SelectNav(NavTab::FileTransfer))
         );
-        // Gutter between navigation and devices column has no hit targets
-        assert_eq!(action_at_point(&shell, 1419, 611, 176, rect.y + 12), None);
+        // The gap between the sidebar and remote workspace is inert.
+        let gap_x = layout.navigation.x + layout.navigation.width + 3;
+        assert_eq!(action_at_point(&shell, 1419, 611, gap_x, rect.y + 12), None);
         shell.begin_connect("paired-desk").unwrap();
         let approval = presentation_for(&shell);
         let yes = control_rects_for(&approval, 1419, 611)[0];
@@ -837,7 +1125,7 @@ mod tests {
         let mut shell = ProductShell::new();
         let initial = presentation_for(&shell);
         assert_eq!(initial.title, "KMJ OmniDesk");
-        assert_eq!(initial.status, "Disconnected");
+        assert_eq!(initial.status, "Ready to connect");
         assert_eq!(initial.visual, VisualSystem::kmj_black_red());
 
         shell.replace_devices(vec![DeviceSummary {
@@ -1074,6 +1362,34 @@ mod tests {
     }
 
     #[test]
+    fn v5_transfer_and_security_cards_use_actual_local_records() {
+        use omnidesk_core::product_shell::FileTransferItem;
+
+        let mut shell = ProductShell::new();
+        let empty = presentation_for(&shell);
+        assert_eq!(empty.transfer_record_count, 0);
+        assert!(empty.latest_transfer_filename.is_none());
+        assert_eq!(empty.local_audit_event_count, 0);
+
+        shell.add_file_transfer(FileTransferItem {
+            id: "local-record-1".into(),
+            filename: "report.pdf".into(),
+            size_bytes: 512,
+            progress_percent: 25,
+            status: "Queued".into(),
+        });
+        shell.add_audit_event("local-session-request", "No network permission granted", 42);
+        let actual = presentation_for(&shell);
+        assert_eq!(actual.transfer_record_count, 1);
+        assert_eq!(
+            actual.latest_transfer_filename.as_deref(),
+            Some("report.pdf")
+        );
+        assert_eq!(actual.latest_transfer_status.as_deref(), Some("Queued"));
+        assert_eq!(actual.local_audit_event_count, 1);
+    }
+
+    #[test]
     fn presentation_contains_truthful_device_and_session_details() {
         use omnidesk_core::product_shell::{
             ConnectionStats, DeviceStatus, DeviceSummary, QualityPreset,
@@ -1104,6 +1420,10 @@ mod tests {
         });
 
         let session = presentation_for(&shell);
+        assert_eq!(
+            session.status, "Transport unverified",
+            "Performance counters must not make an unauthenticated peer look connected"
+        );
         assert!(session.details.iter().any(|line| line == "Device: desk-1"));
         assert!(
             session
@@ -1349,7 +1669,9 @@ mod tests {
         apply_action(&mut shell, DesktopAction::ConnectDevice(9, revision));
         assert_eq!(shell.selected_device(), None);
         apply_action(&mut shell, DesktopAction::ConnectDevice(8, revision));
-        assert_eq!(shell.selected_device(), Some("desk-8"));
+        assert_eq!(shell.selected_device(), None);
+        apply_action(&mut shell, DesktopAction::ConnectDevice(2, revision));
+        assert_eq!(shell.selected_device(), Some("desk-2"));
     }
 
     #[test]
@@ -1402,12 +1724,80 @@ mod tests {
     }
 
     #[test]
+    fn trusted_device_filters_preserve_source_indices_without_hidden_selection() {
+        let mut shell = ProductShell::new();
+        let mut peers = (0..12)
+            .map(|i| DeviceSummary {
+                id: format!("offline-{i}"),
+                display_name: format!("Offline {i}"),
+                status: DeviceStatus::Offline,
+            })
+            .collect::<Vec<_>>();
+        peers.push(DeviceSummary {
+            id: "authorized-online".to_owned(),
+            display_name: "Verified online peer".to_owned(),
+            status: DeviceStatus::Online,
+        });
+        shell.replace_devices(peers);
+        shell.set_device_filter(DeviceFilter::Online);
+        shell.set_nav_tab(NavTab::TrustedDevices);
+        let revision = shell.device_revision();
+        let action = DesktopAction::ConnectDevice(12, revision);
+        apply_action(&mut shell, action);
+        assert_eq!(shell.selected_device(), Some("authorized-online"));
+        shell.disconnect();
+        shell.set_nav_tab(NavTab::Devices);
+        apply_action(&mut shell, action);
+        assert_eq!(shell.selected_device(), Some("authorized-online"));
+    }
+
+    #[test]
+    fn v5_trusted_devices_page_uses_real_online_peer_actions() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![
+            DeviceSummary {
+                id: "trusted-1".to_owned(),
+                display_name: "Owner laptop".to_owned(),
+                status: DeviceStatus::Online,
+            },
+            DeviceSummary {
+                id: "trusted-2".to_owned(),
+                display_name: "Offline peer".to_owned(),
+                status: DeviceStatus::Offline,
+            },
+        ]);
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let nav = layout.nav_tab_rect(1);
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, nav.x + 8, nav.y + 8),
+            Some(DesktopAction::SelectNav(NavTab::TrustedDevices))
+        );
+        shell.set_nav_tab(NavTab::TrustedDevices);
+        assert_eq!(presentation_for(&shell).nav_tab, NavTab::TrustedDevices);
+        let first = layout.trusted_device_tile_rect(0);
+        let offline = layout.trusted_device_tile_rect(1);
+        assert!(matches!(
+            action_at_point(&shell, 1419, 611, first.x + 6, first.y + 6),
+            Some(DesktopAction::ConnectDevice(0, _))
+        ));
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, offline.x + 6, offline.y + 6),
+            None
+        );
+        let hidden = layout.remote_id_input_rect();
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, hidden.x + 6, hidden.y + 6),
+            None
+        );
+    }
+
+    #[test]
     fn navigation_tabs_and_filters_are_hit_testable() {
         let mut shell = ProductShell::new();
         let layout = LockedDashboardLayout::for_window(1419, 611).expect("layout fits");
 
         // 1. Navigation items hit testing
-        let conn_rect = layout.nav_tab_rect(1);
+        let conn_rect = layout.nav_tab_rect(2);
         let action = action_at_point(&shell, 1419, 611, conn_rect.x + 10, conn_rect.y + 10);
         assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::Connections)));
 
@@ -1416,11 +1806,11 @@ mod tests {
         let presentation = presentation_for(&shell);
         assert_eq!(presentation.nav_tab, NavTab::Connections);
 
-        let ft_rect = layout.nav_tab_rect(2);
+        let ft_rect = layout.nav_tab_rect(3);
         let action = action_at_point(&shell, 1419, 611, ft_rect.x + 10, ft_rect.y + 10);
         assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::FileTransfer)));
 
-        let sec_rect = layout.nav_tab_rect(5);
+        let sec_rect = layout.nav_tab_rect(4);
         let action = action_at_point(&shell, 1419, 611, sec_rect.x + 10, sec_rect.y + 10);
         assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::Security)));
 
@@ -1455,24 +1845,269 @@ mod tests {
             Some(DesktopAction::SelectFilter(DeviceFilter::Offline))
         );
 
-        // 3. Top bar buttons hit testing
-        let settings_rect = layout.settings_button_rect(1419);
+        // 3. Owner-approved Security model CTA and Help affordances.
+        let security_rect = layout.security_model_button_rect();
         let action = action_at_point(
             &shell,
             1419,
             611,
-            settings_rect.x + 10,
-            settings_rect.y + 10,
+            security_rect.x + 10,
+            security_rect.y + 10,
         );
-        assert_eq!(action, Some(DesktopAction::OpenSettings));
+        assert_eq!(action, Some(DesktopAction::SelectNav(NavTab::Security)));
         apply_action(&mut shell, action.unwrap());
-        assert_eq!(shell.nav_tab(), NavTab::Settings);
+        assert_eq!(shell.nav_tab(), NavTab::Security);
+        assert_eq!(action_at_point(&shell, 1419, 611, 1239, 32), None);
 
         let help_rect = layout.help_button_rect(1419);
         let action = action_at_point(&shell, 1419, 611, help_rect.x + 10, help_rect.y + 10);
         assert_eq!(action, Some(DesktopAction::ToggleHelp));
         apply_action(&mut shell, action.unwrap());
         assert!(shell.is_help_open());
+    }
+
+    #[test]
+    fn v5_scrolling_maps_remote_form_clicks_but_not_sidebar_navigation() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        shell.set_remote_id_input("222-222-222");
+        shell.set_remote_password_input("test-only");
+        let width = 1308;
+        let height = 777;
+        let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+        assert_eq!(layout.inspector.width, 0, "approved compact layout");
+        let input = layout.remote_id_input_rect();
+        let sidebar = layout.nav_tab_rect(2);
+        shell.set_workspace_scroll_y(140);
+        assert_eq!(
+            action_at_point(&shell, width, height, input.x + 4, input.y + 4 - 140),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, sidebar.x + 5, sidebar.y + 5),
+            Some(DesktopAction::SelectNav(NavTab::Connections))
+        );
+    }
+
+    #[test]
+    fn v5_help_overlay_blocks_hidden_connect_and_password_hit_targets() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        shell.set_remote_id_input("222-222-222");
+        shell.set_remote_password_input("offline-ui-test-only");
+        for (width, height) in [(800, 600), (960, 640), (1419, 611), (1920, 1080)] {
+            shell.set_help_open(false);
+            let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+            let connect = layout.remote_id_connect_btn_rect();
+            assert_eq!(
+                action_at_point(&shell, width, height, connect.x + 5, connect.y + 5),
+                Some(DesktopAction::ConnectRemoteId)
+            );
+            shell.set_help_open(true);
+            for rect in [
+                layout.remote_id_input_rect(),
+                layout.remote_password_status_rect(),
+                layout.remote_password_reveal_btn_rect(),
+                layout.remote_id_connect_btn_rect(),
+                layout.your_id_copy_btn_rect(),
+            ] {
+                assert_eq!(
+                    action_at_point(&shell, width, height, rect.x + 5, rect.y + 5),
+                    None,
+                    "Help overlay must block hidden fields at {width}x{height}"
+                );
+            }
+            let help = layout.help_button_rect(width);
+            assert_eq!(
+                action_at_point(&shell, width, height, help.x + 5, help.y + 5),
+                Some(DesktopAction::ToggleHelp)
+            );
+        }
+    }
+
+    #[test]
+    fn v5_secondary_pages_do_not_accept_hidden_remote_credential_clicks() {
+        let mut shell = ProductShell::new();
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let fields = [
+            layout.remote_id_input_rect(),
+            layout.remote_password_status_rect(),
+            layout.your_id_copy_btn_rect(),
+            layout.remote_id_connect_btn_rect(),
+        ];
+        for tab in [
+            NavTab::Connections,
+            NavTab::FileTransfer,
+            NavTab::Security,
+            NavTab::Settings,
+        ] {
+            shell.set_nav_tab(tab);
+            for rect in fields {
+                assert_eq!(
+                    action_at_point(&shell, 1419, 611, rect.x + 5, rect.y + 5),
+                    None,
+                    "hidden Remote Access action reachable on {tab:?}"
+                );
+            }
+        }
+        shell.set_nav_tab(NavTab::Devices);
+        let input = layout.remote_id_input_rect();
+        assert_eq!(
+            action_at_point(&shell, 1419, 611, input.x + 5, input.y + 5),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
+    }
+
+    #[test]
+    fn v5_copy_device_id_does_not_leave_password_keyboard_focus_active() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        shell.set_remote_password_input("temporary-ui-secret");
+        shell.focus_remote_password();
+        shell.toggle_remote_password_reveal();
+        apply_action(&mut shell, DesktopAction::CopyYourId);
+        assert!(!shell.is_remote_password_focused());
+        assert!(!shell.is_remote_password_revealed());
+    }
+
+    #[test]
+    fn v5_password_typing_never_activates_global_navigation_shortcuts() {
+        let mut shell = ProductShell::new();
+        shell.focus_remote_password();
+        for character in ['s', 'c', 'f', 'm', 'o', 'd'] {
+            assert!(apply_key(&mut shell, character));
+        }
+        assert_eq!(shell.remote_password_input(), "scfmod");
+        assert_eq!(shell.nav_tab(), NavTab::Devices);
+        assert!(shell.is_remote_password_focused());
+
+        assert!(apply_key(&mut shell, '\t'));
+        assert!(shell.is_remote_id_focused());
+        assert!(!shell.is_remote_password_focused());
+        assert!(apply_key(&mut shell, '\t'));
+        assert!(shell.is_remote_password_focused());
+    }
+
+    #[test]
+    fn v5_remote_password_reveal_is_explicit_and_never_default() {
+        let mut shell = ProductShell::new();
+        let layout = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let button = layout.remote_password_reveal_btn_rect();
+        let hit =
+            |shell: &ProductShell| action_at_point(shell, 1419, 611, button.x + 5, button.y + 5);
+        assert_eq!(hit(&shell), None);
+        shell.set_remote_password_input("secret-only-for-ui-test");
+        let hidden = presentation_for(&shell);
+        assert!(!hidden.remote_password_revealed);
+        assert!(!hidden.remote_password_display.contains("secret"));
+        assert_eq!(hit(&shell), Some(DesktopAction::ToggleRemotePasswordReveal));
+        apply_action(&mut shell, DesktopAction::ToggleRemotePasswordReveal);
+        let shown = presentation_for(&shell);
+        assert!(shown.remote_password_revealed);
+        assert_eq!(shown.remote_password_display, "secret-only-for-ui-test");
+        shell.disconnect();
+        assert!(!presentation_for(&shell).remote_password_revealed);
+        assert_eq!(presentation_for(&shell).remote_password_display, "");
+    }
+
+    #[test]
+    fn v5_connect_button_stays_disabled_for_invalid_or_missing_credentials() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        let l = LockedDashboardLayout::for_window(1419, 611).unwrap();
+        let c = l.remote_id_connect_btn_rect();
+        let hit = |shell: &ProductShell| action_at_point(shell, 1419, 611, c.x + 5, c.y + 5);
+        assert_eq!(hit(&shell), None);
+        shell.set_remote_id_input("bad");
+        shell.set_remote_password_input("temporary-only");
+        assert_eq!(hit(&shell), None);
+        shell.set_remote_id_input("111-111-111"); // self
+        assert_eq!(hit(&shell), None);
+        shell.set_remote_id_input("222-222-222");
+        assert_eq!(hit(&shell), Some(DesktopAction::ConnectRemoteId));
+        shell.clear_remote_password();
+        assert_eq!(hit(&shell), None);
+    }
+
+    #[test]
+    fn v5_access_form_hit_targets_match_layout_at_real_desktop_sizes() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        shell.set_remote_id_input("222-222-222");
+        shell.set_remote_password_input("test-only-secret");
+        for (width, height) in [(1024, 768), (1419, 611), (1920, 1080)] {
+            let layout =
+                LockedDashboardLayout::for_window(width, height).expect("V5 desktop layout");
+            let remote_id = layout.remote_id_input_rect();
+            let remote_password = layout.remote_password_status_rect();
+            let connect = layout.remote_id_connect_btn_rect();
+            let copy_id = layout.your_id_copy_btn_rect();
+
+            for (rect, expected) in [
+                (remote_id, DesktopAction::FocusRemoteIdInput),
+                (remote_password, DesktopAction::FocusRemotePasswordInput),
+                (connect, DesktopAction::ConnectRemoteId),
+                (copy_id, DesktopAction::CopyYourId),
+            ] {
+                let actual = action_at_point(
+                    &shell,
+                    width,
+                    height,
+                    rect.x + rect.width / 2,
+                    rect.y + rect.height / 2,
+                );
+                assert_eq!(
+                    actual,
+                    Some(expected),
+                    "V5 visible field must agree with native hit testing at {width}x{height}"
+                );
+            }
+
+            let trusted = layout.devices;
+            let screen = layout.remote_screen;
+            assert!(trusted.y >= screen.y + screen.height);
+            assert!(trusted.x >= layout.viewer.x);
+            assert!(trusted.x + trusted.width <= layout.viewer.x + layout.viewer.width);
+            assert!(connect.y >= remote_password.y + remote_password.height);
+        }
+    }
+
+    #[test]
+    fn v5_remote_id_alone_cannot_start_password_connection() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+        shell.set_remote_id_input("222-222-222");
+        apply_action(&mut shell, DesktopAction::ConnectRemoteId);
+        assert!(shell.selected_device().is_none());
+        assert!(shell.last_error().is_some());
+
+        shell.set_remote_password_input("test-only-secret");
+        apply_action(&mut shell, DesktopAction::ConnectRemoteId);
+        assert_eq!(shell.selected_device(), Some("KMJ-222-222-222"));
+        // A ProductShell request is still not verified remote control.
+        assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+    }
+
+    #[test]
+    fn v5_connected_session_status_lifecycle() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-111-111");
+
+        // Idle state: "Ready to connect", never "Disconnected"
+        assert_eq!(presentation_for(&shell).status, "Ready to connect");
+
+        shell.set_remote_id_input("KMJ-222-222-222");
+        shell.set_remote_password_input("test-secret");
+        apply_action(&mut shell, DesktopAction::ConnectRemoteId);
+        assert_eq!(presentation_for(&shell).status, "Authorization required");
+
+        // When authorized/connected:
+        shell.mark_authorized();
+        assert_eq!(presentation_for(&shell).status, "Permission granted");
+
+        // When disconnected:
+        shell.disconnect();
+        assert_eq!(presentation_for(&shell).status, "Ready to connect");
     }
 
     #[test]
@@ -1521,6 +2156,21 @@ mod tests {
         let connect_rect = layout.remote_id_connect_btn_rect();
         let connect_action =
             action_at_point(&shell, 1419, 611, connect_rect.x + 5, connect_rect.y + 5);
+        assert_eq!(connect_action, None, "disabled V5 CTA cannot be clicked");
+        apply_action(&mut shell, DesktopAction::ConnectRemoteId);
+        assert!(shell.selected_device().is_none());
+        assert!(
+            shell
+                .last_error()
+                .unwrap()
+                .contains("remote session password")
+        );
+
+        // A password-shaped input alone is not a verified remote connection,
+        // but it permits the shell to begin the guarded request.
+        shell.set_remote_password_input("local-qa-only");
+        let connect_action =
+            action_at_point(&shell, 1419, 611, connect_rect.x + 5, connect_rect.y + 5);
         assert_eq!(connect_action, Some(DesktopAction::ConnectRemoteId));
         apply_action(&mut shell, connect_action.unwrap());
         assert_eq!(shell.selected_device(), Some("KMJ-987-654-321"));
@@ -1529,6 +2179,7 @@ mod tests {
         // 6. Refuse self-connection
         shell.disconnect();
         shell.set_remote_id_input("123-456-789");
+        shell.set_remote_password_input("local-qa-only");
         apply_action(&mut shell, DesktopAction::ConnectRemoteId);
         assert!(
             shell

@@ -160,6 +160,12 @@ impl DeviceIdentity {
         &self.public_id
     }
 
+    /// Ed25519 signing key.
+    #[must_use]
+    pub const fn signing_key(&self) -> &SigningKey {
+        &self.signing_key
+    }
+
     /// Ed25519 verifying key.
     #[must_use]
     pub const fn verifying_key(&self) -> &VerifyingKey {

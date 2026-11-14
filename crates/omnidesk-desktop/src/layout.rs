@@ -176,9 +176,9 @@ mod tests {
         assert_eq!((width, height), (968.0, 684.0));
         assert!(width + 56.0 <= 1024.0);
         assert!(height + 84.0 <= 768.0);
-        // A small monitor uses the compact fallback rather than clipping the
-        // locked four-column dashboard beyond the visible screen.
-        assert!(LockedDashboardLayout::for_window(968, 684).is_none());
+        // V5 fits a 1024x768 physical monitor with the responsive 3-column layout
+        // (compact nav rail, wide remote workspace, collapsed inspector).
+        assert!(LockedDashboardLayout::for_window(968, 684).is_some());
         assert!(ShellLayout::for_window(968, 684).is_some());
     }
 
@@ -329,54 +329,76 @@ pub struct LockedDashboardLayout {
 impl LockedDashboardLayout {
     #[must_use]
     pub fn for_window(width: usize, height: usize) -> Option<Self> {
-        if width < 1180 || height < 600 {
+        if width < 800 || height < 600 {
             return None;
         }
-        let top = 70;
-        let navigation_width = (width / 100 * 12).clamp(160, 198);
-        let devices_width = (width / 100 * 19).clamp(238, 315);
-        let inspector_width = (width / 100 * 20).clamp(254, 320);
-        let nav = DashboardRect {
-            x: 4,
-            y: top + 4,
-            width: navigation_width,
-            height: height - top - 10,
+        // V5 canonical fold: 75px branded header, fixed navigation and a
+        // SCROLLABLE central content canvas. Never shrink 363px workflow
+        // cards into the former 173px mini-panels on short Windows screens.
+        let top = 75;
+        // Match the actual locked HTML breakpoints, not a guessed 1450px
+        // threshold. At the owner's 1309x777 screenshot the inspector must
+        // collapse so the two credential cards can breathe.
+        let navigation_width = if width <= 1020 { 78 } else { 200 };
+        let inspector_width = if width <= 1510 {
+            0
+        } else {
+            (width * 18 / 100).clamp(294, 315)
         };
-        let devices = DashboardRect {
-            x: nav.x + nav.width + 6,
-            y: nav.y,
-            width: devices_width,
-            height: nav.height,
+        let nav = DashboardRect {
+            x: 12,
+            y: top,
+            width: navigation_width,
+            height: height.saturating_sub(top),
         };
         let inspector = DashboardRect {
-            x: width - inspector_width - 6,
-            y: nav.y,
+            x: width.saturating_sub(inspector_width),
+            y: top,
             width: inspector_width,
             height: nav.height,
         };
-        let viewer_x = devices.x + devices.width + 6;
-        let viewer_width = inspector.x.saturating_sub(viewer_x + 6);
-        if viewer_width < 350 {
+        let viewer_x = nav.x + nav.width + 16;
+        let viewer_width = inspector.x.saturating_sub(viewer_x + 16);
+        if viewer_width < 640 {
             return None;
         }
         let viewer = DashboardRect {
             x: viewer_x,
-            y: nav.y,
+            y: top,
             width: viewer_width,
             height: nav.height,
         };
-        let toolbar_y = viewer.y + viewer.height - 76;
+        // These are CONTENT positions, not positions squeezed into one
+        // short viewport. The host scrolls this center column only.
         let remote_screen = DashboardRect {
-            x: viewer.x + 10,
-            y: viewer.y + 62,
-            width: viewer.width - 20,
-            height: viewer.height.saturating_sub(150),
+            // The approved HTML adds four pixels of padding when the
+            // Session Inspector is present, and two pixels of vertical
+            // breathing room on medium-width Windows desktops.
+            x: viewer.x + if inspector_width > 0 { 25 } else { 21 },
+            y: viewer.y
+                + if inspector_width > 0 {
+                    133
+                } else if width >= 1200 {
+                    125
+                } else {
+                    123
+                },
+            width: viewer
+                .width
+                .saturating_sub(if inspector_width > 0 { 37 } else { 33 }),
+            height: 788,
+        };
+        let devices = DashboardRect {
+            x: remote_screen.x,
+            y: remote_screen.y + 810,
+            width: remote_screen.width,
+            height: 85,
         };
         let session_toolbar = DashboardRect {
-            x: viewer.x + 10,
-            y: toolbar_y,
-            width: viewer.width - 20,
-            height: 58,
+            x: remote_screen.x,
+            y: devices.y + 100,
+            width: remote_screen.width,
+            height: 56,
         };
         Some(Self {
             top_bar_height: top,
@@ -386,18 +408,30 @@ impl LockedDashboardLayout {
             inspector,
             remote_screen,
             session_toolbar,
-            first_device_row_y: devices.y + 93,
+            first_device_row_y: devices.y + 34,
             device_row_step: 55,
         })
     }
 
+    /// Full document height of the scrollable V5 center column.
+    pub const CONTENT_HEIGHT: usize = 1240;
+
+    /// Maximum scroll for the center document below the fixed 75px header.
+    /// The viewport starts at `viewer.y`, not at the top of the window.
+    #[must_use]
+    pub const fn max_scroll_y(window_height: usize) -> usize {
+        let visible_center_height = window_height.saturating_sub(75);
+        Self::CONTENT_HEIGHT.saturating_sub(visible_center_height)
+    }
+
     #[must_use]
     pub const fn device_row(&self, index: usize) -> DashboardRect {
+        let tile_width = self.devices.width.saturating_sub(28) / 3;
         DashboardRect {
-            x: self.devices.x + 8,
-            y: self.first_device_row_y + index.saturating_mul(self.device_row_step),
-            width: self.devices.width.saturating_sub(16),
-            height: 49,
+            x: self.devices.x + 10 + (index % 3) * (tile_width + 4),
+            y: self.first_device_row_y + (index / 3) * self.device_row_step,
+            width: tile_width,
+            height: if self.compact_height() { 30 } else { 45 },
         }
     }
 
@@ -426,18 +460,36 @@ impl LockedDashboardLayout {
     #[must_use]
     pub const fn nav_tab_rect(&self, index: usize) -> DashboardRect {
         DashboardRect {
-            x: self.navigation.x + 6,
-            y: self.navigation.y + 9 + index.saturating_mul(44),
-            width: self.navigation.width.saturating_sub(12),
-            height: 36,
+            x: self.navigation.x,
+            y: self.navigation.y + 50 + index.saturating_mul(44) + if index >= 4 { 80 } else { 0 },
+            width: self.navigation.width,
+            height: 42,
+        }
+    }
+
+    /// Positions verified-device tiles on the separate Trusted Devices page.
+    /// The same rectangles are shared by rendering, pointer hit tests and
+    /// assistive technology; the Remote Access quick strip is unaffected.
+    #[must_use]
+    pub const fn trusted_device_tile_rect(&self, index: usize) -> DashboardRect {
+        let frame = self.remote_screen;
+        let gutter = 18;
+        let gap = 10;
+        let columns = 3;
+        let tile_width = frame.width.saturating_sub(gutter * 2 + gap * 2) / columns;
+        DashboardRect {
+            x: frame.x + gutter + (index % columns) * (tile_width + gap),
+            y: frame.y + 146 + (index / columns) * 57,
+            width: tile_width,
+            height: 48,
         }
     }
 
     #[must_use]
     pub const fn filter_all_rect(&self) -> DashboardRect {
         DashboardRect {
-            x: self.devices.x + 15,
-            y: self.devices.y + 70,
+            x: self.devices.x + 175,
+            y: self.devices.y + 9,
             width: 45,
             height: 22,
         }
@@ -446,8 +498,8 @@ impl LockedDashboardLayout {
     #[must_use]
     pub const fn filter_online_rect(&self) -> DashboardRect {
         DashboardRect {
-            x: self.devices.x + 68,
-            y: self.devices.y + 70,
+            x: self.devices.x + 228,
+            y: self.devices.y + 9,
             width: 65,
             height: 22,
         }
@@ -456,10 +508,21 @@ impl LockedDashboardLayout {
     #[must_use]
     pub const fn filter_offline_rect(&self) -> DashboardRect {
         DashboardRect {
-            x: self.devices.x + 140,
-            y: self.devices.y + 70,
+            x: self.devices.x + 302,
+            y: self.devices.y + 9,
             width: 70,
             height: 22,
+        }
+    }
+
+    /// Reference CTA beside the 31px hero, always outside both cards.
+    #[must_use]
+    pub const fn security_model_button_rect(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.remote_screen.x + self.remote_screen.width.saturating_sub(152),
+            y: self.viewer.y + 82,
+            width: 152,
+            height: 38,
         }
     }
 
@@ -473,13 +536,54 @@ impl LockedDashboardLayout {
         }
     }
 
+    /// Compact-height windows keep the remote-display stage visible.
+    #[must_use]
+    pub const fn compact_height(&self) -> bool {
+        self.viewer.height < 700
+    }
+
+    /// A separate video/stage area below Connect and Share cards.
+    #[must_use]
+    pub const fn remote_stage_rect(&self) -> DashboardRect {
+        let offset = 462;
+        DashboardRect {
+            x: self.remote_screen.x,
+            y: self.remote_screen.y + offset,
+            width: self.remote_screen.width,
+            height: 315,
+        }
+    }
+
+    /// Show separate share/connect panels side by side when there is enough
+    /// actual viewer width, retaining the stacked layout on smaller desktops.
+    #[must_use]
+    pub const fn access_cards_wide(&self) -> bool {
+        self.remote_screen.width >= 640
+    }
+
     #[must_use]
     pub const fn your_id_card_rect(&self) -> DashboardRect {
+        let screen = self.remote_screen;
+        let gap = 16;
+        let available = screen.width.saturating_sub(gap);
+        let connect_width = available * 52 / 100;
         DashboardRect {
-            x: self.remote_screen.x + 18,
-            y: self.remote_screen.y + 18,
-            width: self.remote_screen.width.saturating_sub(36),
-            height: 94,
+            x: if self.access_cards_wide() {
+                screen.x + connect_width + gap
+            } else {
+                screen.x
+            },
+            y: if self.access_cards_wide() {
+                screen.y + 18
+            } else {
+                screen.y + 18 + 363 + 16
+            },
+            width: if self.access_cards_wide() {
+                available.saturating_sub(connect_width)
+            } else {
+                screen.width
+            },
+            height: 363,
         }
     }
 
@@ -487,20 +591,81 @@ impl LockedDashboardLayout {
     pub const fn your_id_copy_btn_rect(&self) -> DashboardRect {
         let card = self.your_id_card_rect();
         DashboardRect {
-            x: card.x + card.width.saturating_sub(116),
-            y: card.y + 46,
-            width: 100,
-            height: 34,
+            x: card.x + card.width.saturating_sub(117),
+            y: card.y + 118,
+            width: 98,
+            height: 36,
+        }
+    }
+
+    #[must_use]
+    pub const fn your_password_status_rect(&self) -> DashboardRect {
+        let card = self.your_id_card_rect();
+        DashboardRect {
+            x: card.x + 24,
+            y: card.y + 172,
+            width: card.width.saturating_sub(48),
+            height: 20,
+        }
+    }
+
+    /// Dedicated credential input, separate from its caption and footer.
+    #[must_use]
+    pub const fn your_password_field_rect(&self) -> DashboardRect {
+        let card = self.your_id_card_rect();
+        DashboardRect {
+            x: card.x + 24,
+            y: card.y + 198,
+            width: card.width.saturating_sub(158),
+            height: 44,
+        }
+    }
+
+    #[must_use]
+    pub const fn your_password_reveal_btn_rect(&self) -> DashboardRect {
+        let field = self.your_password_field_rect();
+        DashboardRect {
+            x: field.x + field.width.saturating_sub(42),
+            y: field.y + 4,
+            width: 38,
+            height: 36,
+        }
+    }
+
+    #[must_use]
+    pub const fn your_password_copy_btn_rect(&self) -> DashboardRect {
+        let field = self.your_password_field_rect();
+        DashboardRect {
+            x: field.x + field.width + 8,
+            y: field.y,
+            width: 96,
+            height: field.height,
+        }
+    }
+
+    #[must_use]
+    pub const fn your_password_rotate_btn_rect(&self) -> DashboardRect {
+        let card = self.your_id_card_rect();
+        DashboardRect {
+            x: card.x + card.width.saturating_sub(170),
+            y: card.y + 285,
+            width: 146,
+            height: 32,
         }
     }
 
     #[must_use]
     pub const fn remote_id_card_rect(&self) -> DashboardRect {
+        let screen = self.remote_screen;
         DashboardRect {
-            x: self.remote_screen.x + 18,
-            y: self.remote_screen.y + 126,
-            width: self.remote_screen.width.saturating_sub(36),
-            height: 104,
+            x: screen.x,
+            y: screen.y + 18,
+            width: if self.access_cards_wide() {
+                screen.width.saturating_sub(16) * 52 / 100
+            } else {
+                screen.width
+            },
+            height: 363,
         }
     }
 
@@ -508,31 +673,75 @@ impl LockedDashboardLayout {
     pub const fn remote_id_input_rect(&self) -> DashboardRect {
         let card = self.remote_id_card_rect();
         DashboardRect {
-            x: card.x + 16,
-            y: card.y + 50,
-            width: card.width.saturating_sub(146),
-            height: 38,
+            x: card.x + 24,
+            y: card.y + 111,
+            width: card.width.saturating_sub(48),
+            height: 44,
         }
     }
 
     #[must_use]
     pub const fn remote_id_connect_btn_rect(&self) -> DashboardRect {
-        let input = self.remote_id_input_rect();
+        let card = self.remote_id_card_rect();
         DashboardRect {
-            x: input.x + input.width + 10,
-            y: input.y,
-            width: 104,
-            height: 38,
+            x: card.x + 24,
+            y: card.y + 252,
+            width: 176,
+            height: 44,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_password_status_rect(&self) -> DashboardRect {
+        let card = self.remote_id_card_rect();
+        DashboardRect {
+            x: card.x + 24,
+            y: card.y + 191,
+            width: card.width.saturating_sub(48),
+            height: 44,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_password_reveal_btn_rect(&self) -> DashboardRect {
+        let field = self.remote_password_status_rect();
+        DashboardRect {
+            x: field.x + field.width.saturating_sub(51),
+            y: field.y + 3,
+            width: 47,
+            height: field.height.saturating_sub(6),
+        }
+    }
+
+    #[must_use]
+    pub const fn session_toolbar_rect(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.remote_screen.x + 16,
+            y: self.remote_screen.y + 12,
+            width: self.remote_screen.width.saturating_sub(32),
+            height: 40,
+        }
+    }
+
+    #[must_use]
+    pub const fn session_tool_btn_rect(&self, index: usize) -> DashboardRect {
+        let bar = self.session_toolbar_rect();
+        let btn_w = 95;
+        DashboardRect {
+            x: bar.x + 10 + index * (btn_w + 8),
+            y: bar.y + 4,
+            width: btn_w,
+            height: 32,
         }
     }
 
     #[must_use]
     pub const fn help_button_rect(&self, window_width: usize) -> DashboardRect {
         DashboardRect {
-            x: window_width.saturating_sub(100),
-            y: 20,
-            width: 80,
-            height: 30,
+            x: window_width.saturating_sub(59),
+            y: 19,
+            width: 36,
+            height: 36,
         }
     }
 }
@@ -542,21 +751,104 @@ mod locked_dashboard_tests {
     use super::*;
 
     #[test]
-    fn matches_locked_four_column_hierarchy() {
+    fn approved_v5_reference_coordinates_are_locked_at_three_viewports() {
+        // Matched against the approved V5 HTML reference's real DOM boxes,
+        // not an unapproved redesign or the outdated 173px native screenshot.
+        let scenarios = [
+            // screen width, height, x, card y, connect width, share x,
+            // share width, stage y, stage x
+            (1024, 768, 249, 216, 380, 645, 351, 660, 249),
+            (1308, 777, 249, 218, 527, 792, 488, 662, 249),
+            (1600, 920, 253, 226, 524, 793, 485, 670, 253),
+        ];
+        for (
+            width,
+            height,
+            card_x,
+            card_y,
+            connect_width,
+            share_x,
+            share_width,
+            stage_y,
+            stage_x,
+        ) in scenarios
+        {
+            let l = LockedDashboardLayout::for_window(width, height).unwrap();
+            let connect = l.remote_id_card_rect();
+            let share = l.your_id_card_rect();
+            let stage = l.remote_stage_rect();
+            assert_eq!(
+                (connect.x, connect.y, connect.width, connect.height),
+                (card_x, card_y, connect_width, 363)
+            );
+            assert_eq!(
+                (share.x, share.y, share.width, share.height),
+                (share_x, card_y, share_width, 363)
+            );
+            assert_eq!((stage.x, stage.y), (stage_x, stage_y));
+            assert_eq!(stage.height, 315);
+            assert_eq!(
+                l.inspector.width == 0,
+                width <= 1510,
+                "inspector must collapse on 1308px compact Windows desktop"
+            );
+            assert!(LockedDashboardLayout::max_scroll_y(height) > 0);
+        }
+    }
+
+    #[test]
+    fn v5_scroll_excludes_fixed_header_from_visible_center_height() {
+        // 1240px document is inside the center viewer, below the 75px header.
+        assert_eq!(LockedDashboardLayout::max_scroll_y(777), 538);
+        assert_eq!(LockedDashboardLayout::max_scroll_y(768), 547);
+        assert_eq!(LockedDashboardLayout::max_scroll_y(920), 395);
+        assert_eq!(LockedDashboardLayout::max_scroll_y(1315), 0);
+        assert_eq!(LockedDashboardLayout::max_scroll_y(0), 1240);
+        for height in [600, 611, 768, 777, 920, 1080, 1315] {
+            let viewer_height = height.saturating_sub(75);
+            let scroll = LockedDashboardLayout::max_scroll_y(height);
+            assert!(scroll <= LockedDashboardLayout::CONTENT_HEIGHT);
+            if viewer_height <= LockedDashboardLayout::CONTENT_HEIGHT {
+                assert_eq!(scroll + viewer_height, LockedDashboardLayout::CONTENT_HEIGHT);
+            }
+        }
+    }
+
+    #[test]
+    fn v5_layout_uses_three_primary_columns() {
         let l = LockedDashboardLayout::for_window(1419, 611).unwrap();
-        assert!(l.navigation.x + l.navigation.width < l.devices.x);
-        assert!(l.devices.x + l.devices.width < l.viewer.x);
+        assert!(l.navigation.x + l.navigation.width < l.viewer.x);
         assert!(l.viewer.x + l.viewer.width < l.inspector.x);
+        assert!(l.devices.x >= l.viewer.x);
+        assert!(l.devices.x + l.devices.width <= l.viewer.x + l.viewer.width);
         assert!(l.inspector.x + l.inspector.width <= 1419);
         assert!(l.remote_screen.y >= l.viewer.y);
         assert!(l.session_toolbar.y > l.remote_screen.y + l.remote_screen.height);
     }
 
     #[test]
-    fn compact_windows_fall_back_instead_of_overlapping_panels() {
-        assert!(LockedDashboardLayout::for_window(960, 640).is_none());
+    fn compact_windows_fall_back_and_laptops_hide_the_inspector() {
+        assert!(LockedDashboardLayout::for_window(760, 640).is_none());
+        assert!(LockedDashboardLayout::for_window(960, 640).is_some());
         assert!(LockedDashboardLayout::for_window(1419, 560).is_none());
+        assert_eq!(
+            LockedDashboardLayout::for_window(1024, 768)
+                .unwrap()
+                .inspector
+                .width,
+            0
+        );
+        assert_eq!(
+            LockedDashboardLayout::for_window(960, 640)
+                .unwrap()
+                .navigation
+                .width,
+            78
+        );
         for (width, height) in [
+            (800, 600),
+            (960, 640),
+            (1024, 768),
             (1180, 600),
             (1200, 800),
             (1419, 611),
@@ -571,6 +863,166 @@ mod locked_dashboard_tests {
                     .contains(l.device_row(0).x, l.device_row(0).y)
             );
             assert!(!l.device_row(0).contains(l.navigation.x, l.device_row(0).y));
+        }
+    }
+
+    #[test]
+    fn locked_html_breakpoints_match_owner_screenshot_and_inspector_fold() {
+        for (width, height, expected_nav, inspector_visible) in [
+            (960, 640, 78, false),
+            (1020, 768, 78, false),
+            (1021, 768, 200, false),
+            (1309, 777, 200, false),
+            (1419, 611, 200, false),
+            (1450, 900, 200, false),
+            (1510, 900, 200, false),
+            (1511, 900, 200, true),
+            (1920, 777, 200, true),
+            (1920, 1080, 200, true),
+        ] {
+            let layout = LockedDashboardLayout::for_window(width, height)
+                .expect("V5 owner-locked breakpoint");
+            assert_eq!(layout.navigation.width, expected_nav, "{width}x{height}");
+            assert_eq!(
+                layout.inspector.width > 0,
+                inspector_visible,
+                "{width}x{height}"
+            );
+            let connect = layout.remote_id_card_rect();
+            let share = layout.your_id_card_rect();
+            assert!(connect.x + connect.width <= share.x, "{width}x{height}");
+            assert!(share.x + share.width <= layout.viewer.x + layout.viewer.width);
+            let input = layout.remote_id_input_rect();
+            let password = layout.remote_password_status_rect();
+            let connect_button = layout.remote_id_connect_btn_rect();
+            assert!(input.y + input.height <= password.y);
+            assert!(password.y + password.height <= connect_button.y);
+            assert!(connect_button.y + connect_button.height < connect.y + connect.height);
+        }
+    }
+
+    #[test]
+    fn v5_password_status_rows_are_visible_without_overlapping_remote_id() {
+        for (width, height) in [(1180, 600), (1419, 611), (1920, 1080)] {
+            let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+            let own = layout.your_id_card_rect();
+            let own_status = layout.your_password_status_rect();
+            let remote = layout.remote_id_card_rect();
+            let remote_status = layout.remote_password_status_rect();
+            let connect = layout.remote_id_connect_btn_rect();
+            assert!(own_status.y >= own.y);
+            assert!(own_status.y + own_status.height <= own.y + own.height);
+            if layout.access_cards_wide() {
+                assert_eq!(remote.y, own.y);
+                assert!(own.x >= remote.x + remote.width);
+            } else {
+                assert!(remote.y >= own.y + own.height);
+            }
+            assert!(remote_status.y >= remote.y);
+            assert!(remote_status.y + remote_status.height <= remote.y + remote.height);
+            assert!(connect.y >= remote_status.y + remote_status.height);
+            assert!(
+                remote.y + remote.height <= layout.remote_screen.y + layout.remote_screen.height
+            );
+        }
+    }
+
+    #[test]
+    fn v5_compact_form_has_nonoverlapping_credential_fields() {
+        for (width, height) in [(800, 600), (960, 640), (1180, 600), (1419, 611)] {
+            let l = LockedDashboardLayout::for_window(width, height).unwrap();
+            let id = l.remote_id_input_rect();
+            let password = l.remote_password_status_rect();
+            let connect = l.remote_id_connect_btn_rect();
+            assert!(l.compact_height());
+            assert!(id.y + id.height + 10 <= password.y);
+            assert!(password.y + password.height + 10 <= connect.y);
+        }
+    }
+
+    #[test]
+    fn v5_remote_password_reveal_is_bounded_inside_the_input_field() {
+        for (width, height) in [(800, 600), (960, 640), (1419, 611), (1920, 1080)] {
+            let l = LockedDashboardLayout::for_window(width, height).unwrap();
+            let field = l.remote_password_status_rect();
+            let reveal = l.remote_password_reveal_btn_rect();
+            assert!(reveal.x > field.x);
+            assert!(reveal.y >= field.y);
+            assert!(reveal.x + reveal.width <= field.x + field.width);
+            assert!(reveal.y + reveal.height <= field.y + field.height);
+        }
+    }
+
+    #[test]
+    fn v5_password_actions_never_cover_password_text_or_leave_share_card() {
+        for (w, h) in [(1180, 600), (1419, 611), (1920, 1080)] {
+            let layout = LockedDashboardLayout::for_window(w, h).unwrap();
+            let card = layout.your_id_card_rect();
+            let label = layout.your_password_status_rect();
+            for btn in [
+                layout.your_password_reveal_btn_rect(),
+                layout.your_password_copy_btn_rect(),
+                layout.your_password_rotate_btn_rect(),
+            ] {
+                assert!(btn.y >= label.y + label.height);
+                assert!(btn.x >= card.x);
+                assert!(btn.y + btn.height <= card.y + card.height);
+                assert!(btn.x + btn.width <= card.x + card.width);
+            }
+        }
+    }
+
+    #[test]
+    fn v5_locked_sidebar_has_four_workspace_and_two_protection_items() {
+        for (width, height) in [(800, 600), (1419, 611), (1920, 1080)] {
+            let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+            let fourth = layout.nav_tab_rect(3);
+            let protection = layout.nav_tab_rect(4);
+            let settings = layout.nav_tab_rect(5);
+            assert!(protection.y >= fourth.y + fourth.height + 30);
+            assert!(settings.y >= protection.y + protection.height);
+            assert!(
+                settings.y + settings.height < layout.navigation.y + layout.navigation.height - 69
+            );
+            for i in 0..9 {
+                let tile = layout.trusted_device_tile_rect(i);
+                assert!(tile.x >= layout.remote_screen.x);
+                assert!(tile.x + tile.width <= layout.remote_screen.x + layout.remote_screen.width);
+                assert!(
+                    tile.y + tile.height <= layout.remote_screen.y + layout.remote_screen.height
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn v5_icon_rail_keeps_cards_and_stage_visible_on_small_windows() {
+        for (width, height) in [(800, 600), (960, 640)] {
+            let layout = LockedDashboardLayout::for_window(width, height).unwrap();
+            assert_eq!(layout.navigation.width, 78);
+            assert!(layout.viewer.width >= 640);
+            assert!(layout.access_cards_wide());
+            assert!(layout.remote_stage_rect().height >= 95);
+            assert!(layout.remote_stage_rect().x >= layout.viewer.x);
+        }
+    }
+
+    #[test]
+    fn v5_locked_remote_stage_is_visible_on_compact_and_large_windows() {
+        for (width, height) in [(1024, 768), (1180, 600), (1419, 611), (1920, 1080)] {
+            let l = LockedDashboardLayout::for_window(width, height).unwrap();
+            let stage = l.remote_stage_rect();
+            let own = l.your_id_card_rect();
+            let connect = l.remote_id_card_rect();
+            assert!(
+                stage.height >= 95,
+                "remote stage hidden at {width}x{height}"
+            );
+            assert!(stage.y >= own.y + own.height);
+            assert!(stage.y >= connect.y + connect.height);
+            assert!(stage.y + stage.height <= l.remote_screen.y + l.remote_screen.height);
+            assert!(stage.y + stage.height < l.devices.y);
+            assert!(l.devices.y + l.devices.height < l.session_toolbar.y);
         }
     }
 
@@ -596,8 +1048,14 @@ mod locked_dashboard_tests {
             assert!(remote_id.x + remote_id.width <= screen.x + screen.width);
             assert!(remote_id.y + remote_id.height <= screen.y + screen.height);
 
-            // Your ID card and Remote ID card do not vertically overlap
-            assert!(remote_id.y >= your_id.y + your_id.height);
+            // Wider workspaces keep share/connect side by side; compact
+            // workspaces retain a collision-free vertical flow.
+            if l.access_cards_wide() {
+                assert_eq!(remote_id.y, your_id.y);
+                assert!(your_id.x >= remote_id.x + remote_id.width);
+            } else {
+                assert!(remote_id.y >= your_id.y + your_id.height);
+            }
 
             // Copy button is inside Your ID card
             assert!(copy_btn.x >= your_id.x);
@@ -616,8 +1074,11 @@ mod locked_dashboard_tests {
             assert!(connect_btn.x + connect_btn.width <= remote_id.x + remote_id.width);
             assert!(connect_btn.y + connect_btn.height <= remote_id.y + remote_id.height);
 
-            // Input and Connect button do not horizontally overlap
-            assert!(connect_btn.x >= input.x + input.width);
+            // The form flows from ID, to password, to connect without
+            // overlapping interactive targets.
+            let password = l.remote_password_status_rect();
+            assert!(password.y >= input.y + input.height);
+            assert!(connect_btn.y >= password.y + password.height);
         }
     }
 }

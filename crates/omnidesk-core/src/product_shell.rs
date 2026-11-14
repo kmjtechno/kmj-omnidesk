@@ -66,6 +66,8 @@ pub struct ConnectionStats {
 pub enum NavTab {
     #[default]
     Devices,
+    /// Dedicated V5 sidebar directory, distinct from the Remote Access form.
+    TrustedDevices,
     Connections,
     FileTransfer,
     RemoteActions,
@@ -83,6 +85,23 @@ pub enum DeviceFilter {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileTransferItem {
+    pub id: String,
+    pub filename: String,
+    pub size_bytes: u64,
+    pub progress_percent: u8,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecurityAuditItem {
+    pub timestamp_epoch_secs: u64,
+    pub event_type: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ProductShell {
     devices: Vec<DeviceSummary>,
     // Binds queued connect actions to the exact directory snapshot.
@@ -95,11 +114,24 @@ pub struct ProductShell {
     quality_preset: QualityPreset,
     connection_stats: Option<ConnectionStats>,
     nav_tab: NavTab,
+    workspace_scroll_y: usize,
     device_filter: DeviceFilter,
     help_open: bool,
     local_device_id: String,
     remote_id_input: String,
     remote_id_focused: bool,
+    password_manager: crate::password_auth::SessionPasswordManager,
+    remote_password_input: String,
+    remote_password_focused: bool,
+    remote_password_revealed: bool,
+    remote_input_enabled: bool,
+    fullscreen_enabled: bool,
+    selected_monitor: usize,
+    total_monitors: usize,
+    clipboard_sync_enabled: bool,
+    unattended_access_enabled: bool,
+    file_transfers: Vec<FileTransferItem>,
+    audit_log: Vec<SecurityAuditItem>,
 }
 
 impl ProductShell {
@@ -116,11 +148,24 @@ impl ProductShell {
             quality_preset: QualityPreset::Balanced,
             connection_stats: None,
             nav_tab: NavTab::Devices,
+            workspace_scroll_y: 0,
             device_filter: DeviceFilter::All,
             help_open: false,
             local_device_id: String::new(),
             remote_id_input: String::new(),
             remote_id_focused: false,
+            password_manager: crate::password_auth::SessionPasswordManager::unconfigured(),
+            remote_password_input: String::new(),
+            remote_password_focused: false,
+            remote_password_revealed: false,
+            remote_input_enabled: true,
+            fullscreen_enabled: false,
+            selected_monitor: 1,
+            total_monitors: 1,
+            clipboard_sync_enabled: true,
+            unattended_access_enabled: false,
+            file_transfers: Vec::new(),
+            audit_log: Vec::new(),
         }
     }
 
@@ -357,6 +402,12 @@ impl ProductShell {
         self.selected_device = None;
         self.security_state = SecurityState::Disconnected;
         self.connection_stats = None;
+        // Never retain an entered remote session password across disconnection
+        // or a failed/revoked connection attempt. This clears logical state;
+        // secure heap zeroization must be added before handling real secrets.
+        self.remote_password_input.clear();
+        self.remote_password_focused = false;
+        self.remote_password_revealed = false;
     }
 
     #[must_use]
@@ -364,8 +415,30 @@ impl ProductShell {
         self.nav_tab
     }
 
-    pub const fn set_nav_tab(&mut self, tab: NavTab) {
+    /// Scroll offset for V5's center column; left rail and inspector stay fixed.
+    #[must_use]
+    pub const fn workspace_scroll_y(&self) -> usize {
+        self.workspace_scroll_y
+    }
+
+    /// The Windows host clamps this to the actual viewport height.
+    pub const fn set_workspace_scroll_y(&mut self, scroll: usize) {
+        self.workspace_scroll_y = if scroll > 1240 { 1240 } else { scroll };
+    }
+
+    pub fn set_nav_tab(&mut self, tab: NavTab) {
         self.nav_tab = tab;
+        self.workspace_scroll_y = 0;
+        // The Help overlay is page-specific; a sidebar choice must reveal
+        // the selected page rather than leave Help covering the workspace.
+        self.help_open = false;
+        // The V5 sidebar switches to a different native page. Never allow a
+        // hidden Remote Access input to keep accepting keyboard characters.
+        self.remote_id_focused = false;
+        self.set_remote_password_focused(false);
+        if tab != NavTab::Devices {
+            self.clear_remote_password();
+        }
     }
 
     #[must_use]
@@ -383,11 +456,20 @@ impl ProductShell {
     }
 
     pub const fn toggle_help(&mut self) {
-        self.help_open = !self.help_open;
+        self.set_help_open(!self.help_open);
     }
 
     pub const fn set_help_open(&mut self, open: bool) {
         self.help_open = open;
+        if open {
+            // Open Help from its visible top-bar position instead of leaving
+            // the overlay scrolled off screen beneath the frozen sidebar.
+            self.workspace_scroll_y = 0;
+            // Help replaces the Remote Access canvas. Blur hidden fields,
+            // including any revealed password, before rendering Help.
+            self.remote_id_focused = false;
+            self.set_remote_password_focused(false);
+        }
     }
 
     #[must_use]
@@ -457,6 +539,192 @@ impl ProductShell {
                 self.set_error(msg.clone());
                 Err(ConnectError::UntrustedPeer(msg))
             }
+        }
+    }
+
+    #[must_use]
+    pub const fn password_manager(&self) -> &crate::password_auth::SessionPasswordManager {
+        &self.password_manager
+    }
+
+    pub const fn password_manager_mut(
+        &mut self,
+    ) -> &mut crate::password_auth::SessionPasswordManager {
+        &mut self.password_manager
+    }
+
+    #[must_use]
+    pub fn remote_password_input(&self) -> &str {
+        &self.remote_password_input
+    }
+
+    pub fn set_remote_password_input(&mut self, input: impl Into<String>) {
+        // Match keyboard input limits; prevent programmatic/paste input from
+        // storing unbounded data or terminal control characters.
+        self.remote_password_input = input
+            .into()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(32)
+            .collect();
+        self.remote_password_revealed = false;
+    }
+
+    pub fn append_remote_password_char(&mut self, c: char) {
+        if self.remote_password_input.len() < 32 && !c.is_control() {
+            self.remote_password_input.push(c);
+            self.remote_password_revealed = false;
+        }
+    }
+
+    pub fn backspace_remote_password(&mut self) {
+        self.remote_password_input.pop();
+        self.remote_password_revealed = false;
+    }
+
+    pub fn clear_remote_password(&mut self) {
+        self.remote_password_input.clear();
+        self.remote_password_revealed = false;
+    }
+
+    #[must_use]
+    pub const fn is_remote_password_revealed(&self) -> bool {
+        self.remote_password_revealed
+    }
+
+    /// Reveal is a conscious local UI choice, never a permission grant.
+    pub fn toggle_remote_password_reveal(&mut self) {
+        if !self.remote_password_input.is_empty() {
+            self.remote_password_revealed = !self.remote_password_revealed;
+        }
+    }
+
+    #[must_use]
+    pub const fn is_remote_password_focused(&self) -> bool {
+        self.remote_password_focused
+    }
+
+    pub const fn set_remote_password_focused(&mut self, focused: bool) {
+        self.remote_password_focused = focused;
+        // Explicit reveal never persists when the secret input loses focus.
+        if !focused {
+            self.remote_password_revealed = false;
+        }
+    }
+
+    pub const fn focus_remote_id(&mut self) {
+        self.remote_id_focused = true;
+        self.remote_password_focused = false;
+        self.remote_password_revealed = false;
+    }
+
+    pub const fn focus_remote_password(&mut self) {
+        self.remote_id_focused = false;
+        self.remote_password_focused = true;
+    }
+
+    pub const fn toggle_local_password_reveal(&mut self) {
+        self.password_manager.toggle_reveal();
+    }
+
+    pub fn rotate_local_password(&mut self, now_epoch_secs: u64) {
+        self.password_manager.rotate(now_epoch_secs);
+        self.add_audit_event(
+            "PASSWORD_ROTATED",
+            "Local session password rotated",
+            now_epoch_secs,
+        );
+    }
+
+    #[must_use]
+    pub const fn remote_input_enabled(&self) -> bool {
+        self.remote_input_enabled
+    }
+
+    pub const fn toggle_remote_input(&mut self) {
+        self.remote_input_enabled = !self.remote_input_enabled;
+    }
+
+    #[must_use]
+    pub const fn fullscreen_enabled(&self) -> bool {
+        self.fullscreen_enabled
+    }
+
+    pub const fn toggle_fullscreen(&mut self) {
+        self.fullscreen_enabled = !self.fullscreen_enabled;
+    }
+
+    #[must_use]
+    pub const fn selected_monitor(&self) -> usize {
+        self.selected_monitor
+    }
+
+    #[must_use]
+    pub const fn total_monitors(&self) -> usize {
+        self.total_monitors
+    }
+
+    pub fn set_total_monitors(&mut self, total: usize) {
+        self.total_monitors = total.max(1);
+    }
+
+    pub const fn next_monitor(&mut self) {
+        if self.total_monitors > 1 {
+            self.selected_monitor = (self.selected_monitor % self.total_monitors) + 1;
+        }
+    }
+
+    #[must_use]
+    pub const fn clipboard_sync_enabled(&self) -> bool {
+        self.clipboard_sync_enabled
+    }
+
+    pub const fn toggle_clipboard_sync(&mut self) {
+        self.clipboard_sync_enabled = !self.clipboard_sync_enabled;
+    }
+
+    #[must_use]
+    pub const fn unattended_access_enabled(&self) -> bool {
+        self.unattended_access_enabled
+    }
+
+    pub const fn toggle_unattended_access(&mut self) {
+        self.unattended_access_enabled = !self.unattended_access_enabled;
+    }
+
+    #[must_use]
+    pub fn file_transfers(&self) -> &[FileTransferItem] {
+        &self.file_transfers
+    }
+
+    pub fn add_file_transfer(&mut self, item: FileTransferItem) {
+        self.file_transfers.push(item);
+    }
+
+    pub fn cancel_file_transfer(&mut self, id: &str) {
+        if let Some(item) = self.file_transfers.iter_mut().find(|t| t.id == id) {
+            "Cancelled".clone_into(&mut item.status);
+        }
+    }
+
+    #[must_use]
+    pub fn audit_log(&self) -> &[SecurityAuditItem] {
+        &self.audit_log
+    }
+
+    pub fn add_audit_event(
+        &mut self,
+        event_type: impl Into<String>,
+        detail: impl Into<String>,
+        now_epoch_secs: u64,
+    ) {
+        self.audit_log.push(SecurityAuditItem {
+            timestamp_epoch_secs: now_epoch_secs,
+            event_type: event_type.into(),
+            detail: detail.into(),
+        });
+        if self.audit_log.len() > 50 {
+            self.audit_log.remove(0);
         }
     }
 }
@@ -730,6 +998,105 @@ mod tests {
             Err(ConnectError::DeviceOffline)
         );
         assert!(shell.last_error().unwrap().contains("offline"));
+    }
+
+    #[test]
+    fn v5_sidebar_navigation_closes_help_overlay_and_shows_selected_page() {
+        let mut shell = ProductShell::new();
+        shell.set_help_open(true);
+        assert!(shell.is_help_open());
+        shell.set_nav_tab(NavTab::Settings);
+        assert_eq!(shell.nav_tab(), NavTab::Settings);
+        assert!(!shell.is_help_open());
+        shell.set_help_open(true);
+        shell.set_nav_tab(NavTab::Devices);
+        assert!(!shell.is_help_open());
+    }
+
+    #[test]
+    fn v5_help_overlay_blurs_hidden_password_and_resets_reveal() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("ui-test-only");
+        shell.focus_remote_password();
+        shell.toggle_remote_password_reveal();
+        assert!(shell.is_remote_password_revealed());
+        shell.set_help_open(true);
+        assert!(shell.is_help_open());
+        assert!(!shell.is_remote_password_focused());
+        assert!(!shell.is_remote_password_revealed());
+        shell.toggle_help();
+        assert!(!shell.is_help_open());
+    }
+
+    #[test]
+    fn v5_sidebar_transition_clears_hidden_password_and_keyboard_focus() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("temporary-secret");
+        shell.focus_remote_password();
+        shell.toggle_remote_password_reveal();
+        assert!(shell.is_remote_password_focused());
+        assert!(shell.is_remote_password_revealed());
+        shell.set_nav_tab(NavTab::Security);
+        assert_eq!(shell.nav_tab(), NavTab::Security);
+        assert_eq!(shell.remote_password_input(), "");
+        assert!(!shell.is_remote_password_focused());
+        assert!(!shell.is_remote_password_revealed());
+        shell.set_nav_tab(NavTab::Devices);
+        assert!(!shell.is_remote_password_focused());
+    }
+
+    #[test]
+    fn password_visibility_is_reset_when_the_field_blurs() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("ui-only");
+        shell.focus_remote_password();
+        shell.toggle_remote_password_reveal();
+        assert!(shell.is_remote_password_revealed());
+        shell.set_remote_password_focused(false);
+        assert!(!shell.is_remote_password_revealed());
+        assert!(!shell.is_remote_password_focused());
+    }
+
+    #[test]
+    fn remote_password_reveal_resets_on_edit_or_focus_change() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("preview-only");
+        shell.toggle_remote_password_reveal();
+        assert!(shell.is_remote_password_revealed());
+        shell.append_remote_password_char('!');
+        assert!(!shell.is_remote_password_revealed());
+        shell.toggle_remote_password_reveal();
+        shell.backspace_remote_password();
+        assert!(!shell.is_remote_password_revealed());
+        shell.toggle_remote_password_reveal();
+        shell.focus_remote_id();
+        assert!(!shell.is_remote_password_revealed());
+    }
+
+    #[test]
+    fn remote_password_is_masked_by_default_and_resets_on_disconnect() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("local-ui-only");
+        assert!(!shell.is_remote_password_revealed());
+        shell.toggle_remote_password_reveal();
+        assert!(shell.is_remote_password_revealed());
+        shell.disconnect();
+        assert!(!shell.is_remote_password_revealed());
+        assert_eq!(shell.remote_password_input(), "");
+    }
+
+    #[test]
+    fn remote_password_input_is_bounded_and_cleared_on_disconnect() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input(format!("{}\n", "x".repeat(200)));
+        assert_eq!(shell.remote_password_input().chars().count(), 32);
+        shell.set_remote_password_input("abcd-1234\r\n");
+        assert_eq!(shell.remote_password_input(), "abcd-1234");
+        shell.focus_remote_password();
+        assert!(shell.is_remote_password_focused());
+        shell.disconnect();
+        assert_eq!(shell.remote_password_input(), "");
+        assert!(!shell.is_remote_password_focused());
     }
 
     #[test]
