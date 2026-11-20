@@ -481,8 +481,10 @@ impl DesktopHost {
                 // Authentication failure cannot create an Online device,
                 // display a permission prompt, or retain the failed adapter.
                 adapter.close();
-                self.shell
-                    .set_error("Incoming peer rejected: authentication failed");
+                self.shell.set_error(format!(
+                    "Incoming peer {} rejected: authentication failed",
+                    incoming.peer_addr
+                ));
                 self.refresh_presentation();
                 continue;
             }
