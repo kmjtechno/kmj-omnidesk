@@ -381,7 +381,9 @@ pub fn control_rects_for(
             .enumerate()
             .map(|(index, _)| {
                 let rect = match presentation.primary_view {
-                    PrimaryView::Devices if presentation.nav_tab == NavTab::Devices && index < 3 => {
+                    PrimaryView::Devices
+                        if presentation.nav_tab == NavTab::Devices && index < 3 =>
+                    {
                         premium.device_row(index)
                     }
                     PrimaryView::PermissionPrompt => premium.permission_button(index),
@@ -501,8 +503,7 @@ pub fn action_at_point(
             }
             // The V7 form never advertises password authentication. The
             // existing transport only supports known/trusted peer handshake.
-            if premium.remote_connect_button().contains(x, y)
-                && !shell.remote_id_input().is_empty()
+            if premium.remote_connect_button().contains(x, y) && !shell.remote_id_input().is_empty()
             {
                 return Some(DesktopAction::ConnectRemoteId);
             }
