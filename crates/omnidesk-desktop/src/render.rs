@@ -120,7 +120,9 @@ impl Canvas<'_> {
         }
     }
 
-    #[allow(clippy::many_single_char_names, clippy::too_many_arguments)]
+    /// Anti-aliased rounded fill with a one-pixel outline. The old renderer
+    /// omitted the curved corner pixels and produced black square cut-outs.
+    #[allow(clippy::too_many_arguments, clippy::many_single_char_names)]
     fn rounded_panel(
         &mut self,
         x: usize,
@@ -131,27 +133,10 @@ impl Canvas<'_> {
         bg: u32,
         border: u32,
     ) {
-        if w < 2 || h < 2 {
-            return;
-        }
-        let r = r.min(w / 2).min(h / 2);
-        self.fill_rect(x + r, y, w.saturating_sub(r * 2), h, bg);
-        self.fill_rect(x, y + r, r, h.saturating_sub(r * 2), bg);
-        self.fill_rect(x + w - r, y + r, r, h.saturating_sub(r * 2), bg);
-        self.h_line(x + r, y, w.saturating_sub(r * 2), border);
-        self.h_line(x + r, y + h - 1, w.saturating_sub(r * 2), border);
-        self.v_line(x, y + r, h.saturating_sub(r * 2), border);
-        self.v_line(x + w - 1, y + r, h.saturating_sub(r * 2), border);
+        self.paint_rounded_gradient(x, y, w, h, r, bg, bg, border);
     }
 
-    #[allow(
-        clippy::many_single_char_names,
-        clippy::too_many_arguments,
-        clippy::cast_precision_loss,
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::suboptimal_flops
-    )]
+    #[allow(clippy::too_many_arguments, clippy::many_single_char_names)]
     fn rounded_gradient_panel(
         &mut self,
         x: usize,
@@ -162,9 +147,38 @@ impl Canvas<'_> {
         bottom_color: u32,
         border: u32,
     ) {
+        self.paint_rounded_gradient(x, y, w, h, 8, top_color, bottom_color, border);
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::many_single_char_names,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::suboptimal_flops
+    )]
+    fn paint_rounded_gradient(
+        &mut self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        radius: usize,
+        top_color: u32,
+        bottom_color: u32,
+        border: u32,
+    ) {
         if w < 2 || h < 2 {
             return;
         }
+        let radius = radius.min(w / 2).min(h / 2) as f32;
+        let half_w = w as f32 / 2.0;
+        let half_h = h as f32 / 2.0;
+        let inner_x = half_w - radius;
+        let inner_y = half_h - radius;
+        let x_end = x.saturating_add(w).min(self.width);
+        let y_end = y.saturating_add(h).min(self.height);
         let tr = (top_color >> 16) & 0xff;
         let tg = (top_color >> 8) & 0xff;
         let tb = top_color & 0xff;
@@ -172,19 +186,67 @@ impl Canvas<'_> {
         let bg = (bottom_color >> 8) & 0xff;
         let bb = bottom_color & 0xff;
 
-        for row in 0..h {
-            let py = y + row;
-            if py >= self.height {
-                break;
+        for py in y.min(self.height)..y_end {
+            let local_y = py.saturating_sub(y);
+            let factor = local_y as f32 / h.max(1) as f32;
+            let mix_channel = |a: u32, b: u32| -> u32 {
+                (a as f32 * (1.0 - factor) + b as f32 * factor).round() as u32
+            };
+            let color = (mix_channel(tr, br) << 16)
+                | (mix_channel(tg, bg) << 8)
+                | mix_channel(tb, bb);
+            for px in x.min(self.width)..x_end {
+                let qx = ((px - x) as f32 + 0.5 - half_w).abs() - inner_x;
+                let qy = (local_y as f32 + 0.5 - half_h).abs() - inner_y;
+                let distance = qx.max(0.0).hypot(qy.max(0.0))
+                    + qx.max(qy).min(0.0)
+                    - radius;
+                if distance <= -1.3 {
+                    self.pixels[py * self.width + px] = color;
+                } else if distance <= -0.5 {
+                    self.pixels[py * self.width + px] = border;
+                } else if distance < 0.5 {
+                    self.blend_coverage(px as i32, py as i32, border, 0.5 - distance);
+                }
             }
-            let frac = row as f32 / h.max(1) as f32;
-            let cr = (tr as f32 * (1.0 - frac) + br as f32 * frac) as u32;
-            let cg = (tg as f32 * (1.0 - frac) + bg as f32 * frac) as u32;
-            let cb = (tb as f32 * (1.0 - frac) + bb as f32 * frac) as u32;
-            let c = (cr << 16) | (cg << 8) | cb;
-            self.h_line(x, py, w, c);
         }
-        self.stroke_rect(x, y, w, h, 1, border);
+    }
+
+    /// Purely decorative bounded glow. Never use glow color as connectivity
+    /// or security-status evidence; those are derived from authenticated data.
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    fn soft_glow(
+        &mut self,
+        cx: usize,
+        cy: usize,
+        rx: usize,
+        ry: usize,
+        color: u32,
+        alpha: f32,
+    ) {
+        if rx == 0 || ry == 0 {
+            return;
+        }
+        let x_min = cx.saturating_sub(rx);
+        let x_max = cx.saturating_add(rx).min(self.width);
+        let y_min = cy.saturating_sub(ry);
+        let y_max = cy.saturating_add(ry).min(self.height);
+        for y in y_min..y_max {
+            let dy = (y as f32 - cy as f32) / ry as f32;
+            for x in x_min..x_max {
+                let dx = (x as f32 - cx as f32) / rx as f32;
+                let rad2 = dx.mul_add(dx, dy * dy);
+                if rad2 < 1.0 {
+                    let falloff = (1.0 - rad2).powi(3);
+                    self.blend_coverage(x as i32, y as i32, color, falloff * alpha);
+                }
+            }
+        }
     }
 
     fn stroke_rect(
