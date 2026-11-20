@@ -42,8 +42,45 @@ fn native_ui_font() -> Option<&'static FontArc> {
     .as_ref()
 }
 
+// Use operating-system semibold fonts for premium headings only. No
+// licensed font is bundled, copied or redistributed into the product.
+fn native_ui_semibold_font() -> Option<&'static FontArc> {
+    static SEMIBOLD: OnceLock<Option<FontArc>> = OnceLock::new();
+    SEMIBOLD
+        .get_or_init(|| {
+            #[cfg(windows)]
+            let paths: &[&str] = &[
+                r"C:\Windows\Fonts\seguisb.ttf",
+                r"C:\Windows\Fonts\segoeuib.ttf",
+                r"C:\Windows\Fonts\arialbd.ttf",
+            ];
+            #[cfg(target_os = "macos")]
+            let paths: &[&str] = &[
+                "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            ];
+            #[cfg(all(not(windows), not(target_os = "macos")))]
+            let paths: &[&str] = &[
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+            ];
+            paths.iter().find_map(|path| {
+                std::fs::read(path)
+                    .ok()
+                    .and_then(|data| FontArc::try_from_vec(data).ok())
+            })
+        })
+        .as_ref()
+}
+
 const fn native_text_size(scale: usize) -> f32 {
-    if scale >= 2 { 22.0 } else { 16.0 }
+    match scale {
+        3 => 38.0, // V7 editorial hero
+        4 => 21.0, // section and card headings
+        5 => 13.0, // small legal/caption labels
+        6 => 30.0, // product wordmark
+        2 => 22.0, // existing native title
+        _ => 16.0,
+    }
 }
 
 struct Canvas<'a> {
@@ -325,6 +362,42 @@ impl Canvas<'_> {
         let used_width = Self::text_width(&kept, scale);
         self.text(x, y, &kept, scale, color);
         self.text(x.saturating_add(used_width), y, ellipsis, scale, color);
+    }
+
+    /// Bold headings use OS fonts; they still go through the exact same
+    /// alpha compositing and viewport bounds as normal native glyphs.
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap
+    )]
+    fn text_bold(&mut self, x: usize, y: usize, text: &str, scale: usize, color: u32) {
+        let Some(font) = native_ui_semibold_font().or_else(native_ui_font) else {
+            self.text(x, y, text, scale, color);
+            return;
+        };
+        let px = PxScale::from(native_text_size(scale));
+        let scaled = font.as_scaled(px);
+        let mut cursor_x = x as f32;
+        let baseline = y as f32 + scaled.ascent();
+        for character in text.chars() {
+            let glyph_id = scaled.glyph_id(character);
+            let glyph = glyph_id.with_scale_and_position(px, point(cursor_x, baseline));
+            if let Some(outline) = font.outline_glyph(glyph) {
+                let bounds = outline.px_bounds();
+                let left = bounds.min.x as i32;
+                let top = bounds.min.y as i32;
+                outline.draw(|dx, dy, coverage| {
+                    self.blend_coverage(
+                        left.saturating_add(dx as i32),
+                        top.saturating_add(dy as i32),
+                        color,
+                        coverage,
+                    );
+                });
+            }
+            cursor_x += scaled.h_advance(glyph_id);
+        }
     }
 
     fn text_right(&mut self, right_edge: usize, y: usize, text: &str, scale: usize, color: u32) {
