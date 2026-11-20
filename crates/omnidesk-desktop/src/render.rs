@@ -42,6 +42,49 @@ fn native_ui_font() -> Option<&'static FontArc> {
     .as_ref()
 }
 
+/// Fade screenshots' decorative crop boundaries into native surfaces.
+/// Keep functional UI elements native; never render master sample credentials.
+fn feather_decorative_edges(
+    rgba: &mut [u8],
+    width: usize,
+    height: usize,
+    left: usize,
+    right: usize,
+    top: usize,
+    bottom: usize,
+) {
+    if width == 0
+        || height == 0
+        || rgba.len() != width.saturating_mul(height).saturating_mul(4)
+    {
+        return;
+    }
+    for y in 0..height {
+        let top_alpha = if top == 0 { 255 } else { y.min(top) * 255 / top };
+        let bottom_alpha = if bottom == 0 {
+            255
+        } else {
+            height.saturating_sub(y + 1).min(bottom) * 255 / bottom
+        };
+        for x in 0..width {
+            let left_alpha = if left == 0 { 255 } else { x.min(left) * 255 / left };
+            let right_alpha = if right == 0 {
+                255
+            } else {
+                width.saturating_sub(x + 1).min(right) * 255 / right
+            };
+            let edge_alpha = left_alpha
+                .min(right_alpha)
+                .min(top_alpha)
+                .min(bottom_alpha);
+            let index = (y * width + x) * 4 + 3;
+            let original = usize::from(rgba[index]);
+            rgba[index] =
+                u8::try_from((original * edge_alpha + 127) / 255).unwrap_or(u8::MAX);
+        }
+    }
+}
+
 /// The owner-approved 1672x941 screenshot is stored verbatim in Git. Only
 /// its decorative hero artwork is cropped into the native UI: the screenshot's
 /// synthetic license, passwords, device names and health values are NEVER
@@ -58,11 +101,10 @@ fn approved_v7_hero_art() -> Option<&'static (usize, usize, Vec<u8>)> {
         }
         let crop = master.crop_imm(770, 71, 500, 170).into_rgba8();
         let (width, height) = crop.dimensions();
-        Some((
-            usize::try_from(width).ok()?,
-            usize::try_from(height).ok()?,
-            crop.into_raw(),
-        ))
+        let (w, h) = (usize::try_from(width).ok()?, usize::try_from(height).ok()?);
+        let mut rgba = crop.into_raw();
+        feather_decorative_edges(&mut rgba, w, h, 66, 10, 8, 14);
+        Some((w, h, rgba))
     })
     .as_ref()
 }
@@ -81,11 +123,10 @@ fn approved_v7_sidebar_wave_art() -> Option<&'static (usize, usize, Vec<u8>)> {
         }
         let crop = master.crop_imm(0, 700, 258, 185).into_rgba8();
         let (width, height) = crop.dimensions();
-        Some((
-            usize::try_from(width).ok()?,
-            usize::try_from(height).ok()?,
-            crop.into_raw(),
-        ))
+        let (w, h) = (usize::try_from(width).ok()?, usize::try_from(height).ok()?);
+        let mut rgba = crop.into_raw();
+        feather_decorative_edges(&mut rgba, w, h, 0, 12, 22, 0);
+        Some((w, h, rgba))
     })
     .as_ref()
 }
@@ -2133,7 +2174,7 @@ fn draw_premium_dashboard(
     canvas.h_line(0, layout.header_height - 1, canvas.width, 0x6e_17_34);
     if let Some(mark) = official_kmj_mark() {
         canvas.image_rgba(
-            (22, 11, 48, 48),
+            (32, 9, 60, 52),
             (
                 usize::try_from(mark.width).unwrap_or(0),
                 usize::try_from(mark.height).unwrap_or(0),
@@ -2141,16 +2182,19 @@ fn draw_premium_dashboard(
             &mark.rgba,
         );
     }
-    canvas.text(77, 15, "KMJ TECHNO", 2, p.foreground);
-    canvas.text(79, 44, "INNOVATE | BUILD | SCALE", 1, p.muted);
-    canvas.fill_rect(296, 16, 1, 40, p.accent);
-    canvas.text(318, 19, "OmniDesk", 2, p.foreground);
-    canvas.text(410, 17, "TM", 1, 0x99_a3_b3);
-    canvas.rounded_panel(435, 22, 92, 26, 6, 0x85_12_2d, p.accent);
-    canvas.text(449, 28, "Enterprise", 1, p.foreground);
+    // Exactly one owner-approved company brand lockup: dominant red KMJ,
+    // white TECHNO, unchanged tagline, and a separate product wordmark.
+    canvas.text(100, 13, "KMJ", 2, p.accent);
+    canvas.text(160, 13, "TECHNO", 2, p.foreground);
+    canvas.text(101, 45, "INNOVATE | BUILD | SCALE", 1, p.muted);
+    canvas.fill_rect(303, 13, 2, 46, p.accent);
+    canvas.text(337, 14, "OmniDesk", 3, p.foreground);
+    canvas.text(510, 15, "TM", 1, 0x99_a3_b3);
+    canvas.rounded_panel(536, 21, 95, 27, 7, 0x85_12_2d, p.accent);
+    canvas.text(550, 27, "Enterprise", 1, p.foreground);
     locked_label(
         canvas,
-        545,
+        653,
         30,
         canvas.width.saturating_sub(840),
         "Unified Remote Access & Support Platform",
@@ -2964,6 +3008,15 @@ mod tests {
 
     use super::*;
     use crate::{VisualSystem, presentation_for};
+
+    #[test]
+    fn decorative_art_edges_are_feathered_without_mutating_inner_art() {
+        let mut rgba = vec![255_u8; 4 * 4 * 4];
+        feather_decorative_edges(&mut rgba, 4, 4, 1, 1, 1, 1);
+        assert_eq!(rgba[3], 0);
+        assert_eq!(rgba[(3 * 4 + 3) * 4 + 3], 0);
+        assert_eq!(rgba[(1 * 4 + 1) * 4 + 3], 255);
+    }
 
     #[test]
     fn locked_design_preserves_lowercase_typography() {
