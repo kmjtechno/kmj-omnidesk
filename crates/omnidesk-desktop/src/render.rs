@@ -43,7 +43,11 @@ fn native_ui_font() -> Option<&'static FontArc> {
 }
 
 const fn native_text_size(scale: usize) -> f32 {
-    if scale >= 2 { 22.0 } else { 16.0 }
+    match scale {
+        0 | 1 => 17.0,
+        2 => 24.0,
+        _ => 38.0,
+    }
 }
 
 struct Canvas<'a> {
@@ -120,6 +124,9 @@ impl Canvas<'_> {
         }
     }
 
+    /// Rasterize a true filled round rectangle with a one-pixel continuous
+    /// outline. The previous three-crossbar approximation left large black
+    /// triangular notches on every card corner at Windows DPI scales.
     #[allow(clippy::many_single_char_names, clippy::too_many_arguments)]
     fn rounded_panel(
         &mut self,
@@ -131,17 +138,49 @@ impl Canvas<'_> {
         bg: u32,
         border: u32,
     ) {
-        if w < 2 || h < 2 {
+        if w < 2 || h < 2 || x >= self.width || y >= self.height {
             return;
         }
-        let r = r.min(w / 2).min(h / 2);
-        self.fill_rect(x + r, y, w.saturating_sub(r * 2), h, bg);
-        self.fill_rect(x, y + r, r, h.saturating_sub(r * 2), bg);
-        self.fill_rect(x + w - r, y + r, r, h.saturating_sub(r * 2), bg);
-        self.h_line(x + r, y, w.saturating_sub(r * 2), border);
-        self.h_line(x + r, y + h - 1, w.saturating_sub(r * 2), border);
-        self.v_line(x, y + r, h.saturating_sub(r * 2), border);
-        self.v_line(x + w - 1, y + r, h.saturating_sub(r * 2), border);
+        let radius = r.min(w / 2).min(h / 2);
+        if radius < 2 {
+            self.fill_rect(x, y, w, h, bg);
+            self.stroke_rect(x, y, w, h, 1, border);
+            return;
+        }
+        let inner_radius = radius.saturating_sub(1);
+        let outer_center = radius.saturating_sub(1);
+        let outer_sq = (radius * radius) as i64;
+        let inner_sq = (inner_radius * inner_radius) as i64;
+        let max_x = x.saturating_add(w).min(self.width);
+        let max_y = y.saturating_add(h).min(self.height);
+        for py in y..max_y {
+            let ly = py - y;
+            for px in x..max_x {
+                let lx = px - x;
+                let dx = if lx < radius {
+                    outer_center - lx
+                } else {
+                    lx.saturating_sub(w.saturating_sub(radius))
+                };
+                let dy = if ly < radius {
+                    outer_center - ly
+                } else {
+                    ly.saturating_sub(h.saturating_sub(radius))
+                };
+                let corner = (lx < radius || lx >= w - radius)
+                    && (ly < radius || ly >= h - radius);
+                let outside = corner && ((dx * dx + dy * dy) as i64 > outer_sq);
+                if outside {
+                    continue;
+                }
+                let outline = lx == 0
+                    || ly == 0
+                    || lx + 1 == w
+                    || ly + 1 == h
+                    || (corner && (dx * dx + dy * dy) as i64 >= inner_sq);
+                self.pixels[py * self.width + px] = if outline { border } else { bg };
+            }
+        }
     }
 
     #[allow(
