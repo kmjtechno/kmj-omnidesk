@@ -77,8 +77,8 @@ pub struct VisualSystem {
 }
 
 impl VisualSystem {
-    /// The KMJ shell palette: a blue-grey ground with the brand red reserved
-    /// for actions.
+    /// The owner-approved V7 OmniDesk palette: deep graphite and restrained
+    /// KMJ red from the premium design lock (2026-11-20).
     ///
     /// The red is deliberately scarce. Carrying it on borders, rail edges, and
     /// every enabled control turned the whole surface into one hue and left
@@ -92,13 +92,14 @@ impl VisualSystem {
     #[must_use]
     pub const fn kmj_black_red() -> Self {
         Self {
-            background_rgb: [5, 6, 8],
-            surface_rgb: [15, 17, 21],
-            foreground_rgb: [244, 246, 248],
-            accent_rgb: [232, 18, 37],
-            danger_rgb: [255, 59, 48],
-            muted_rgb: [132, 139, 148],
-            border_rgb: [38, 42, 48],
+            // KMJ TECHNO OmniDesk V7 owner-locked premium theme.
+            background_rgb: [7, 9, 16],
+            surface_rgb: [17, 21, 33],
+            foreground_rgb: [247, 247, 250],
+            accent_rgb: [247, 25, 59],
+            danger_rgb: [255, 64, 81],
+            muted_rgb: [143, 149, 165],
+            border_rgb: [53, 55, 71],
         }
     }
 }
