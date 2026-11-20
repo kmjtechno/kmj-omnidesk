@@ -334,22 +334,40 @@ fn draw_top_bar(
     // without tinting the chrome.
     // At compact widths a 2x title intersects the status pill. Use a
     // measured one-line title and clip the secondary label to the viewport.
+    // The narrow shell keeps the same single official brand mark as the
+    // wide dashboard; it never draws a second mark in content cards.
+    if let Some(mark) = official_kmj_mark() {
+        canvas.image_rgba(
+            (layout.content_x, 13, 38, 38),
+            (
+                usize::try_from(mark.width).unwrap_or(0),
+                usize::try_from(mark.height).unwrap_or(0),
+            ),
+            &mark.rgba,
+        );
+    }
+    let title_x = layout.content_x.saturating_add(47);
     let title_scale = if canvas.width < 480 { 1 } else { 2 };
+    let title = if canvas.width < 480 {
+        "OmniDesk"
+    } else {
+        presentation.title
+    };
     canvas.text(
-        layout.content_x,
+        title_x,
         (bar / 2).saturating_sub(9),
-        presentation.title,
+        title,
         title_scale,
         palette.foreground,
     );
     canvas.text_clipped(
-        layout.content_x,
+        title_x,
         (bar / 2).saturating_add(13),
-        "KMJ TECHNO  /  SECURE REMOTE ACCESS",
+        "KMJ TECHNO",
         1,
         canvas
             .width
-            .saturating_sub(layout.content_x + layout.gutter),
+            .saturating_sub(title_x.saturating_add(layout.gutter)),
         palette.muted,
     );
 
