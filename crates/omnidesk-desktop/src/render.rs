@@ -73,6 +73,24 @@ fn native_ui_semibold_font() -> Option<&'static FontArc> {
 // Decorative illustration cropped from the owner-approved V7 master.
 // It contains no live pixels, network data, license claims or controls.
 // PNG is a committed project asset; the decoder is cached for cheap redraw.
+// Bottom-left decorative wave from the same approved master image.
+// Its semi-transparent edges blend with the native sidebar; it is not a
+// duplicated company logo, device state or interactive surface.
+fn approved_v7_sidebar_wave() -> Option<&'static crate::brand::BrandImage> {
+    static WAVE: OnceLock<Option<crate::brand::BrandImage>> = OnceLock::new();
+    WAVE.get_or_init(|| {
+        let png = include_bytes!("../../../assets/ui/omnidesk-v7-approved-sidebar-wave.png");
+        let image = image::load_from_memory(png).ok()?.into_rgba8();
+        let (width, height) = image.dimensions();
+        Some(crate::brand::BrandImage {
+            width,
+            height,
+            rgba: image.into_raw(),
+        })
+    })
+    .as_ref()
+}
+
 fn approved_v7_hero_art() -> Option<&'static crate::brand::BrandImage> {
     static HERO: OnceLock<Option<crate::brand::BrandImage>> = OnceLock::new();
     HERO.get_or_init(|| {
@@ -2163,6 +2181,24 @@ fn draw_premium_dashboard(
     // 2. Left Navigation Rail
     let nav = layout.navigation;
     canvas.fill_rect(nav.x, nav.y, nav.width, nav.height, p.surface);
+    // V7-approved red mesh illustration sits strictly behind nav labels.
+    if let Some(wave) = approved_v7_sidebar_wave() {
+        let wave_width = usize::try_from(wave.width).unwrap_or(0).min(nav.width);
+        let wave_height = usize::try_from(wave.height).unwrap_or(0).min(nav.height);
+        canvas.image_rgba(
+            (
+                nav.x,
+                nav.y + nav.height.saturating_sub(231),
+                wave_width,
+                wave_height,
+            ),
+            (
+                usize::try_from(wave.width).unwrap_or(0),
+                usize::try_from(wave.height).unwrap_or(0),
+            ),
+            &wave.rgba,
+        );
+    }
     canvas.fill_rect(nav.width.saturating_sub(1), nav.y, 1, nav.height, p.border);
     let nav_labels = [
         "Dashboard",
