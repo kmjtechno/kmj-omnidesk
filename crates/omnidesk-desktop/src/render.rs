@@ -2106,6 +2106,9 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
     canvas.h_line(x + 9, y + 6, 5, color);
 }
 
+// V7's large native dashboard is maintained as a single legacy render path;
+// a future extraction into individual cards must preserve shared hit geometry.
+#[allow(clippy::too_many_lines)]
 fn draw_premium_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
