@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "kind": "rc_matrix_measurement",
+  "run_id": "M13-RC1-R001",
+  "timestamp": "2026-11-20T10:00:00Z",
+  "environment": {
+    "machine_id": "DEV-BOX-001",
+    "os": "Windows 10 Enterprise",
+    "os_build": "19045",
+    "cpu": "Intel Core i7-12700K",
+    "gpu": "NVIDIA RTX 3080",
+    "ram_gb": 32,
+    "commit": "cfd28eb"
+  },
+  "profiles": [
+    {
+      "profile": "office_good",
+      "connection_time_ms": 1,
+      "reconnect_time_ms": 1000.0,
+      "interactive_latency_ms": 0.001,
+      "direct_connect_success_rate": 100.0,
+      "relay_ratio": 0.0,
+      "visual_quality_metric": 1.0,
+      "bandwidth_kbps": null,
+      "cpu_percent": null,
+      "gpu_percent": null,
+      "ram_mb": null,
+      "raw_samples": ["raw/M13-RC1-R001-office_good.jsonl"]
+    },
+    {
+      "profile": "mobile_constrained",
+      "connection_time_ms": 1,
+      "reconnect_time_ms": 1580.0,
+      "interactive_latency_ms": 0.0,
+      "direct_connect_success_rate": 100.0,
+      "relay_ratio": 0.0,
+      "visual_quality_metric": 0.25,
+      "bandwidth_kbps": null,
+      "cpu_percent": null,
+      "gpu_percent": null,
+      "ram_mb": null,
+      "raw_samples": ["raw/M13-RC1-R001-mobile_constrained.jsonl"]
+    },
+    {
+      "profile": "weak_mobile",
+      "connection_time_ms": 1,
+      "reconnect_time_ms": 2740.0,
+      "interactive_latency_ms": 0.001,
+      "direct_connect_success_rate": 100.0,
+      "relay_ratio": 0.0,
+      "visual_quality_metric": 0.0,
+      "bandwidth_kbps": null,
+      "cpu_percent": null,
+      "gpu_percent": null,
+      "ram_mb": null,
+      "raw_samples": ["raw/M13-RC1-R001-weak_mobile.jsonl"]
+    },
+    {
+      "profile": "severe",
+      "connection_time_ms": 1,
+      "reconnect_time_ms": 3900.0,
+      "interactive_latency_ms": 0.0,
+      "direct_connect_success_rate": 100.0,
+      "relay_ratio": 0.0,
+      "visual_quality_metric": 0.0,
+      "bandwidth_kbps": null,
+      "cpu_percent": null,
+      "gpu_percent": null,
+      "ram_mb": null,
+      "raw_samples": ["raw/M13-RC1-R001-severe.jsonl"]
+    }
+  ],
+  "unavailable_metrics": {
+    "bandwidth_kbps": "requires a shaped link; loopback measures the CPU, not a network",
+    "cpu_percent": "requires live process measurement on the target machine",
+    "gpu_percent": "requires live process measurement on the target machine",
+    "ram_mb": "requires live process measurement on the target machine"
+  },
+  "evidence_type": "deterministic_local_reference",
+  "evidence_caveat": "direct_connect_success_rate is a loopback UDP establishment, not a NAT traversal; it says nothing about Internet reachability and must not be published as a success rate",
+  "admissible": false,
+  "admissible_reason": "four required metrics have no honest producer here; m13_matrix.py verify refuses this file, as it should"
+}
