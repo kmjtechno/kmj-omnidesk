@@ -404,6 +404,56 @@ impl PremiumDashboardLayout {
     }
 
     #[must_use]
+    pub const fn host_password_eye(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.share.x + self.share.width.saturating_sub(64),
+            y: self.share.y + 160,
+            width: 24,
+            height: 42,
+        }
+    }
+
+    #[must_use]
+    pub const fn host_password_refresh(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.share.x + self.share.width.saturating_sub(38),
+            y: self.share.y + 160,
+            width: 24,
+            height: 42,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_control_toggle(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.share.x + 20,
+            y: self.share.y + 215,
+            width: 180,
+            height: 35,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_password_input(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.connect.x + 19,
+            y: self.connect.y + 160,
+            width: self.connect.width.saturating_sub(38),
+            height: 42,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_password_eye(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.connect.x + self.connect.width.saturating_sub(44),
+            y: self.connect.y + 160,
+            width: 26,
+            height: 42,
+        }
+    }
+
+    #[must_use]
     pub const fn remote_id_input(&self) -> DashboardRect {
         DashboardRect {
             x: self.connect.x + 19,

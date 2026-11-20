@@ -2049,6 +2049,11 @@ fn draw_paste_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.fill_rect(x + 3, y, 6, 3, color);
 }
 
+fn draw_refresh_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 1, y + 1, 10, 10, 1, color);
+    canvas.fill_rect(x + 8, y, 4, 3, color);
+}
+
 fn draw_bell_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.fill_rect(x + 4, y + 1, 4, 2, color);
     canvas.fill_rect(x + 2, y + 3, 8, 6, color);
@@ -2444,26 +2449,48 @@ fn draw_premium_dashboard(
         0x0b_12_19,
         0x28_38_4a,
     );
-    canvas.text_clipped(
-        share.x + 34,
-        share.y + 174,
-        "Password not configured",
-        1,
-        id_box_w.saturating_sub(46),
-        p.muted,
-    );
+    if presentation.host_password_visible {
+        canvas.text_clipped(
+            share.x + 34,
+            share.y + 174,
+            &presentation.host_session_password,
+            1,
+            id_box_w.saturating_sub(70),
+            p.foreground,
+        );
+    } else {
+        for dot_idx in 0..8 {
+            canvas.dot(share.x + 38 + dot_idx * 14, share.y + 181, 3, 0xd0_d6_e3);
+        }
+    }
+    draw_eye_icon(canvas, share.x + id_box_w - 38, share.y + 175, 0xcb_d2_df);
+    draw_refresh_icon(canvas, share.x + id_box_w - 14, share.y + 174, 0xcb_d2_df);
 
     // Toggle switch: Allow remote control
+    let switch_active = presentation.allow_remote_control;
     canvas.rounded_panel(
         share.x + 20,
         share.y + 218,
         38,
         20,
         10,
-        0x32_37_47,
-        0x54_58_67,
+        if switch_active {
+            0xed_18_3b
+        } else {
+            0x32_37_47
+        },
+        if switch_active {
+            0xf5_33_55
+        } else {
+            0x54_58_67
+        },
     );
-    canvas.dot(share.x + 30, share.y + 228, 7, p.muted);
+    let dot_x = if switch_active {
+        share.x + 48
+    } else {
+        share.x + 30
+    };
+    canvas.dot(dot_x, share.y + 228, 7, p.foreground);
     canvas.text(
         share.x + 68,
         share.y + 216,
@@ -2474,7 +2501,11 @@ fn draw_premium_dashboard(
     canvas.text_clipped(
         share.x + 68,
         share.y + 234,
-        "Unavailable until secure host password setup is implemented.",
+        if switch_active {
+            "Others can control this device with the ID and password."
+        } else {
+            "Remote control disabled. Turn on to allow incoming connections."
+        },
         1,
         share.width.saturating_sub(78),
         0x90_9a_ac,
@@ -2567,16 +2598,41 @@ fn draw_premium_dashboard(
         42,
         8,
         0x0b_12_19,
-        0x28_38_4a,
+        if presentation.remote_password_focused {
+            p.accent
+        } else {
+            0x28_38_4a
+        },
     );
-    canvas.text_clipped(
-        connect.x + 32,
-        connect.y + 174,
-        "Password authentication is not implemented",
-        1,
-        connect_box_w.saturating_sub(40),
-        0x72_7d_8e,
-    );
+    if presentation.remote_password_input.is_empty() {
+        canvas.text_clipped(
+            connect.x + 32,
+            connect.y + 174,
+            "Enter session password",
+            1,
+            connect_box_w.saturating_sub(40),
+            0x72_7d_8e,
+        );
+    } else if presentation.remote_password_visible {
+        canvas.text_clipped(
+            connect.x + 32,
+            connect.y + 174,
+            &presentation.remote_password_input,
+            1,
+            connect_box_w.saturating_sub(40),
+            p.foreground,
+        );
+    } else {
+        let dots_count = presentation.remote_password_input.len().min(16);
+        for dot_idx in 0..dots_count {
+            canvas.dot(
+                connect.x + 36 + dot_idx * 14,
+                connect.y + 181,
+                3,
+                0xd0_d6_e3,
+            );
+        }
+    }
     draw_eye_icon(
         canvas,
         connect.x + connect_box_w - 20,
@@ -2586,31 +2642,31 @@ fn draw_premium_dashboard(
 
     // Full-Width CTA Connect Button
     let _btn_rect = layout.remote_connect_button();
-    canvas.rounded_panel(
+    canvas.rounded_gradient_panel(
         connect.x + 20,
         connect.y + 215,
         connect_box_w,
         42,
-        8,
-        0x51_20_34,
-        0x70_37_49,
+        0xed_18_3b,
+        0xb0_0c_27,
+        0xf5_33_55,
     );
     canvas.h_line(
-        connect.x + connect_box_w / 2 - 70,
-        connect.y + 235,
-        12,
+        connect.x + connect_box_w / 2 - 68,
+        connect.y + 234,
+        14,
         p.foreground,
     );
     canvas.h_line(
-        connect.x + connect_box_w / 2 - 70,
+        connect.x + connect_box_w / 2 - 68,
         connect.y + 238,
-        12,
+        14,
         p.foreground,
     );
     canvas.text(
-        connect.x + connect_box_w / 2 - 48,
+        connect.x + connect_box_w / 2 - 46,
         connect.y + 229,
-        "Password Connect Unavailable",
+        "Connect Securely",
         1,
         p.foreground,
     );

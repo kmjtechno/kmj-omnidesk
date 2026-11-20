@@ -20,7 +20,7 @@ use winit::{
 };
 
 use crate::{
-    AccessibilityNode, DesktopAction, PremiumDashboardLayout, accessibility_snapshot,
+    AccessibilityNode, DesktopAction, accessibility_snapshot,
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
@@ -436,6 +436,14 @@ impl DesktopHost {
         }
 
         while let Ok(incoming) = self.incoming_rx.try_recv() {
+            if !self.shell.allow_remote_control() {
+                self.shell.set_error(format!(
+                    "Incoming peer {} rejected: host remote control is disabled",
+                    incoming.peer_addr
+                ));
+                self.refresh_presentation();
+                continue;
+            }
             let Ok(transport) = HostTransport::from_tcp_stream(incoming.stream) else {
                 continue;
             };
@@ -582,24 +590,18 @@ impl DesktopHost {
         } else if action == DesktopAction::CopyYourId {
             copy_to_clipboard(self.shell.local_device_id());
             apply_action(&mut self.shell, action);
+        } else if action == DesktopAction::CopySessionPassword {
+            let pwd = self.shell.host_password().to_owned();
+            copy_to_clipboard(&pwd);
+            apply_action(&mut self.shell, action);
         } else if action == DesktopAction::ConnectRemoteId {
-            // The V7 password form is disabled until host credential proof is
-            // implemented; Enter and accessibility must not bypass its CTA.
-            let premium = self.window.as_ref().is_some_and(|window| {
-                let size = window.inner_size();
-                PremiumDashboardLayout::for_window(
-                    usize::try_from(size.width).unwrap_or(0),
-                    usize::try_from(size.height).unwrap_or(0),
-                )
-                .is_some()
-            });
-            if premium {
-                self.shell.set_error(
-                    "Password-based remote access unavailable until secure authentication ships",
-                );
+            let remote_id = self.shell.remote_id_input().to_owned();
+            let remote_pwd = self.shell.remote_password_input().to_owned();
+            if remote_id.is_empty() {
+                self.shell.set_error("Please enter a Remote Device ID");
+            } else if remote_pwd.is_empty() {
+                self.shell.set_error("Please enter the session password");
             } else {
-                // Keep the established trusted-peer connection path for legacy
-                // screens; it does not claim password-based authentication.
                 apply_action(&mut self.shell, action);
                 if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
                     self.try_connect_peer();

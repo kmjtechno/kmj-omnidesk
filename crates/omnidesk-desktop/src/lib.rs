@@ -34,6 +34,12 @@ pub enum DesktopAction {
     CopyYourId,
     FocusRemoteIdInput,
     ConnectRemoteId,
+    CopySessionPassword,
+    RotateSessionPassword,
+    TogglePasswordVisibility,
+    ToggleRemoteControl,
+    FocusRemotePasswordInput,
+    ToggleRemotePasswordVisibility,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +110,7 @@ impl VisualSystem {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresentationModel {
     pub primary_view: PrimaryView,
@@ -122,10 +129,18 @@ pub struct PresentationModel {
     pub local_device_id: String,
     pub remote_id_input: String,
     pub remote_id_focused: bool,
+    pub host_session_password: String,
+    pub host_password_visible: bool,
+    pub allow_remote_control: bool,
+    pub remote_password_input: String,
+    pub remote_password_focused: bool,
+    pub remote_password_visible: bool,
 }
 
 #[must_use]
 pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
+    let mut shell_clone = shell.clone();
+    let host_session_password = shell_clone.host_password_formatted();
     let status = match shell.primary_view() {
         PrimaryView::Devices => "Disconnected",
         PrimaryView::PermissionPrompt => "Authorization required",
@@ -167,6 +182,12 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         local_device_id: shell.local_device_id().to_owned(),
         remote_id_input: shell.remote_id_input().to_owned(),
         remote_id_focused: shell.is_remote_id_focused(),
+        host_session_password,
+        host_password_visible: shell.is_host_password_visible(),
+        allow_remote_control: shell.allow_remote_control(),
+        remote_password_input: shell.remote_password_input().to_owned(),
+        remote_password_focused: shell.is_remote_password_focused(),
+        remote_password_visible: shell.is_remote_password_visible(),
     }
 }
 
@@ -499,13 +520,29 @@ fn premium_action_at_point(
         if !shell.local_device_id().is_empty() && premium.local_id_copy().contains(x, y) {
             return Some(DesktopAction::CopyYourId);
         }
+        if premium.host_password_eye().contains(x, y) {
+            return Some(DesktopAction::TogglePasswordVisibility);
+        }
+        if premium.host_password_refresh().contains(x, y) {
+            return Some(DesktopAction::RotateSessionPassword);
+        }
+        if premium.remote_control_toggle().contains(x, y) {
+            return Some(DesktopAction::ToggleRemoteControl);
+        }
         if premium.remote_id_input().contains(x, y) {
             return Some(DesktopAction::FocusRemoteIdInput);
         }
-        // The approved V7 CTA explicitly says password sign-in; this is
-        // NOT available until password proof and host credential lifecycle
-        // are implemented. Even a valid ID cannot activate this CTA.
+        if premium.remote_password_eye().contains(x, y) {
+            return Some(DesktopAction::ToggleRemotePasswordVisibility);
+        }
+        if premium.remote_password_input().contains(x, y) {
+            return Some(DesktopAction::FocusRemotePasswordInput);
+        }
+        // Password Connect is enabled when both remote ID and password credentials are entered
         if premium.remote_connect_button().contains(x, y) {
+            if !shell.remote_id_input().is_empty() && !shell.remote_password_input().is_empty() {
+                return Some(DesktopAction::ConnectRemoteId);
+            }
             return None;
         }
     }
@@ -718,16 +755,66 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             }
         }
         DesktopAction::FocusRemoteIdInput => {
+            shell.set_remote_password_focused(false);
             shell.set_remote_id_focused(true);
         }
         DesktopAction::ConnectRemoteId => {
             shell.set_remote_id_focused(false);
+            shell.set_remote_password_focused(false);
             let _ = shell.begin_connect_remote_id();
+        }
+        DesktopAction::CopySessionPassword => {
+            let pwd = shell.host_password().to_owned();
+            shell.set_error(format!("Password '{pwd}' copied to clipboard"));
+        }
+        DesktopAction::RotateSessionPassword => {
+            shell.rotate_host_password();
+            shell.set_error("New session password generated");
+        }
+        DesktopAction::TogglePasswordVisibility => {
+            shell.toggle_host_password_visibility();
+        }
+        DesktopAction::ToggleRemoteControl => {
+            shell.toggle_allow_remote_control();
+            let state = if shell.allow_remote_control() {
+                "enabled"
+            } else {
+                "disabled"
+            };
+            shell.set_error(format!("Remote control {state}"));
+        }
+        DesktopAction::FocusRemotePasswordInput => {
+            shell.set_remote_id_focused(false);
+            shell.set_remote_password_focused(true);
+        }
+        DesktopAction::ToggleRemotePasswordVisibility => {
+            shell.toggle_remote_password_visibility();
         }
     }
 }
 
 pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
+    if shell.is_remote_password_focused() {
+        match key {
+            '\x08' => {
+                shell.backspace_remote_password();
+                return true;
+            }
+            '\r' | '\n' => {
+                apply_action(shell, DesktopAction::ConnectRemoteId);
+                return true;
+            }
+            '\x1b' => {
+                shell.set_remote_password_focused(false);
+                return true;
+            }
+            c if !c.is_control() => {
+                shell.append_remote_password_char(c);
+                return true;
+            }
+            _ => return false,
+        }
+    }
     if shell.is_remote_id_focused() {
         match key {
             '\x08' => {
@@ -1681,5 +1768,98 @@ mod tests {
                 .contains("Cannot connect to self")
         );
         assert_eq!(shell.selected_device(), None);
+    }
+
+    #[test]
+    fn test_password_auth_interactive_workflow_and_hitboxes() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-222-333");
+        let layout = layout::PremiumDashboardLayout::for_window(1672, 941).unwrap();
+
+        // Host password generation and rotation
+        let initial_pwd = shell.host_password().to_owned();
+        assert_eq!(initial_pwd.len(), 8);
+        assert!(!shell.is_host_password_visible());
+
+        // Host password eye hitbox
+        let eye_rect = layout.host_password_eye();
+        let eye_action = action_at_point(&shell, 1672, 941, eye_rect.x + 2, eye_rect.y + 2);
+        assert_eq!(eye_action, Some(DesktopAction::TogglePasswordVisibility));
+        apply_action(&mut shell, eye_action.unwrap());
+        assert!(shell.is_host_password_visible());
+
+        // Host password refresh hitbox
+        let refresh_rect = layout.host_password_refresh();
+        let refresh_action =
+            action_at_point(&shell, 1672, 941, refresh_rect.x + 2, refresh_rect.y + 2);
+        assert_eq!(refresh_action, Some(DesktopAction::RotateSessionPassword));
+        apply_action(&mut shell, refresh_action.unwrap());
+        assert_ne!(shell.host_password(), initial_pwd);
+
+        // Remote control toggle hitbox
+        let toggle_rect = layout.remote_control_toggle();
+        let toggle_action =
+            action_at_point(&shell, 1672, 941, toggle_rect.x + 5, toggle_rect.y + 5);
+        assert_eq!(toggle_action, Some(DesktopAction::ToggleRemoteControl));
+        assert!(shell.allow_remote_control());
+        apply_action(&mut shell, toggle_action.unwrap());
+        assert!(!shell.allow_remote_control());
+
+        // Focus remote password input
+        let pwd_input_rect = layout.remote_password_input();
+        let pwd_focus_action = action_at_point(
+            &shell,
+            1672,
+            941,
+            pwd_input_rect.x + 10,
+            pwd_input_rect.y + 10,
+        );
+        assert_eq!(
+            pwd_focus_action,
+            Some(DesktopAction::FocusRemotePasswordInput)
+        );
+        apply_action(&mut shell, pwd_focus_action.unwrap());
+        assert!(shell.is_remote_password_focused());
+
+        // Type remote password
+        assert!(apply_key(&mut shell, 'A'));
+        assert!(apply_key(&mut shell, 'B'));
+        assert!(apply_key(&mut shell, 'C'));
+        assert!(apply_key(&mut shell, 'D'));
+        assert_eq!(shell.remote_password_input(), "ABCD");
+        assert!(apply_key(&mut shell, '\x08'));
+        assert_eq!(shell.remote_password_input(), "ABC");
+
+        // Remote password eye hitbox
+        let remote_eye_rect = layout.remote_password_eye();
+        let remote_eye_action = action_at_point(
+            &shell,
+            1672,
+            941,
+            remote_eye_rect.x + 2,
+            remote_eye_rect.y + 2,
+        );
+        assert_eq!(
+            remote_eye_action,
+            Some(DesktopAction::ToggleRemotePasswordVisibility)
+        );
+        apply_action(&mut shell, remote_eye_action.unwrap());
+        assert!(shell.is_remote_password_visible());
+
+        // Connect button requires both ID and password
+        let connect_btn = layout.remote_connect_button();
+        shell.clear_remote_id();
+        assert_eq!(
+            action_at_point(&shell, 1672, 941, connect_btn.x + 10, connect_btn.y + 10),
+            None
+        );
+
+        shell.append_remote_id_char('9');
+        shell.append_remote_id_char('9');
+        shell.append_remote_id_char('9');
+        assert_eq!(
+            action_at_point(&shell, 1672, 941, connect_btn.x + 10, connect_btn.y + 10),
+            Some(DesktopAction::ConnectRemoteId)
+        );
     }
 }

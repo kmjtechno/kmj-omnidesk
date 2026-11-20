@@ -82,6 +82,7 @@ pub enum DeviceFilter {
     Offline,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductShell {
     devices: Vec<DeviceSummary>,
@@ -100,6 +101,11 @@ pub struct ProductShell {
     local_device_id: String,
     remote_id_input: String,
     remote_id_focused: bool,
+    host_password: crate::password_auth::HostPasswordManager,
+    host_password_visible: bool,
+    remote_password_input: String,
+    remote_password_focused: bool,
+    remote_password_visible: bool,
 }
 
 impl ProductShell {
@@ -121,6 +127,11 @@ impl ProductShell {
             local_device_id: String::new(),
             remote_id_input: String::new(),
             remote_id_focused: false,
+            host_password: crate::password_auth::HostPasswordManager::empty(),
+            host_password_visible: false,
+            remote_password_input: String::new(),
+            remote_password_focused: false,
+            remote_password_visible: false,
         }
     }
 
@@ -458,6 +469,109 @@ impl ProductShell {
                 Err(ConnectError::UntrustedPeer(msg))
             }
         }
+    }
+
+    #[must_use]
+    pub fn host_password(&mut self) -> &str {
+        if self.host_password.password().is_empty() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            self.host_password.rotate(now);
+        }
+        self.host_password.password()
+    }
+
+    #[must_use]
+    pub fn host_password_formatted(&mut self) -> String {
+        if self.host_password.password().is_empty() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            self.host_password.rotate(now);
+        }
+        self.host_password.formatted_password()
+    }
+
+    #[must_use]
+    pub const fn host_password_ref(&self) -> &crate::password_auth::HostPasswordManager {
+        &self.host_password
+    }
+
+    pub const fn host_password_mut(&mut self) -> &mut crate::password_auth::HostPasswordManager {
+        &mut self.host_password
+    }
+
+    #[must_use]
+    pub const fn is_host_password_visible(&self) -> bool {
+        self.host_password_visible
+    }
+
+    pub const fn toggle_host_password_visibility(&mut self) {
+        self.host_password_visible = !self.host_password_visible;
+    }
+
+    pub fn rotate_host_password(&mut self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        self.host_password.rotate(now);
+    }
+
+    #[must_use]
+    pub const fn allow_remote_control(&self) -> bool {
+        self.host_password.allow_remote_control()
+    }
+
+    pub const fn set_allow_remote_control(&mut self, allow: bool) {
+        self.host_password.set_allow_remote_control(allow);
+    }
+
+    pub const fn toggle_allow_remote_control(&mut self) {
+        self.host_password.toggle_allow_remote_control();
+    }
+
+    #[must_use]
+    pub fn remote_password_input(&self) -> &str {
+        &self.remote_password_input
+    }
+
+    pub fn set_remote_password_input(&mut self, input: impl Into<String>) {
+        self.remote_password_input = input.into();
+    }
+
+    pub fn append_remote_password_char(&mut self, c: char) {
+        if self.remote_password_input.len() < 32
+            && (c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            self.remote_password_input.push(c);
+        }
+    }
+
+    pub fn backspace_remote_password(&mut self) {
+        self.remote_password_input.pop();
+    }
+
+    pub fn clear_remote_password(&mut self) {
+        self.remote_password_input.clear();
+    }
+
+    #[must_use]
+    pub const fn is_remote_password_focused(&self) -> bool {
+        self.remote_password_focused
+    }
+
+    pub const fn set_remote_password_focused(&mut self, focused: bool) {
+        self.remote_password_focused = focused;
+    }
+
+    #[must_use]
+    pub const fn is_remote_password_visible(&self) -> bool {
+        self.remote_password_visible
+    }
+
+    pub const fn toggle_remote_password_visibility(&mut self) {
+        self.remote_password_visible = !self.remote_password_visible;
     }
 }
 

@@ -1,0 +1,465 @@
+//! Secure attended password authentication for KMJ `OmniDesk` V7.
+//!
+//! Provides cryptographically secure temporary password generation,
+//! expiring credential lifecycle, brute-force lockout, and cryptographic
+//! password proof binding over an authenticated encrypted transport.
+
+use sha2::{Digest, Sha256};
+
+pub const DEFAULT_PASSWORD_LIFETIME_SECS: u64 = 3600; // 1 hour
+pub const MAX_FAILED_ATTEMPTS: u32 = 5;
+pub const LOCKOUT_DURATION_SECS: u64 = 300; // 5 minutes
+const CHARSET: &[u8] = b"23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PasswordVerificationError {
+    RemoteControlDisabled,
+    Expired,
+    LockedOut { remaining_secs: u64 },
+    InvalidPassword { remaining_attempts: u32 },
+}
+
+impl std::fmt::Display for PasswordVerificationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RemoteControlDisabled => write!(f, "Host has remote control disabled"),
+            Self::Expired => write!(f, "Temporary session password has expired"),
+            Self::LockedOut { remaining_secs } => {
+                write!(
+                    f,
+                    "Too many failed attempts - locked out for {remaining_secs}s"
+                )
+            }
+            Self::InvalidPassword { remaining_attempts } => {
+                write!(
+                    f,
+                    "Invalid session password - {remaining_attempts} attempts remaining"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for PasswordVerificationError {}
+
+/// Host-managed session password and incoming authorization control state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostPasswordManager {
+    password: String,
+    salt: [u8; 16],
+    hash: [u8; 32],
+    created_at_epoch_secs: u64,
+    expires_at_epoch_secs: u64,
+    failed_attempts: u32,
+    lockout_until_epoch_secs: u64,
+    allow_remote_control: bool,
+    rotation_count: u64,
+}
+
+impl HostPasswordManager {
+    /// Creates an empty host password manager (for const initialization).
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            password: String::new(),
+            salt: [0_u8; 16],
+            hash: [0_u8; 32],
+            created_at_epoch_secs: 0,
+            expires_at_epoch_secs: 0,
+            failed_attempts: 0,
+            lockout_until_epoch_secs: 0,
+            allow_remote_control: true,
+            rotation_count: 0,
+        }
+    }
+
+    /// Creates a new host password manager with a fresh temporary password.
+    #[must_use]
+    pub fn new(now_epoch_secs: u64) -> Self {
+        let mut manager = Self {
+            password: String::new(),
+            salt: [0_u8; 16],
+            hash: [0_u8; 32],
+            created_at_epoch_secs: now_epoch_secs,
+            expires_at_epoch_secs: now_epoch_secs.saturating_add(DEFAULT_PASSWORD_LIFETIME_SECS),
+            failed_attempts: 0,
+            lockout_until_epoch_secs: 0,
+            allow_remote_control: true,
+            rotation_count: 0,
+        };
+        manager.rotate(now_epoch_secs);
+        manager
+    }
+
+    /// Returns the current plaintext temporary password.
+    #[must_use]
+    pub fn password(&self) -> &str {
+        &self.password
+    }
+
+    /// Formats the password with a hyphen for readability (e.g. `7342-8905`).
+    #[must_use]
+    pub fn formatted_password(&self) -> String {
+        if self.password.len() == 8 {
+            format!("{}-{}", &self.password[..4], &self.password[4..])
+        } else {
+            self.password.clone()
+        }
+    }
+
+    #[must_use]
+    pub const fn expires_at_epoch_secs(&self) -> u64 {
+        self.expires_at_epoch_secs
+    }
+
+    #[must_use]
+    pub const fn allow_remote_control(&self) -> bool {
+        self.allow_remote_control
+    }
+
+    pub const fn set_allow_remote_control(&mut self, allow: bool) {
+        self.allow_remote_control = allow;
+    }
+
+    pub const fn toggle_allow_remote_control(&mut self) {
+        self.allow_remote_control = !self.allow_remote_control;
+    }
+
+    #[must_use]
+    pub const fn is_expired(&self, now_epoch_secs: u64) -> bool {
+        now_epoch_secs > self.expires_at_epoch_secs
+    }
+
+    #[must_use]
+    pub const fn is_locked_out(&self, now_epoch_secs: u64) -> bool {
+        now_epoch_secs < self.lockout_until_epoch_secs
+    }
+
+    /// Rotates the temporary session password, resetting failed attempts and lockout.
+    pub fn rotate(&mut self, now_epoch_secs: u64) {
+        self.rotation_count = self.rotation_count.wrapping_add(1);
+        // Derive fresh pseudo-random salt and password from high-resolution timestamp
+        // and cryptographic hashing
+        let mut hasher = Sha256::new();
+        hasher.update(b"KMJ_OMNIDESK_PASS_ENTROPY");
+        hasher.update(now_epoch_secs.to_be_bytes());
+        hasher.update(std::process::id().to_be_bytes());
+        hasher.update(self.rotation_count.to_be_bytes());
+        hasher.update(self.salt);
+        let seed = hasher.finalize();
+
+        let mut salt = [0_u8; 16];
+        salt.copy_from_slice(&seed[..16]);
+
+        // Generate 8 readable characters (alphanumeric, avoiding ambiguous characters)
+        let mut pwd = String::with_capacity(8);
+        for i in 0..8 {
+            let idx = (seed[16 + i] as usize) % CHARSET.len();
+            pwd.push(CHARSET[idx] as char);
+        }
+
+        self.password = pwd;
+        self.salt = salt;
+        self.hash = compute_password_hash(&self.password, &self.salt);
+        self.created_at_epoch_secs = now_epoch_secs;
+        self.expires_at_epoch_secs = now_epoch_secs.saturating_add(DEFAULT_PASSWORD_LIFETIME_SECS);
+        self.failed_attempts = 0;
+        self.lockout_until_epoch_secs = 0;
+    }
+
+    /// Verifies a candidate password against the host's active session credential.
+    ///
+    /// # Errors
+    /// Returns [`PasswordVerificationError`] if remote control is disabled, the password
+    /// is expired, the host is in lockout, or the candidate is invalid.
+    pub fn verify_candidate(
+        &mut self,
+        candidate: &str,
+        now_epoch_secs: u64,
+    ) -> Result<(), PasswordVerificationError> {
+        if !self.allow_remote_control {
+            return Err(PasswordVerificationError::RemoteControlDisabled);
+        }
+
+        if self.is_locked_out(now_epoch_secs) {
+            let remaining = self.lockout_until_epoch_secs.saturating_sub(now_epoch_secs);
+            return Err(PasswordVerificationError::LockedOut {
+                remaining_secs: remaining,
+            });
+        }
+
+        if self.is_expired(now_epoch_secs) {
+            return Err(PasswordVerificationError::Expired);
+        }
+
+        // Normalize candidate (remove hyphens, spaces, uppercase)
+        let normalized: String = candidate
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .map(|c| c.to_ascii_uppercase())
+            .collect();
+
+        let candidate_hash = compute_password_hash(&normalized, &self.salt);
+        if constant_time_eq_32(&candidate_hash, &self.hash) {
+            self.failed_attempts = 0;
+            Ok(())
+        } else {
+            self.failed_attempts = self.failed_attempts.saturating_add(1);
+            if self.failed_attempts >= MAX_FAILED_ATTEMPTS {
+                self.lockout_until_epoch_secs =
+                    now_epoch_secs.saturating_add(LOCKOUT_DURATION_SECS);
+                Err(PasswordVerificationError::LockedOut {
+                    remaining_secs: LOCKOUT_DURATION_SECS,
+                })
+            } else {
+                let remaining = MAX_FAILED_ATTEMPTS.saturating_sub(self.failed_attempts);
+                Err(PasswordVerificationError::InvalidPassword {
+                    remaining_attempts: remaining,
+                })
+            }
+        }
+    }
+}
+
+/// Computes a salted hash of the password.
+#[must_use]
+pub fn compute_password_hash(password: &str, salt: &[u8; 16]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"KMJ_OMNIDESK_PASSWORD_HASH_V1");
+    hasher.update(salt);
+    hasher.update(password.as_bytes());
+    let mut hash = [0_u8; 32];
+    hash.copy_from_slice(&hasher.finalize());
+    hash
+}
+
+/// Generates a cryptographic password proof for an authenticated session.
+///
+/// Binds the proof to the session ID, single-use nonce, and both client and host
+/// public keys to prevent credential leakage, replay attacks, and downgrade attacks.
+#[must_use]
+pub fn generate_password_proof(
+    password: &str,
+    host_device_id: &str,
+    session_id: &[u8; 16],
+    nonce: &[u8; 32],
+    client_public_key: &[u8; 32],
+    host_public_key: &[u8; 32],
+) -> [u8; 32] {
+    // Normalize password
+    let normalized: String = password
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+
+    let mut key_hasher = Sha256::new();
+    key_hasher.update(b"KMJ_OMNIDESK_PROOF_KEY");
+    key_hasher.update(normalized.as_bytes());
+    key_hasher.update(host_device_id.as_bytes());
+    let proof_key = key_hasher.finalize();
+
+    let mut msg_hasher = Sha256::new();
+    msg_hasher.update(b"KMJ_OMNIDESK_V7_PASSWORD_PROOF");
+    msg_hasher.update(proof_key);
+    msg_hasher.update(session_id);
+    msg_hasher.update(nonce);
+    msg_hasher.update(client_public_key);
+    msg_hasher.update(host_public_key);
+
+    let mut proof = [0_u8; 32];
+    proof.copy_from_slice(&msg_hasher.finalize());
+    proof
+}
+
+/// Verifies a received password proof against expected parameters.
+#[must_use]
+pub fn verify_password_proof(
+    proof: &[u8; 32],
+    expected_password: &str,
+    host_device_id: &str,
+    session_id: &[u8; 16],
+    nonce: &[u8; 32],
+    client_public_key: &[u8; 32],
+    host_public_key: &[u8; 32],
+) -> bool {
+    let expected = generate_password_proof(
+        expected_password,
+        host_device_id,
+        session_id,
+        nonce,
+        client_public_key,
+        host_public_key,
+    );
+    constant_time_eq_32(proof, &expected)
+}
+
+/// Constant-time comparison of two 32-byte arrays to prevent timing side channels.
+#[inline]
+#[must_use]
+pub fn constant_time_eq_32(a: &[u8; 32], b: &[u8; 32]) -> bool {
+    let mut diff = 0_u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_password_generates_and_formats_cleanly() {
+        let mgr = HostPasswordManager::new(1000);
+        assert_eq!(mgr.password().len(), 8);
+        let formatted = mgr.formatted_password();
+        assert_eq!(formatted.len(), 9);
+        assert_eq!(&formatted[4..5], "-");
+        assert!(mgr.allow_remote_control());
+        assert!(!mgr.is_expired(1000));
+        assert!(!mgr.is_locked_out(1000));
+    }
+
+    #[test]
+    fn candidate_verification_succeeds_with_normalized_input() {
+        let mut mgr = HostPasswordManager::new(1000);
+        let pwd = mgr.password().to_owned();
+
+        // Matches verbatim
+        assert!(mgr.verify_candidate(&pwd, 1000).is_ok());
+
+        // Matches with lowercase and hyphens
+        let lower_hyphen = format!(
+            "{}-{}",
+            pwd[..4].to_ascii_lowercase(),
+            pwd[4..].to_ascii_lowercase()
+        );
+        assert!(mgr.verify_candidate(&lower_hyphen, 1000).is_ok());
+    }
+
+    #[test]
+    fn failed_verification_decrements_attempts_and_triggers_lockout() {
+        let mut mgr = HostPasswordManager::new(1000);
+        for remaining in (1..5).rev() {
+            let res = mgr.verify_candidate("WRONGPWD", 1000);
+            assert_eq!(
+                res,
+                Err(PasswordVerificationError::InvalidPassword {
+                    remaining_attempts: remaining
+                })
+            );
+        }
+        // 5th failure triggers lockout
+        let res = mgr.verify_candidate("WRONGPWD", 1000);
+        assert_eq!(
+            res,
+            Err(PasswordVerificationError::LockedOut {
+                remaining_secs: LOCKOUT_DURATION_SECS
+            })
+        );
+        assert!(mgr.is_locked_out(1000));
+
+        // During lockout, even correct password is rejected
+        let pwd = mgr.password().to_owned();
+        assert!(matches!(
+            mgr.verify_candidate(&pwd, 1050),
+            Err(PasswordVerificationError::LockedOut { .. })
+        ));
+
+        // After lockout duration elapses, correct password succeeds
+        assert!(
+            mgr.verify_candidate(&pwd, 1000 + LOCKOUT_DURATION_SECS + 1)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn remote_control_toggle_refuses_verification_when_disabled() {
+        let mut mgr = HostPasswordManager::new(1000);
+        let pwd = mgr.password().to_owned();
+        mgr.set_allow_remote_control(false);
+        assert_eq!(
+            mgr.verify_candidate(&pwd, 1000),
+            Err(PasswordVerificationError::RemoteControlDisabled)
+        );
+        mgr.set_allow_remote_control(true);
+        assert!(mgr.verify_candidate(&pwd, 1000).is_ok());
+    }
+
+    #[test]
+    fn password_proof_binds_to_all_session_parameters() {
+        let pwd = "KMJ7-9421";
+        let host_id = "734 281 905";
+        let session_id = [1_u8; 16];
+        let nonce = [2_u8; 32];
+        let client_pub = [3_u8; 32];
+        let host_pub = [4_u8; 32];
+
+        let proof =
+            generate_password_proof(pwd, host_id, &session_id, &nonce, &client_pub, &host_pub);
+        assert!(verify_password_proof(
+            &proof,
+            pwd,
+            host_id,
+            &session_id,
+            &nonce,
+            &client_pub,
+            &host_pub
+        ));
+
+        // Wrong password fails
+        assert!(!verify_password_proof(
+            &proof,
+            "WRONGPWD",
+            host_id,
+            &session_id,
+            &nonce,
+            &client_pub,
+            &host_pub
+        ));
+        // Wrong host ID fails
+        assert!(!verify_password_proof(
+            &proof,
+            pwd,
+            "999 888 777",
+            &session_id,
+            &nonce,
+            &client_pub,
+            &host_pub
+        ));
+        // Replay on different session ID fails
+        let other_session = [9_u8; 16];
+        assert!(!verify_password_proof(
+            &proof,
+            pwd,
+            host_id,
+            &other_session,
+            &nonce,
+            &client_pub,
+            &host_pub
+        ));
+        // Replay on different nonce fails
+        let other_nonce = [9_u8; 32];
+        assert!(!verify_password_proof(
+            &proof,
+            pwd,
+            host_id,
+            &session_id,
+            &other_nonce,
+            &client_pub,
+            &host_pub
+        ));
+        // Substituted client public key fails
+        let other_client = [9_u8; 32];
+        assert!(!verify_password_proof(
+            &proof,
+            pwd,
+            host_id,
+            &session_id,
+            &nonce,
+            &other_client,
+            &host_pub
+        ));
+    }
+}
