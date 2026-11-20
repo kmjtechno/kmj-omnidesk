@@ -42,6 +42,54 @@ fn native_ui_font() -> Option<&'static FontArc> {
     .as_ref()
 }
 
+/// The owner-approved 1672x941 screenshot is stored verbatim in Git. Only
+/// its decorative hero artwork is cropped into the native UI: the screenshot's
+/// synthetic license, passwords, device names and health values are NEVER
+/// displayed as runtime values.
+fn approved_v7_hero_art() -> Option<&'static (usize, usize, Vec<u8>)> {
+    static ART: OnceLock<Option<(usize, usize, Vec<u8>)>> = OnceLock::new();
+    ART.get_or_init(|| {
+        let master = image::load_from_memory(include_bytes!(
+            "../../../docs/design/references/omnidesk-v7-approved-master.png"
+        ))
+        .ok()?;
+        if master.width() != 1672 || master.height() != 941 {
+            return None;
+        }
+        let crop = master.crop_imm(640, 71, 630, 170).into_rgba8();
+        let (width, height) = crop.dimensions();
+        Some((
+            usize::try_from(width).ok()?,
+            usize::try_from(height).ok()?,
+            crop.into_raw(),
+        ))
+    })
+    .as_ref()
+}
+
+/// This source rectangle contains only the approved decorative lower-left
+/// red light waves, not nav labels or sample product data.
+fn approved_v7_sidebar_wave_art() -> Option<&'static (usize, usize, Vec<u8>)> {
+    static ART: OnceLock<Option<(usize, usize, Vec<u8>)>> = OnceLock::new();
+    ART.get_or_init(|| {
+        let master = image::load_from_memory(include_bytes!(
+            "../../../docs/design/references/omnidesk-v7-approved-master.png"
+        ))
+        .ok()?;
+        if master.width() != 1672 || master.height() != 941 {
+            return None;
+        }
+        let crop = master.crop_imm(0, 700, 258, 185).into_rgba8();
+        let (width, height) = crop.dimensions();
+        Some((
+            usize::try_from(width).ok()?,
+            usize::try_from(height).ok()?,
+            crop.into_raw(),
+        ))
+    })
+    .as_ref()
+}
+
 const fn native_text_size(scale: usize) -> f32 {
     match scale {
         0 | 1 => 17.0,
@@ -2139,7 +2187,15 @@ fn draw_premium_dashboard(
     let nav = layout.navigation;
     canvas.fill_rect(nav.x, nav.y, nav.width, nav.height, p.surface);
     canvas.fill_rect(nav.width.saturating_sub(1), nav.y, 1, nav.height, p.border);
-    draw_premium_sidebar_wave(canvas, nav);
+    if let Some((source_width, source_height, rgba)) = approved_v7_sidebar_wave_art() {
+        canvas.image_rgba(
+            (nav.x, nav.y + nav.height.saturating_sub(185), nav.width, 185),
+            (*source_width, *source_height),
+            rgba,
+        );
+    } else {
+        draw_premium_sidebar_wave(canvas, nav);
+    }
     let nav_labels = [
         "Dashboard",
         "Remote Access",
@@ -2261,33 +2317,21 @@ fn draw_premium_dashboard(
         0xc5_cb_d8,
     );
 
-    // Red orbital globe background + 3D monitor outline
-    let globe_x = hero.x + hero.width.saturating_sub(190);
-    let globe_y = hero.y + 78;
-    premium_orbit(canvas, globe_x, globe_y, 130, 56, 0xa7_1b_46);
-    premium_orbit(canvas, globe_x, globe_y, 65, 56, 0x5d_27_48);
-    premium_orbit(canvas, globe_x, globe_y, 130, 26, 0xcb_1b_4c);
-    premium_orbit(canvas, globe_x, globe_y, 150, 33, p.accent);
-    for (dx, dy) in [(-70_i32, -30_i32), (32, -44), (95, -10), (-25, 40)] {
-        let px = i32::try_from(globe_x)
-            .unwrap_or(i32::MAX)
-            .saturating_add(dx);
-        let py = i32::try_from(globe_y)
-            .unwrap_or(i32::MAX)
-            .saturating_add(dy);
-        if let (Ok(x), Ok(y)) = (usize::try_from(px), usize::try_from(py)) {
-            canvas.dot(x, y, 3, p.accent);
-        }
+    // Exact crop from the owner-locked reference. No duplicate company
+    // wordmark or fake connection art may be composited into this region.
+    if let Some((source_width, source_height, rgba)) = approved_v7_hero_art() {
+        let display_width = hero.width.min(635);
+        canvas.image_rgba(
+            (
+                hero.x + hero.width.saturating_sub(display_width + 10),
+                hero.y + 1,
+                display_width,
+                hero.height.saturating_sub(3),
+            ),
+            (*source_width, *source_height),
+            rgba,
+        );
     }
-    // Monitor and Laptop wireframes in hero
-    let mon_x = hero.x + hero.width.saturating_sub(140);
-    let mon_y = hero.y + 30;
-    canvas.rounded_panel(mon_x, mon_y, 90, 56, 6, 0x14_17_24, 0xf7_19_3b);
-    draw_monitor_icon(canvas, mon_x + 36, mon_y + 18, 18, 13, 0xf7_19_3b);
-    let lap_x = mon_x.saturating_sub(55);
-    let lap_y = mon_y + 22;
-    canvas.rounded_panel(lap_x, lap_y, 65, 42, 4, 0x11_15_20, 0xd0_18_38);
-    draw_monitor_icon(canvas, lap_x + 24, lap_y + 12, 14, 10, 0xd0_18_38);
 
     // 4. Two Primary Cards: "This Device" and "Connect to Remote Device"
     let share = layout.share;
