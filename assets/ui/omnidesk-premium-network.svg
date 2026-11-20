@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="315" viewBox="0 0 1080 315" role="img" aria-labelledby="title desc">
+<title id="title">OmniDesk decorative global network</title>
+<desc id="desc">Abstract red illuminated globe, connectivity arcs and remote desktop silhouettes; decorative product art, not live connectivity status.</desc>
+<defs>
+  <radialGradient id="halo"><stop offset="0" stop-color="#ff1842" stop-opacity=".39"/><stop offset=".52" stop-color="#b51134" stop-opacity=".12"/><stop offset="1" stop-color="#0a0b16" stop-opacity="0"/></radialGradient>
+  <linearGradient id="orbit" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fa2147" stop-opacity=".08"/><stop offset=".5" stop-color="#ff2e59"/><stop offset="1" stop-color="#e8073c" stop-opacity=".1"/></linearGradient>
+  <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fa1641"/><stop offset="1" stop-color="#803351"/></linearGradient>
+  <pattern id="dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r=".8" fill="#f62958" opacity=".58"/></pattern>
+  <filter id="softGlow" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="5"/></filter>
+  <filter id="dotGlow" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="3"/></filter>
+  <clipPath id="globeClip"><ellipse cx="548" cy="157" rx="216" ry="134"/></clipPath>
+</defs>
+<ellipse cx="565" cy="166" rx="418" ry="196" fill="url(#halo)"/>
+<g opacity=".9">
+  <ellipse cx="548" cy="157" rx="216" ry="134" fill="#0c101b" stroke="#e81c45" stroke-width="1.4"/>
+  <g clip-path="url(#globeClip)">
+    <rect x="327" y="20" width="448" height="274" fill="url(#dots)" opacity=".65"/>
+    <g fill="none" stroke="#f0264a" stroke-opacity=".36" stroke-width=".85">
+      <ellipse cx="548" cy="157" rx="66" ry="134"/><ellipse cx="548" cy="157" rx="147" ry="134"/>
+      <path d="M331 157H767M340 100Q548 125 757 100M340 214Q548 189 757 214"/>
+      <ellipse cx="548" cy="157" rx="216" ry="38"/><ellipse cx="548" cy="157" rx="216" ry="92"/>
+    </g>
+    <path d="M404 96q28-24 67-20l24 16-7 20 30 13-11 24-34 8-25 48-29-19-13-34-28-16zm173-20 27 10 7 32 26-10 38 24-6 26-23 12-17 43-31-11-17-47-31-20zM487 209l28-8 23 19-5 39-37 12-21-24z" fill="#c02046" fill-opacity=".28" stroke="#f32c54" stroke-opacity=".23"/>
+  </g>
+</g>
+<g fill="none" stroke="url(#orbit)">
+  <path d="M280 207 Q420 4 698 66 Q790 90 853 138" stroke-width="2"/>
+  <path d="M305 267 Q477 85 756 142 Q814 153 888 205" stroke-width="1.2"/>
+  <path d="M360 82 Q588 250 765 58" stroke-width="1" opacity=".65"/>
+  <path d="M255 142 Q580 318 899 127" stroke-width="1" opacity=".65"/>
+</g>
+<g fill="#ff254e">
+  <circle cx="396" cy="77" r="4"/><circle cx="582" cy="43" r="3.5"/><circle cx="746" cy="90" r="4"/>
+  <circle cx="674" cy="189" r="3.5"/><circle cx="464" cy="244" r="3.5"/><circle cx="862" cy="165" r="3"/>
+</g>
+<g fill="#ff2250" opacity=".5" filter="url(#dotGlow)">
+  <circle cx="396" cy="77" r="9"/><circle cx="582" cy="43" r="9"/><circle cx="746" cy="90" r="9"/>
+  <circle cx="674" cy="189" r="8"/><circle cx="464" cy="244" r="8"/><circle cx="862" cy="165" r="7"/>
+</g>
+<g transform="translate(820 85)">
+  <rect x="-5" y="-5" width="183" height="119" rx="9" fill="#d81d4b" opacity=".2" filter="url(#softGlow)"/>
+  <rect x="0" y="0" width="179" height="110" rx="7" fill="#090e18" stroke="url(#edge)" stroke-width="3"/>
+  <rect x="9" y="9" width="161" height="89" rx="3" fill="#0d0d1d"/>
+  <path d="M9 98Q80 68 170 90" fill="none" stroke="#d21a4d" stroke-opacity=".55" stroke-width="2"/>
+  <path d="M89 111v19m-32 4h65" stroke="#7e8294" stroke-width="4" stroke-linecap="round"/>
+</g>
+<g transform="translate(698 190)">
+  <rect x="0" y="0" width="142" height="86" rx="6" fill="#0d111d" stroke="#fd2c54" stroke-width="3"/>
+  <path d="M12 71q54-51 118 0" fill="none" stroke="#e81845" stroke-opacity=".6"/>
+  <path d="M-9 94h162l-17 10H7z" fill="#3c3847" stroke="#fd2c54" stroke-width="1"/>
+</g>
+</svg>
