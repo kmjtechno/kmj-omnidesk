@@ -1758,25 +1758,82 @@ fn premium_panel(
     p: Palette,
     accent: bool,
 ) {
+    if rect.width < 12 || rect.height < 12 {
+        return;
+    }
+    // Soft ambient layers are rendered behind the card, never inside it.
+    // These subdued tones reproduce the depth of the owner-approved V7 UI
+    // without treating red as a generic control border.
+    for (offset, glow) in [
+        (5_usize, 0x1d_0c_19),
+        (3, 0x27_0e_20),
+        (1, if accent { 0x43_0e_24 } else { 0x20_1a_29 }),
+    ] {
+        canvas.rounded_panel(
+            rect.x + offset,
+            rect.y + offset,
+            rect.width.saturating_sub(offset),
+            rect.height.saturating_sub(offset),
+            12,
+            glow,
+            glow,
+        );
+    }
     canvas.rounded_panel(
         rect.x,
         rect.y,
         rect.width,
         rect.height,
-        10,
+        12,
         0x14_17_24,
-        if accent { 0x9e_19_35 } else { p.border },
+        if accent { 0x80_20_39 } else { p.border },
     );
-    if accent {
-        canvas.rounded_panel(
-            rect.x + 1,
-            rect.y + 1,
-            rect.width.saturating_sub(2),
-            rect.height.saturating_sub(2),
-            9,
-            0x14_17_24,
-            0x5a_14_25,
-        );
+    // Restrained luminous top lip, leaving the corners clean.
+    canvas.h_line(
+        rect.x + 17,
+        rect.y + 1,
+        rect.width.saturating_sub(34),
+        if accent { 0x70_24_43 } else { 0x31_31_45 },
+    );
+}
+
+/// Decorative red light-trail art following the approved sidebar's lower
+/// gradient composition. It is visual decoration, never a connection indicator.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::suboptimal_flops
+)]
+fn draw_premium_sidebar_wave(canvas: &mut Canvas<'_>, nav: crate::layout::DashboardRect) {
+    if nav.width < 20 || nav.height < 220 {
+        return;
+    }
+    let bottom = nav.y + nav.height;
+    let wave_top = bottom.saturating_sub(185);
+    let width = nav.width.saturating_sub(2);
+    for trail in 0..10 {
+        let trail_offset = trail as f32 * 6.5;
+        for x in 0..width {
+            let progress = x as f32 / width as f32;
+            let swell = (progress * 3.7 + trail as f32 * 0.16).sin();
+            let y_local = 90.0 - 58.0 * progress + swell * (17.0 + trail_offset * 0.2)
+                + trail_offset;
+            if y_local.is_sign_negative() {
+                continue;
+            }
+            let y = wave_top.saturating_add(y_local as usize);
+            if y >= nav.y && y < bottom && y < canvas.height {
+                let color = if trail < 3 {
+                    0x9f_13_33
+                } else if trail < 6 {
+                    0x5f_11_2e
+                } else {
+                    0x35_11_26
+                };
+                canvas.fill_rect(nav.x + x, y, 1, 1, color);
+            }
+        }
     }
 }
 
@@ -2121,6 +2178,7 @@ fn draw_premium_dashboard(
     let nav = layout.navigation;
     canvas.fill_rect(nav.x, nav.y, nav.width, nav.height, p.surface);
     canvas.fill_rect(nav.width.saturating_sub(1), nav.y, 1, nav.height, p.border);
+    draw_premium_sidebar_wave(canvas, nav);
     let nav_labels = [
         "Dashboard",
         "Remote Access",
