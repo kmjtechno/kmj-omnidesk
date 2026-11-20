@@ -451,6 +451,31 @@ impl PremiumDashboardLayout {
     }
 }
 
+#[cfg(test)]
+mod premium_v7_tests {
+    use super::*;
+
+    #[test]
+    fn owner_artboard_geometry_is_nonoverlapping() {
+        let premium = PremiumDashboardLayout::for_window(1672, 941).expect("V7 desktop");
+        assert_eq!(premium.header_height, 70);
+        assert_eq!(premium.hero.y, 81);
+        assert!(premium.navigation.width < premium.hero.x);
+        assert_eq!(premium.share.y, premium.connect.y);
+        assert!(premium.share.x + premium.share.width < premium.connect.x);
+        assert!(premium.connect.x + premium.connect.width < premium.license.x);
+        assert!(premium.hero.y + premium.hero.height < premium.share.y);
+        assert!(premium.share.y + premium.share.height < premium.features.y);
+        assert!(premium.features.y + premium.features.height < premium.devices.y);
+        assert!(premium.devices.y + premium.devices.height < premium.footer.y);
+        assert!(premium.local_id_copy().contains(
+            premium.local_id_copy().x + 12,
+            premium.local_id_copy().y + 12,
+        ));
+        assert!(PremiumDashboardLayout::for_window(1280, 720).is_none());
+    }
+}
+
 /// Canonical 1419x611 user-approved visual reference:
 /// nav | devices | remote workspace | status inspector.
 ///
