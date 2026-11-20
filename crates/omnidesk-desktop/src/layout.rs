@@ -332,20 +332,23 @@ pub struct PremiumDashboardLayout {
 impl PremiumDashboardLayout {
     #[must_use]
     pub fn for_window(width: usize, height: usize) -> Option<Self> {
-        if width < 1400 || height < 800 {
+        // The approved source is a 1672x941 artboard. Use the legacy
+        // responsive layout when there is insufficient usable space.
+        if width < 1500 || height < 860 {
             return None;
         }
-        let navigation_width = (width * 15 / 100).clamp(232, 260);
-        let right_width = 325;
-        let side_gap = 16;
-        let main_x = navigation_width + 18;
-        let right_x = width.saturating_sub(right_width + 17);
-        let main_width = right_x.saturating_sub(main_x + side_gap);
-        if main_width < 800 {
+        let navigation_width = (width * 16 / 100).clamp(240, 260);
+        let right_width = (width * 21 / 100).clamp(315, 348);
+        let right_margin = (width / 42).clamp(28, 40);
+        let main_x = navigation_width + 20;
+        let right_x = width.saturating_sub(right_width + right_margin);
+        let main_width = right_x.saturating_sub(main_x + 16);
+        if main_width < 840 {
             return None;
         }
-        let main_half = (main_width.saturating_sub(16)) / 2;
-        let lower_height = height.saturating_sub(649 + 55);
+        let main_half = main_width.saturating_sub(16) / 2;
+        let footer_y = height.saturating_sub(79);
+        let lower_height = footer_y.saturating_sub(649 + 17);
         let rect = |x, y, width, height| DashboardRect {
             x,
             y,
@@ -354,16 +357,16 @@ impl PremiumDashboardLayout {
         };
         Some(Self {
             header_height: 70,
-            navigation: rect(0, 70, navigation_width, height.saturating_sub(115)),
-            hero: rect(main_x, 81, main_width, 162),
-            share: rect(main_x, 255, main_half, 267),
+            navigation: rect(0, 70, navigation_width, height.saturating_sub(70)),
+            hero: rect(main_x, 76, main_width, 168),
+            share: rect(main_x, 249, main_half, 266),
             connect: rect(
                 main_x + main_half + 16,
-                255,
+                249,
                 main_width.saturating_sub(main_half + 16),
-                267,
+                266,
             ),
-            features: rect(main_x, 535, main_width, 101),
+            features: rect(main_x, 533, main_width, 98),
             devices: rect(main_x, 649, main_half, lower_height),
             sessions: rect(
                 main_x + main_half + 16,
@@ -371,14 +374,14 @@ impl PremiumDashboardLayout {
                 main_width.saturating_sub(main_half + 16),
                 lower_height,
             ),
-            license: rect(right_x, 91, right_width, 223),
-            health: rect(right_x, 330, right_width, 196),
-            quick_actions: rect(right_x, 539, right_width, height.saturating_sub(539 + 55)),
+            license: rect(right_x, 101, right_width, 204),
+            health: rect(right_x, 321, right_width, 194),
+            quick_actions: rect(right_x, 533, right_width, footer_y.saturating_sub(533 + 18)),
             footer: rect(
                 navigation_width,
-                height.saturating_sub(45),
+                footer_y,
                 width.saturating_sub(navigation_width),
-                45,
+                56,
             ),
         })
     }
@@ -396,20 +399,20 @@ impl PremiumDashboardLayout {
     #[must_use]
     pub const fn local_id_copy(&self) -> DashboardRect {
         DashboardRect {
-            x: self.share.x + self.share.width - 88,
-            y: self.share.y + 91,
-            width: 66,
-            height: 38,
+            x: self.share.x + self.share.width - 61,
+            y: self.share.y + 94,
+            width: 34,
+            height: 30,
         }
     }
 
     #[must_use]
     pub const fn remote_id_input(&self) -> DashboardRect {
         DashboardRect {
-            x: self.connect.x + 19,
-            y: self.connect.y + 91,
-            width: self.connect.width.saturating_sub(38),
-            height: 38,
+            x: self.connect.x + 20,
+            y: self.connect.y + 88,
+            width: self.connect.width.saturating_sub(40),
+            height: 42,
         }
     }
 
@@ -437,9 +440,9 @@ impl PremiumDashboardLayout {
     pub const fn permission_button(&self, index: usize) -> DashboardRect {
         DashboardRect {
             x: self.share.x + 19 + index.saturating_mul(136),
-            y: self.share.y + 211,
+            y: self.share.y + 225,
             width: 123,
-            height: 37,
+            height: 33,
         }
     }
 
@@ -464,7 +467,7 @@ mod premium_v7_tests {
     fn owner_artboard_geometry_is_nonoverlapping() {
         let premium = PremiumDashboardLayout::for_window(1672, 941).expect("V7 desktop");
         assert_eq!(premium.header_height, 70);
-        assert_eq!(premium.hero.y, 81);
+        assert_eq!(premium.hero.y, 76);
         assert!(premium.navigation.width < premium.hero.x);
         assert_eq!(premium.share.y, premium.connect.y);
         assert!(premium.share.x + premium.share.width < premium.connect.x);
