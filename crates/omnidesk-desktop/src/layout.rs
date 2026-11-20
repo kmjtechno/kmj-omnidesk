@@ -804,12 +804,15 @@ mod locked_dashboard_tests {
         assert_eq!(LockedDashboardLayout::max_scroll_y(920), 395);
         assert_eq!(LockedDashboardLayout::max_scroll_y(1315), 0);
         assert_eq!(LockedDashboardLayout::max_scroll_y(0), 1240);
-        for height in [600, 611, 768, 777, 920, 1080, 1315] {
+        for height in [600_usize, 611, 768, 777, 920, 1080, 1315] {
             let viewer_height = height.saturating_sub(75);
             let scroll = LockedDashboardLayout::max_scroll_y(height);
             assert!(scroll <= LockedDashboardLayout::CONTENT_HEIGHT);
             if viewer_height <= LockedDashboardLayout::CONTENT_HEIGHT {
-                assert_eq!(scroll + viewer_height, LockedDashboardLayout::CONTENT_HEIGHT);
+                assert_eq!(
+                    scroll + viewer_height,
+                    LockedDashboardLayout::CONTENT_HEIGHT
+                );
             }
         }
     }
