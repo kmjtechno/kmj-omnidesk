@@ -53,34 +53,35 @@ fn feather_decorative_edges(
     top: usize,
     bottom: usize,
 ) {
-    if width == 0
-        || height == 0
-        || rgba.len() != width.saturating_mul(height).saturating_mul(4)
-    {
+    if width == 0 || height == 0 || rgba.len() != width.saturating_mul(height).saturating_mul(4) {
         return;
     }
     for y in 0..height {
-        let top_alpha = if top == 0 { 255 } else { y.min(top) * 255 / top };
+        let top_alpha = if top == 0 {
+            255
+        } else {
+            y.min(top) * 255 / top
+        };
         let bottom_alpha = if bottom == 0 {
             255
         } else {
             height.saturating_sub(y + 1).min(bottom) * 255 / bottom
         };
         for x in 0..width {
-            let left_alpha = if left == 0 { 255 } else { x.min(left) * 255 / left };
+            let left_alpha = if left == 0 {
+                255
+            } else {
+                x.min(left) * 255 / left
+            };
             let right_alpha = if right == 0 {
                 255
             } else {
                 width.saturating_sub(x + 1).min(right) * 255 / right
             };
-            let edge_alpha = left_alpha
-                .min(right_alpha)
-                .min(top_alpha)
-                .min(bottom_alpha);
+            let edge_alpha = left_alpha.min(right_alpha).min(top_alpha).min(bottom_alpha);
             let index = (y * width + x) * 4 + 3;
             let original = usize::from(rgba[index]);
-            rgba[index] =
-                u8::try_from((original * edge_alpha + 127) / 255).unwrap_or(u8::MAX);
+            rgba[index] = u8::try_from((original * edge_alpha + 127) / 255).unwrap_or(u8::MAX);
         }
     }
 }
