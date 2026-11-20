@@ -2374,7 +2374,7 @@ fn draw_premium_dashboard(
         0x28_38_4a,
     );
     let local_id_formatted = if presentation.local_device_id.is_empty() {
-        "734 281 905"
+        "Not initialized"
     } else {
         &presentation.local_device_id
     };
@@ -2405,11 +2405,14 @@ fn draw_premium_dashboard(
         0x0b_12_19,
         0x28_38_4a,
     );
-    for dot_i in 0..8 {
-        canvas.dot(share.x + 36 + dot_i * 12, share.y + 181, 3, p.foreground);
-    }
-    draw_eye_icon(canvas, share.x + id_box_w - 46, share.y + 175, 0xcb_d2_df);
-    draw_refresh_icon(canvas, share.x + id_box_w - 20, share.y + 175, 0xcb_d2_df);
+    canvas.text_clipped(
+        share.x + 34,
+        share.y + 174,
+        "Password not configured",
+        1,
+        id_box_w.saturating_sub(46),
+        p.muted,
+    );
 
     // Toggle switch: Allow remote control
     canvas.rounded_panel(
@@ -2418,10 +2421,10 @@ fn draw_premium_dashboard(
         38,
         20,
         10,
-        0xed_12_36,
-        0xf0_40_55,
+        0x32_37_47,
+        0x54_58_67,
     );
-    canvas.dot(share.x + 48, share.y + 228, 7, p.foreground);
+    canvas.dot(share.x + 30, share.y + 228, 7, p.muted);
     canvas.text(
         share.x + 68,
         share.y + 216,
@@ -2432,7 +2435,7 @@ fn draw_premium_dashboard(
     canvas.text_clipped(
         share.x + 68,
         share.y + 234,
-        "Others can control this device with the ID and password.",
+        "Unavailable until secure host password setup is implemented.",
         1,
         share.width.saturating_sub(78),
         0x90_9a_ac,
@@ -2530,7 +2533,7 @@ fn draw_premium_dashboard(
     canvas.text_clipped(
         connect.x + 32,
         connect.y + 174,
-        "Enter session password",
+        "Password authentication is not implemented",
         1,
         connect_box_w.saturating_sub(40),
         0x72_7d_8e,
@@ -2544,14 +2547,14 @@ fn draw_premium_dashboard(
 
     // Full-Width CTA Connect Button
     let _btn_rect = layout.remote_connect_button();
-    canvas.rounded_gradient_panel(
+    canvas.rounded_panel(
         connect.x + 20,
         connect.y + 215,
         connect_box_w,
         42,
-        0xed_18_3b,
-        0xb0_0c_27,
-        0xf5_33_55,
+        8,
+        0x51_20_34,
+        0x70_37_49,
     );
     canvas.h_line(
         connect.x + connect_box_w / 2 - 70,
@@ -2568,7 +2571,7 @@ fn draw_premium_dashboard(
     canvas.text(
         connect.x + connect_box_w / 2 - 48,
         connect.y + 229,
-        "Connect Securely",
+        "Password Connect Unavailable",
         1,
         p.foreground,
     );
@@ -2576,13 +2579,13 @@ fn draw_premium_dashboard(
     // 5. Seven Capability Action Tiles
     let feature = layout.features;
     let tiles = [
-        ("Remote Control", "Full device access"),
-        ("File Transfer", "Send & receive files"),
-        ("Multi-Monitor", "View multiple displays"),
-        ("Audio & Voice", "Remote audio & call"),
-        ("Clipboard Sync", "Copy & paste securely"),
-        ("Session Record", "Record & replay"),
-        ("Unattended Access", "Always available"),
+        ("Remote Control", "Peer authorization required"),
+        ("File Transfer", "Permission gated"),
+        ("Multi-Monitor", "Requires live session"),
+        ("Audio & Voice", "Requires live session"),
+        ("Clipboard Sync", "Permission gated"),
+        ("Session Record", "Unavailable"),
+        ("Unattended Access", "Not enabled"),
     ];
     let tile_width = feature.width / tiles.len();
     for (i, (title, subtitle)) in tiles.iter().enumerate() {
