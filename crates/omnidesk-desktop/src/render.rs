@@ -2215,7 +2215,7 @@ fn draw_premium_dashboard(
         nav.x + 20,
         nav.y + nav.height.saturating_sub(25),
         nav.width.saturating_sub(40),
-        "v1.0.0 (Enterprise)",
+        "OmniDesk  /  PRE-ALPHA",
         0x78_82_94,
     );
 
@@ -2727,133 +2727,103 @@ fn draw_premium_dashboard(
         premium_panel(canvas, rect, p, false);
     }
 
-    // Enterprise License
+    // Enterprise license: never render the approved screenshot's sample
+    // seat counts, entitlement dates, or activation status as live values.
     draw_award_icon(canvas, license.x + 18, license.y + 20, 0xf5_a6_23);
-    canvas.text(
-        license.x + 42,
-        license.y + 18,
-        "Enterprise License",
-        1,
-        p.foreground,
-    );
+    canvas.text(license.x + 42, license.y + 18, "Enterprise License", 1, p.foreground);
     canvas.rounded_panel(
-        license.x + license.width.saturating_sub(58),
+        license.x + license.width.saturating_sub(96),
         license.y + 18,
-        44,
-        20,
-        4,
-        0x16_38_2a,
-        0x26_8c_55,
+        82,
+        22,
+        5,
+        0x28_2b_3a,
+        0x52_56_6a,
     );
     canvas.text(
-        license.x + license.width.saturating_sub(52),
+        license.x + license.width.saturating_sub(88),
         license.y + 21,
-        "Active",
+        "Unverified",
         1,
-        0x36_d9_80,
+        p.muted,
     );
     canvas.text_clipped(
         license.x + 42,
-        license.y + 36,
-        "KMJ OmniDesk Enterprise",
+        license.y + 40,
+        "KMJ Main Platform verification required",
         1,
-        license.width.saturating_sub(50),
-        0x85_8f_a1,
+        license.width.saturating_sub(54),
+        p.muted,
     );
-
-    canvas.text(license.x + 18, license.y + 72, "Seats", 1, 0xd0_d6_e3);
-    canvas.text(
-        license.x + license.width.saturating_sub(92),
-        license.y + 72,
-        "250 / 1,000",
+    canvas.text(license.x + 18, license.y + 83, "Seats", 1, p.foreground);
+    canvas.text_right(
+        license.x + license.width - 18,
+        license.y + 83,
+        "Unavailable",
         1,
-        p.foreground,
+        p.muted,
     );
-    // Progress bar
-    let prog_w = license.width.saturating_sub(36);
     canvas.rounded_panel(
         license.x + 18,
-        license.y + 92,
-        prog_w,
+        license.y + 107,
+        license.width - 36,
         8,
         4,
-        0x001b_2232,
-        0x2a_36_4c,
+        p.border,
+        p.border,
     );
-    canvas.fill_rect(license.x + 18, license.y + 92, prog_w / 4, 8, 0x00_e5_a3);
-
-    canvas.text(
-        license.x + 18,
-        license.y + 120,
-        "Valid until",
+    canvas.text(license.x + 18, license.y + 132, "Valid until", 1, p.foreground);
+    canvas.text_right(
+        license.x + license.width - 18,
+        license.y + 132,
+        "Not verified",
         1,
-        0xd0_d6_e3,
+        p.muted,
     );
-    canvas.text(
-        license.x + license.width.saturating_sub(96),
-        license.y + 120,
-        "Dec 31, 2026",
-        1,
-        p.foreground,
-    );
-
     canvas.rounded_panel(
         license.x + 18,
-        license.y + 154,
-        prog_w,
-        36,
+        license.y + 160,
+        license.width - 36,
+        35,
         6,
-        0x18_1c_2b,
-        0x34_3c_52,
+        0x17_1b_2a,
+        p.border,
     );
     canvas.text(
-        license.x + prog_w / 2 - 34,
-        license.y + 164,
-        "Manage License →",
+        license.x + 40,
+        license.y + 170,
+        "Manage License / Unavailable",
         1,
-        p.foreground,
+        p.muted,
     );
 
-    // System Status
-    draw_heartbeat_icon(canvas, health.x + 18, health.y + 20, 0xf7_19_3b);
-    canvas.text(
-        health.x + 40,
-        health.y + 18,
-        "System Status",
-        1,
-        p.foreground,
-    );
-    canvas.rounded_panel(
-        health.x + health.width.saturating_sub(80),
-        health.y + 18,
-        66,
-        20,
-        4,
-        0x16_38_2a,
-        0x26_8c_55,
-    );
-    canvas.text(
-        health.x + health.width.saturating_sub(74),
-        health.y + 21,
-        "All Healthy",
-        1,
-        0x36_d9_80,
-    );
-
+    // Runtime values are not inferred from a static design screenshot.
+    draw_heartbeat_icon(canvas, health.x + 18, health.y + 20, p.accent);
+    canvas.text(health.x + 40, health.y + 18, "System Status", 1, p.foreground);
     let status_items = [
-        ("OmniDesk Service", "Running"),
-        ("Relay Network", "Connected"),
-        ("Security (E2E Encryption)", "Active"),
-        ("NAT Traversal (P2P)", "Ready"),
+        ("OmniDesk Service", "Unknown"),
+        ("Relay Network", "Not connected"),
+        ("Session Encryption", "No session"),
+        ("NAT Traversal", "Unverified"),
     ];
-    for (i, (item, state)) in status_items.iter().enumerate() {
-        let row_y = health.y + 54 + i * 32;
-        canvas.dot(health.x + 24, row_y + 8, 4, 0x36_d9_80);
-        canvas.text(health.x + 36, row_y + 2, item, 1, 0xd0_d6_e3);
-        let pill_w = 68;
-        let pill_x = health.x + health.width.saturating_sub(pill_w + 14);
-        canvas.rounded_panel(pill_x, row_y, pill_w, 18, 4, 0x16_38_2a, 0x26_8c_55);
-        canvas.text(pill_x + 8, row_y + 2, state, 1, 0x36_d9_80);
+    for (index, (label, value)) in status_items.iter().enumerate() {
+        let y = health.y + 57 + index * 31;
+        canvas.dot(health.x + 22, y + 6, 3, p.muted);
+        canvas.text_clipped(
+            health.x + 33,
+            y,
+            label,
+            1,
+            health.width.saturating_sub(136),
+            0xc9_cf_dc,
+        );
+        canvas.text_right(
+            health.x + health.width - 14,
+            y,
+            value,
+            1,
+            p.muted,
+        );
     }
 
     // Quick Actions
@@ -2901,52 +2871,30 @@ fn draw_premium_dashboard(
     canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x0009_0d16);
     canvas.h_line(footer.x, footer.y, footer.width, 0x22_27_38);
 
-    // Connected to KMJ Cloud Relay (Asia)
-    canvas.dot(footer.x + 22, footer.y + 22, 5, 0x36_d9_80);
+    // Neutral, measured-only footer. Never claim latency, E2E security,
+    // relay health, or a real session without authenticated runtime proof.
+    canvas.dot(footer.x + 23, footer.y + 23, 4, p.muted);
     canvas.text(
         footer.x + 36,
-        footer.y + 16,
-        "Connected to KMJ Cloud Relay (Asia)",
+        footer.y + 17,
+        "No verified remote session",
         1,
-        p.foreground,
+        p.muted,
     );
-    canvas.h_line(footer.x + 265, footer.y + 22, 5, 0x85_8f_a1);
-
-    // End-to-End Encrypted (AES-256)
-    draw_lock_icon(canvas, footer.x + 310, footer.y + 16, 0xa0_ab_bc);
+    draw_lock_icon(canvas, footer.x + 305, footer.y + 16, p.muted);
     canvas.text(
-        footer.x + 328,
-        footer.y + 16,
-        "End-to-End Encrypted (AES-256)",
+        footer.x + 325,
+        footer.y + 17,
+        "Authenticated transport not established",
         1,
-        0xc5_cb_d8,
+        p.muted,
     );
-
-    // Zero-Trust Security
-    draw_shield_icon(canvas, footer.x + 535, footer.y + 16, 0xa0_ab_bc);
-    canvas.text(
-        footer.x + 554,
-        footer.y + 16,
-        "Zero-Trust Security",
+    canvas.text_right(
+        footer.x + footer.width.saturating_sub(18),
+        footer.y + 17,
+        "PRE-ALPHA  |  No live metrics",
         1,
-        0xc5_cb_d8,
-    );
-
-    // Signal bars + 42 ms
-    let ping_x = footer.x + footer.width.saturating_sub(230);
-    draw_signal_bars(canvas, ping_x, footer.y + 16, 0x36_d9_80);
-    canvas.text(ping_x + 16, footer.y + 16, "42 ms", 1, 0x36_d9_80);
-
-    // All Services Operational
-    let all_ops_x = footer.x + footer.width.saturating_sub(150);
-    canvas.rounded_panel(all_ops_x, footer.y + 10, 140, 26, 6, 0x16_38_2a, 0x26_8c_55);
-    draw_cloud_check(canvas, all_ops_x + 8, footer.y + 15, 0x36_d9_80);
-    canvas.text(
-        all_ops_x + 26,
-        footer.y + 16,
-        "All Services Operational",
-        1,
-        0x36_d9_80,
+        p.muted,
     );
 }
 fn draw_locked_dashboard(
