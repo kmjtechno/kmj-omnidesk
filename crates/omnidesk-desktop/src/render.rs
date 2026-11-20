@@ -2120,7 +2120,7 @@ fn draw_premium_dashboard(
     layout: &crate::PremiumDashboardLayout,
     p: Palette,
 ) {
-    use omnidesk_core::product_shell::NavTab;
+    use omnidesk_core::product_shell::{NavTab, PrimaryView};
 
     canvas.pixels.fill(p.background);
 
@@ -2458,31 +2458,44 @@ fn draw_premium_dashboard(
         id_box_w.saturating_sub(54),
         0x9e_a7_b8,
     );
-    canvas.rounded_panel(
-        share.x + 20,
-        share.y + 218,
-        38,
-        20,
-        10,
-        0x41_46_54,
-        0x56_5c_6d,
-    );
-    canvas.dot(share.x + 30, share.y + 228, 7, 0xb1_b8_c5);
-    canvas.text(
-        share.x + 68,
-        share.y + 216,
-        "Allow remote control",
-        1,
-        0xc0_c6_d4,
-    );
-    canvas.text_clipped(
-        share.x + 68,
-        share.y + 234,
-        "Unavailable until secure host password is implemented",
-        1,
-        share.width.saturating_sub(78),
-        0x8a_95_a6,
-    );
+    // Local permission is distinct from the unavailable temporary-password
+    // sharing flow. Present authenticated-session controls only when the real
+    // ProductShell is in its explicit authorization state.
+    if presentation.primary_view == PrimaryView::PermissionPrompt {
+        canvas.text_clipped(
+            share.x + 20, share.y + 204,
+            "Incoming permission request — verify the peer",
+            1, share.width.saturating_sub(42), p.foreground,
+        );
+        for (i, control) in presentation.controls.iter().take(2).enumerate() {
+            let button = layout.permission_button(i);
+            canvas.rounded_gradient_panel(
+                button.x, button.y, button.width, button.height,
+                if i == 0 { 0xdb_1b_40 } else { 0x30_34_43 },
+                if i == 0 { 0x8c_12_2b } else { 0x22_25_35 },
+                if i == 0 { p.accent } else { p.border },
+            );
+            canvas.text_clipped(
+                button.x + 13, button.y + 10,
+                &control.label, 5, button.width.saturating_sub(25), p.foreground,
+            );
+        }
+    } else {
+        canvas.rounded_panel(
+            share.x + 20, share.y + 218,
+            38, 20, 10, 0x41_46_54, 0x56_5c_6d,
+        );
+        canvas.dot(share.x + 30, share.y + 228, 7, 0xb1_b8_c5);
+        canvas.text(
+            share.x + 68, share.y + 216,
+            "Allow remote control", 1, 0xc0_c6_d4,
+        );
+        canvas.text_clipped(
+            share.x + 68, share.y + 234,
+            "Unavailable until secure host password is implemented",
+            1, share.width.saturating_sub(78), 0x8a_95_a6,
+        );
+    }
 
     // Card 2: Connect to Remote Device
     canvas.rounded_panel(
@@ -2609,6 +2622,25 @@ fn draw_premium_dashboard(
         0xd1_c6_ce,
     );
 
+    // 5. Feature tiles in the disconnected state. Once the product shell
+    // reaches Session, the same hit-test rectangles render real session
+    // controls (quality presets and disconnect), never invisible hotspots.
+    if presentation.primary_view == PrimaryView::Session {
+        let count = presentation.controls.len();
+        for (i, control) in presentation.controls.iter().enumerate() {
+            let rect = layout.session_button(i, count);
+            canvas.rounded_gradient_panel(
+                rect.x, rect.y, rect.width, rect.height,
+                if i + 1 == count { 0x77_1b_35 } else { 0x20_24_32 },
+                0x13_17_24,
+                if i + 1 == count { p.accent } else { p.border },
+            );
+            canvas.text_clipped(
+                rect.x + 15, rect.y + 28, &control.label, 1,
+                rect.width.saturating_sub(30), p.foreground,
+            );
+        }
+    } else {
     // 5. Seven Capability Action Tiles
     let feature = layout.features;
     let tiles = [
@@ -2674,6 +2706,8 @@ fn draw_premium_dashboard(
             rect.width.saturating_sub(16),
             0x85_8f_a1,
         );
+    }
+
     }
 
     // 6. Lower Cards: My Devices and Recent Sessions
