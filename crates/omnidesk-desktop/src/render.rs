@@ -97,10 +97,25 @@ fn approved_v7_hero_art() -> Option<&'static crate::brand::BrandImage> {
         let png = include_bytes!("../../../assets/ui/omnidesk-v7-approved-hero-art.png");
         let image = image::load_from_memory(png).ok()?.into_rgba8();
         let (width, height) = image.dimensions();
+        let (w, h) = (usize::try_from(width).ok()?, usize::try_from(height).ok()?);
+        let mut rgba = image.into_raw();
+        // One-time four-edge alpha feather avoids a hard screenshot cutout
+        // against the native hero gradient. It never alters functional UI.
+        for y in 0..h {
+            let top = y.min(8) * 255 / 8;
+            let bottom = h.saturating_sub(y + 1).min(14) * 255 / 14;
+            for x in 0..w {
+                let left = x.min(66) * 255 / 66;
+                let right = w.saturating_sub(x + 1).min(10) * 255 / 10;
+                let alpha = left.min(right).min(top).min(bottom);
+                rgba[(y * w + x) * 4 + 3] =
+                    u8::try_from(alpha).unwrap_or(u8::MAX);
+            }
+        }
         Some(crate::brand::BrandImage {
             width,
             height,
-            rgba: image.into_raw(),
+            rgba,
         })
     })
     .as_ref()
