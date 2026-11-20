@@ -514,7 +514,7 @@ fn premium_action_at_point(
         .iter()
         .zip(control_rects_for(&presentation, width, height))
         .find(|(control, rect)| control.enabled && rect.contains(x, y))
-        .map(|(control, _)| control.action);
+        .map(|(control, _)| control.action)
 }
 
 #[must_use]
