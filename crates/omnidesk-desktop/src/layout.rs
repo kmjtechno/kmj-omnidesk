@@ -127,8 +127,8 @@ impl ShellLayout {
 /// available and the narrow shell is the explicit responsive fallback.
 #[must_use]
 pub fn initial_window_inner_size(monitor: Option<(u32, u32, f64)>) -> (f64, f64) {
-    const PREFERRED_WIDTH: f64 = 1280.0;
-    const PREFERRED_HEIGHT: f64 = 720.0;
+    const PREFERRED_WIDTH: f64 = 1672.0;
+    const PREFERRED_HEIGHT: f64 = 941.0;
     let Some((physical_width, physical_height, scale_factor)) = monitor else {
         return (PREFERRED_WIDTH, PREFERRED_HEIGHT);
     };
@@ -184,10 +184,10 @@ mod tests {
 
     #[test]
     fn initial_window_respects_dpi_and_preferred_desktop_size() {
-        assert_eq!(initial_window_inner_size(None), (1280.0, 720.0));
+        assert_eq!(initial_window_inner_size(None), (1672.0, 941.0));
         assert_eq!(
             initial_window_inner_size(Some((1920, 1080, 1.0))),
-            (1280.0, 720.0)
+            (1672.0, 941.0)
         );
         assert_eq!(
             initial_window_inner_size(Some((1024, 768, 1.25))),
@@ -204,7 +204,7 @@ mod tests {
         for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             assert_eq!(
                 initial_window_inner_size(Some((1024, 768, scale))),
-                (1280.0, 720.0)
+                (1672.0, 941.0)
             );
         }
     }
@@ -332,20 +332,28 @@ pub struct PremiumDashboardLayout {
 impl PremiumDashboardLayout {
     #[must_use]
     pub fn for_window(width: usize, height: usize) -> Option<Self> {
-        if width < 1400 || height < 800 {
+        if width < 1024 || height < 750 {
             return None;
         }
-        let navigation_width = (width * 15 / 100).clamp(232, 260);
-        let right_width = 325;
-        let side_gap = 16;
+        let navigation_width = if width >= 1400 {
+            (width * 15 / 100).clamp(232, 260)
+        } else {
+            (width * 16 / 100).clamp(180, 230)
+        };
+        let right_width = if width >= 1400 {
+            325
+        } else {
+            (width * 22 / 100).clamp(240, 310)
+        };
+        let side_gap = if width >= 1400 { 16 } else { 12 };
         let main_x = navigation_width + 18;
         let right_x = width.saturating_sub(right_width + 17);
         let main_width = right_x.saturating_sub(main_x + side_gap);
-        if main_width < 800 {
+        if main_width < 450 {
             return None;
         }
-        let main_half = (main_width.saturating_sub(16)) / 2;
-        let lower_height = height.saturating_sub(649 + 55);
+        let main_half = (main_width.saturating_sub(side_gap)) / 2;
+        let lower_height = height.saturating_sub(649 + 55).max(180);
         let rect = |x, y, width, height| DashboardRect {
             x,
             y,
@@ -358,22 +366,27 @@ impl PremiumDashboardLayout {
             hero: rect(main_x, 81, main_width, 162),
             share: rect(main_x, 255, main_half, 267),
             connect: rect(
-                main_x + main_half + 16,
+                main_x + main_half + side_gap,
                 255,
-                main_width.saturating_sub(main_half + 16),
+                main_width.saturating_sub(main_half + side_gap),
                 267,
             ),
             features: rect(main_x, 535, main_width, 101),
             devices: rect(main_x, 649, main_half, lower_height),
             sessions: rect(
-                main_x + main_half + 16,
+                main_x + main_half + side_gap,
                 649,
-                main_width.saturating_sub(main_half + 16),
+                main_width.saturating_sub(main_half + side_gap),
                 lower_height,
             ),
             license: rect(right_x, 91, right_width, 223),
             health: rect(right_x, 330, right_width, 196),
-            quick_actions: rect(right_x, 539, right_width, height.saturating_sub(539 + 55)),
+            quick_actions: rect(
+                right_x,
+                539,
+                right_width,
+                height.saturating_sub(539 + 55).max(300),
+            ),
             footer: rect(
                 navigation_width,
                 height.saturating_sub(45),
@@ -527,7 +540,12 @@ mod premium_v7_tests {
             premium.local_id_copy().x + 12,
             premium.local_id_copy().y + 12,
         ));
-        assert!(PremiumDashboardLayout::for_window(1280, 720).is_none());
+        assert!(PremiumDashboardLayout::for_window(1672, 941).is_some());
+        assert!(PremiumDashboardLayout::for_window(1440, 900).is_some());
+        assert!(PremiumDashboardLayout::for_window(1280, 800).is_some());
+        assert!(PremiumDashboardLayout::for_window(1024, 768).is_some());
+        assert!(PremiumDashboardLayout::for_window(1419, 611).is_none());
+        assert!(PremiumDashboardLayout::for_window(800, 500).is_none());
     }
 }
 
