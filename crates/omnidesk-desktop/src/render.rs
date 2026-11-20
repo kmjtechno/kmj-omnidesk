@@ -56,7 +56,7 @@ fn approved_v7_hero_art() -> Option<&'static (usize, usize, Vec<u8>)> {
         if master.width() != 1672 || master.height() != 941 {
             return None;
         }
-        let crop = master.crop_imm(640, 71, 630, 170).into_rgba8();
+        let crop = master.crop_imm(770, 71, 500, 170).into_rgba8();
         let (width, height) = crop.dimensions();
         Some((
             usize::try_from(width).ok()?,
@@ -2295,7 +2295,7 @@ fn draw_premium_dashboard(
     // Exact crop from the owner-locked reference. No duplicate company
     // wordmark or fake connection art may be composited into this region.
     if let Some((source_width, source_height, rgba)) = approved_v7_hero_art() {
-        let display_width = hero.width.min(635);
+        let display_width = hero.width.min(515);
         canvas.image_rgba(
             (
                 hero.x + hero.width.saturating_sub(display_width + 10),
