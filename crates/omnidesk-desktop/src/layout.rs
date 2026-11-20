@@ -308,6 +308,149 @@ impl DashboardRect {
     }
 }
 
+/// Owner-approved V7 premium dashboard at full desktop resolution.
+///
+/// The single source of truth for render, pointer and keyboard/action geometry
+/// is this struct. Previous 1419x611 lock remains the responsive fallback
+/// until V7's laptop/compact acceptance campaign passes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PremiumDashboardLayout {
+    pub header_height: usize,
+    pub navigation: DashboardRect,
+    pub hero: DashboardRect,
+    pub share: DashboardRect,
+    pub connect: DashboardRect,
+    pub features: DashboardRect,
+    pub devices: DashboardRect,
+    pub sessions: DashboardRect,
+    pub license: DashboardRect,
+    pub health: DashboardRect,
+    pub quick_actions: DashboardRect,
+    pub footer: DashboardRect,
+}
+
+impl PremiumDashboardLayout {
+    #[must_use]
+    pub fn for_window(width: usize, height: usize) -> Option<Self> {
+        if width < 1500 || height < 860 {
+            return None;
+        }
+        let navigation_width = (width * 15 / 100).clamp(232, 260);
+        let right_width = 325;
+        let side_gap = 16;
+        let main_x = navigation_width + 18;
+        let right_x = width.saturating_sub(right_width + 17);
+        let main_width = right_x.saturating_sub(main_x + side_gap);
+        if main_width < 840 {
+            return None;
+        }
+        let main_half = (main_width - 16) / 2;
+        let lower_height = height.saturating_sub(649 + 55);
+        let rect = |x, y, width, height| DashboardRect {
+            x,
+            y,
+            width,
+            height,
+        };
+        Some(Self {
+            header_height: 70,
+            navigation: rect(0, 70, navigation_width, height - 115),
+            hero: rect(main_x, 81, main_width, 162),
+            share: rect(main_x, 255, main_half, 267),
+            connect: rect(main_x + main_half + 16, 255, main_width - main_half - 16, 267),
+            features: rect(main_x, 535, main_width, 101),
+            devices: rect(main_x, 649, main_half, lower_height),
+            sessions: rect(
+                main_x + main_half + 16,
+                649,
+                main_width - main_half - 16,
+                lower_height,
+            ),
+            license: rect(right_x, 91, right_width, 223),
+            health: rect(right_x, 330, right_width, 196),
+            quick_actions: rect(
+                right_x,
+                539,
+                right_width,
+                height.saturating_sub(539 + 55),
+            ),
+            footer: rect(navigation_width, height - 45, width - navigation_width, 45),
+        })
+    }
+
+    #[must_use]
+    pub const fn nav_row(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.navigation.x + 10,
+            y: self.navigation.y + 27 + index.saturating_mul(44),
+            width: self.navigation.width.saturating_sub(20),
+            height: 38,
+        }
+    }
+
+    #[must_use]
+    pub const fn local_id_copy(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.share.x + self.share.width - 88,
+            y: self.share.y + 91,
+            width: 66,
+            height: 38,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_id_input(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.connect.x + 19,
+            y: self.connect.y + 91,
+            width: self.connect.width.saturating_sub(38),
+            height: 38,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_connect_button(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.connect.x + 19,
+            y: self.connect.y + 207,
+            width: self.connect.width.saturating_sub(38),
+            height: 40,
+        }
+    }
+
+    #[must_use]
+    pub const fn device_row(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.devices.x + 13,
+            y: self.devices.y + 56 + index.saturating_mul(47),
+            width: self.devices.width.saturating_sub(26),
+            height: 40,
+        }
+    }
+
+    #[must_use]
+    pub const fn permission_button(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.share.x + 19 + index.saturating_mul(136),
+            y: self.share.y + 211,
+            width: 123,
+            height: 37,
+        }
+    }
+
+    #[must_use]
+    pub fn session_button(&self, index: usize, count: usize) -> DashboardRect {
+        let count = count.max(1);
+        let width = self.features.width / count;
+        DashboardRect {
+            x: self.features.x + width.saturating_mul(index) + 4,
+            y: self.features.y + 14,
+            width: width.saturating_sub(8),
+            height: self.features.height.saturating_sub(28),
+        }
+    }
+}
+
 /// Canonical 1419x611 user-approved visual reference:
 /// nav | devices | remote workspace | status inspector.
 ///
