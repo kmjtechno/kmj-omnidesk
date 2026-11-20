@@ -440,9 +440,9 @@ impl PremiumDashboardLayout {
     pub const fn permission_button(&self, index: usize) -> DashboardRect {
         DashboardRect {
             x: self.share.x + 19 + index.saturating_mul(136),
-            y: self.share.y + 211,
+            y: self.share.y + 225,
             width: 123,
-            height: 37,
+            height: 33,
         }
     }
 
