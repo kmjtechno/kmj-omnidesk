@@ -78,7 +78,7 @@ pub struct VisualSystem {
 
 impl VisualSystem {
     /// The owner-approved V7 OmniDesk palette: deep graphite and restrained
-    /// KMJ red from the premium design lock (2026-11-20).
+    /// `KMJ` red from the premium design lock (2026-11-20).
     ///
     /// The red is deliberately scarce. Carrying it on borders, rail edges, and
     /// every enabled control turned the whole surface into one hue and left
@@ -388,7 +388,7 @@ pub fn control_rects_for(
                     }
                     PrimaryView::PermissionPrompt => premium.permission_button(index),
                     PrimaryView::Session => premium.session_button(index, count),
-                    _ => layout::DashboardRect {
+                    PrimaryView::Devices => layout::DashboardRect {
                         x: 0,
                         y: 0,
                         width: 0,
@@ -464,15 +464,16 @@ const fn locked_dual_role_action(
     None
 }
 
+/// Hit-test V7 only against controls which are rendered and enabled.
 #[must_use]
-pub fn action_at_point(
+fn premium_action_at_point(
     shell: &ProductShell,
     width: usize,
     height: usize,
     x: usize,
     y: usize,
+    premium: &PremiumDashboardLayout,
 ) -> Option<DesktopAction> {
-    if let Some(premium) = PremiumDashboardLayout::for_window(width, height) {
         // Only tabs backed by a real view are clickable. All other premium
         // navigation entries are visibly unavailable rather than fake links.
         const TABS: [Option<NavTab>; 12] = [
@@ -515,6 +516,18 @@ pub fn action_at_point(
             .zip(control_rects_for(&presentation, width, height))
             .find(|(control, rect)| control.enabled && rect.contains(x, y))
             .map(|(control, _)| control.action);
+}
+
+#[must_use]
+pub fn action_at_point(
+    shell: &ProductShell,
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+) -> Option<DesktopAction> {
+    if let Some(premium) = PremiumDashboardLayout::for_window(width, height) {
+        return premium_action_at_point(shell, width, height, x, y, &premium);
     }
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
         // Navigation items (all 7 tabs respond to clicks)
