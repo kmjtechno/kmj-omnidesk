@@ -2287,18 +2287,6 @@ fn draw_premium_dashboard(
         0x0f_13_1e,
         0x3d_14_25,
     );
-    canvas.text(hero.x + 22, hero.y + 24, "KMJ", 3, 0xff_20_4e);
-    canvas.text(hero.x + 92, hero.y + 24, "OmniDesk", 3, p.foreground);
-    canvas.text(hero.x + 236, hero.y + 22, "TM", 1, 0x90_9a_ac);
-    locked_label(
-        canvas,
-        hero.x + 24,
-        hero.y + 76,
-        hero.width.saturating_sub(44),
-        "Secure Remote Access  ·  Support  ·  Manage  ·  Collaborate",
-        0xc5_cb_d8,
-    );
-
     // Exact crop from the owner-locked reference. No duplicate company
     // wordmark or fake connection art may be composited into this region.
     if let Some((source_width, source_height, rgba)) = approved_v7_hero_art() {
@@ -2314,6 +2302,18 @@ fn draw_premium_dashboard(
             rgba,
         );
     }
+
+    canvas.text(hero.x + 22, hero.y + 24, "KMJ", 3, 0xff_20_4e);
+    canvas.text(hero.x + 92, hero.y + 24, "OmniDesk", 3, p.foreground);
+    canvas.text(hero.x + 236, hero.y + 22, "TM", 1, 0x90_9a_ac);
+    locked_label(
+        canvas,
+        hero.x + 24,
+        hero.y + 76,
+        hero.width.saturating_sub(44),
+        "Secure Remote Access  ·  Support  ·  Manage  ·  Collaborate",
+        0xc5_cb_d8,
+    );
 
     // 4. Two Primary Cards: "This Device" and "Connect to Remote Device"
     let share = layout.share;
