@@ -2646,136 +2646,56 @@ fn draw_premium_dashboard(
     premium_panel(canvas, devices, p, false);
     premium_panel(canvas, sessions, p, false);
 
-    // My Devices (12)
-    draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, 0xff_30_55);
-    canvas.text(
-        devices.x + 44,
-        devices.y + 18,
-        "My Devices (12)",
-        1,
-        p.foreground,
-    );
-    canvas.text_clipped(
-        devices.x + devices.width.saturating_sub(75),
-        devices.y + 20,
-        "View All →",
-        1,
-        60,
-        0x90_9a_ac,
-    );
-
-    let dev_rows = [
-        (
-            "DESKTOP-5FVJMET (This Device)",
-            "Windows 11 Pro · PS20 · Office",
-            false,
-            true,
-        ),
-        ("KMJ-ELITE-SERVER", "Ubuntu 24.04 · CloudOS", true, false),
-        ("CLIENT-AV-01", "Windows 11 Pro · Client Site", false, false),
-    ];
-    for (i, (name, details, is_ubuntu, _is_this_device)) in dev_rows.iter().enumerate() {
-        let row_y = devices.y + 56 + i * 54;
-        canvas.h_line(
-            devices.x + 18,
-            row_y + 48,
-            devices.width.saturating_sub(36),
-            0x22_27_38,
-        );
-        if *is_ubuntu {
-            draw_ubuntu_logo(canvas, devices.x + 22, row_y + 10);
-        } else {
-            draw_windows_logo(canvas, devices.x + 22, row_y + 10, 0x00_a4_ef);
-        }
-        canvas.text(devices.x + 46, row_y + 6, name, 1, p.foreground);
-        if *is_ubuntu {
-            draw_crown_icon(canvas, devices.x + 180, row_y + 7, 0xf5_a6_23);
-        }
-        if i == 2 {
-            // Online badge
-            canvas.rounded_panel(
-                devices.x + 155,
-                row_y + 6,
-                46,
-                18,
-                4,
-                0x16_38_2a,
-                0x26_8c_55,
+    // Device list is always derived from the real product shell and must
+    // match the shared clickable row geometry. Never fabricate enrolled PCs.
+    draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, p.accent);
+    canvas.text(devices.x + 44, devices.y + 18, "My Devices", 1, p.foreground);
+    let show_devices = presentation.nav_tab == NavTab::Devices
+        && presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices;
+    let mut visible_devices = 0;
+    if show_devices {
+        for (index, control) in presentation.controls.iter().take(3).enumerate() {
+            if !control.enabled
+                || !matches!(control.action, crate::DesktopAction::ConnectDevice(..))
+            {
+                continue;
+            }
+            let row = layout.device_row(index);
+            canvas.h_line(row.x, row.y + row.height, row.width, p.border);
+            draw_monitor_icon(canvas, row.x + 8, row.y + 10, 15, 11, p.muted);
+            canvas.text_clipped(
+                row.x + 35,
+                row.y + 10,
+                &control.label,
+                1,
+                row.width.saturating_sub(45),
+                p.foreground,
             );
-            canvas.text(devices.x + 162, row_y + 8, "Online", 1, 0x36_d9_80);
+            visible_devices += 1;
         }
-        canvas.text_clipped(
-            devices.x + 46,
-            row_y + 26,
-            details,
-            1,
-            devices.width.saturating_sub(120),
-            0x85_8f_a1,
-        );
-        draw_monitor_icon(
-            canvas,
-            devices.x + devices.width.saturating_sub(60),
-            row_y + 14,
-            14,
-            10,
-            0x90_9a_ac,
-        );
+    }
+    if visible_devices == 0 {
         canvas.text(
-            devices.x + devices.width.saturating_sub(36),
-            row_y + 14,
-            "···",
+            devices.x + 25,
+            devices.y + 87,
+            "No verified online devices",
             1,
-            0x90_9a_ac,
+            p.muted,
         );
     }
-
-    // Recent Sessions
-    canvas.dot(sessions.x + 26, sessions.y + 26, 6, 0xff_30_55);
+    // Session history is not persisted/verified in the native shell yet.
+    // Use an explicit empty-state rather than the approved concept's sample
+    // session IDs, durations, and fabricated Completed badges.
+    canvas.dot(sessions.x + 26, sessions.y + 26, 6, p.accent);
     canvas.dot(sessions.x + 26, sessions.y + 26, 4, 0x14_17_24);
+    canvas.text(sessions.x + 44, sessions.y + 18, "Recent Sessions", 1, p.foreground);
     canvas.text(
-        sessions.x + 44,
-        sessions.y + 18,
-        "Recent Sessions",
+        sessions.x + 25,
+        sessions.y + 87,
+        "No verified session history available",
         1,
-        p.foreground,
+        p.muted,
     );
-    canvas.text_clipped(
-        sessions.x + sessions.width.saturating_sub(75),
-        sessions.y + 20,
-        "View All →",
-        1,
-        60,
-        0x90_9a_ac,
-    );
-
-    let session_rows = [
-        ("CLIENT-AV-01", "Today, 01:42 PM · 47 min"),
-        ("LAPTOP-SUPPORT", "Today, 11:03 AM · 28 min"),
-        ("SRV-PROD-01", "Yesterday, 06:18 PM · 1 h 12 min"),
-    ];
-    for (i, (name, time_str)) in session_rows.iter().enumerate() {
-        let row_y = sessions.y + 56 + i * 54;
-        canvas.h_line(
-            sessions.x + 18,
-            row_y + 48,
-            sessions.width.saturating_sub(36),
-            0x22_27_38,
-        );
-        draw_monitor_icon(canvas, sessions.x + 22, row_y + 10, 14, 10, 0x90_9a_ac);
-        canvas.text(sessions.x + 46, row_y + 6, name, 1, p.foreground);
-        canvas.text_clipped(
-            sessions.x + 46,
-            row_y + 26,
-            time_str,
-            1,
-            sessions.width.saturating_sub(130),
-            0x85_8f_a1,
-        );
-        // Completed badge
-        let badge_x = sessions.x + sessions.width.saturating_sub(80);
-        canvas.rounded_panel(badge_x, row_y + 14, 65, 20, 4, 0x16_38_2a, 0x26_8c_55);
-        canvas.text(badge_x + 8, row_y + 17, "Completed", 1, 0x36_d9_80);
-    }
 
     // 7. Right Column: License, System Status, Quick Actions
     let license = layout.license;
