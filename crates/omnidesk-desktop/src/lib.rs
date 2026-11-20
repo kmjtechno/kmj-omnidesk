@@ -857,6 +857,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn premium_v7_pointer_targets_match_visible_geometry() {
+        let width = 1672;
+        let height = 941;
+        let mut shell = ProductShell::new();
+        let layout = PremiumDashboardLayout::for_window(width, height).expect("V7 layout");
+
+        let remote_input = layout.remote_id_input();
+        assert_eq!(
+            action_at_point(&shell, width, height, remote_input.x + 12, remote_input.y + 12),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
+        let connect = layout.remote_connect_button();
+        assert_eq!(
+            action_at_point(&shell, width, height, connect.x + 12, connect.y + 12),
+            None,
+            "an empty remote ID must not yield a connect action"
+        );
+        let copy = layout.local_id_copy();
+        assert_eq!(
+            action_at_point(&shell, width, height, copy.x + 12, copy.y + 12),
+            None,
+            "no ID means no clickable copy action"
+        );
+        shell.set_local_device_id("KMJ-LOCAL-TEST");
+        assert_eq!(
+            action_at_point(&shell, width, height, copy.x + 12, copy.y + 12),
+            Some(DesktopAction::CopyYourId)
+        );
+        shell.set_remote_id_input("KMJ-PEER-TEST");
+        assert_eq!(
+            action_at_point(&shell, width, height, connect.x + 12, connect.y + 12),
+            Some(DesktopAction::ConnectRemoteId)
+        );
+        assert_eq!(
+            action_at_point(
+                &shell,
+                width,
+                height,
+                layout.quick_actions.x + 25,
+                layout.quick_actions.y + 70,
+            ),
+            None,
+            "unimplemented quick actions cannot be clickable"
+        );
+    }
+
+    #[test]
     fn enrollment_without_verified_peer_never_creates_a_trusted_device() {
         let mut shell = ProductShell::new();
         apply_action(&mut shell, DesktopAction::EnrollDevice);
