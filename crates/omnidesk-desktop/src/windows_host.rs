@@ -27,6 +27,7 @@ use crate::{
     controls_for_shell,
     layout::{initial_window_inner_size, initial_window_origin},
     presentation_for,
+    PremiumDashboardLayout,
     render::render_shell,
 };
 
@@ -460,17 +461,15 @@ impl DesktopHost {
                     .shell
                     .begin_connect_trusted(&record.device_id, &store, now);
             } else {
-                let peer_id = incoming.peer_addr.to_string();
-                let mut summaries = store.to_device_summaries();
-                if !summaries.iter().any(|d| d.id == peer_id) {
-                    summaries.push(DeviceSummary {
-                        id: peer_id.clone(),
-                        display_name: format!("Remote Peer ({})", incoming.peer_addr),
-                        status: DeviceStatus::Online,
-                    });
-                }
-                self.shell.replace_devices(summaries);
-                let _ = self.shell.begin_connect(&peer_id);
+                // No auth proof means no peer identity, no online state, no
+                // permission prompt and no retained session adapter.
+                adapter.close();
+                self.shell.set_error(format!(
+                    "Incoming peer {} rejected: authentication failed",
+                    incoming.peer_addr
+                ));
+                self.refresh_presentation();
+                continue;
             }
             self.session_adapter = Some(adapter);
             self.refresh_presentation();
@@ -571,9 +570,26 @@ impl DesktopHost {
             copy_to_clipboard(self.shell.local_device_id());
             apply_action(&mut self.shell, action);
         } else if action == DesktopAction::ConnectRemoteId {
-            apply_action(&mut self.shell, action);
-            if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
-                self.try_connect_peer();
+            // The premium V7 form shows a password field, but the password
+            // protocol is not implemented. Enter/keyboard shortcuts must not
+            // bypass its visibly disabled CTA and initiate an ID-only session.
+            let is_premium = self.window.as_ref().is_some_and(|window| {
+                let size = window.inner_size();
+                PremiumDashboardLayout::for_window(
+                    usize::try_from(size.width).unwrap_or(0),
+                    usize::try_from(size.height).unwrap_or(0),
+                )
+                .is_some()
+            });
+            if is_premium {
+                self.shell.set_error(
+                    "Password-based remote access unavailable until secure authentication ships",
+                );
+            } else {
+                apply_action(&mut self.shell, action);
+                if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
+                    self.try_connect_peer();
+                }
             }
         } else if matches!(
             action,
