@@ -332,21 +332,20 @@ pub struct PremiumDashboardLayout {
 impl PremiumDashboardLayout {
     #[must_use]
     pub fn for_window(width: usize, height: usize) -> Option<Self> {
-        if width < 1200 || height < 680 {
+        if width < 1400 || height < 800 {
             return None;
         }
-        let navigation_width = (width * 15 / 100).clamp(210, 260);
-        let right_width = (width * 20 / 100).clamp(280, 325);
+        let navigation_width = (width * 15 / 100).clamp(232, 260);
+        let right_width = 325;
         let side_gap = 16;
         let main_x = navigation_width + 18;
         let right_x = width.saturating_sub(right_width + 17);
         let main_width = right_x.saturating_sub(main_x + side_gap);
-        if main_width < 640 {
+        if main_width < 800 {
             return None;
         }
         let main_half = (main_width.saturating_sub(16)) / 2;
-        let lower_y = 649.min(height.saturating_sub(230));
-        let lower_height = height.saturating_sub(lower_y + 55).max(120);
+        let lower_height = height.saturating_sub(649 + 55);
         let rect = |x, y, width, height| DashboardRect {
             x,
             y,
@@ -365,10 +364,10 @@ impl PremiumDashboardLayout {
                 267,
             ),
             features: rect(main_x, 535, main_width, 101),
-            devices: rect(main_x, lower_y, main_half, lower_height),
+            devices: rect(main_x, 649, main_half, lower_height),
             sessions: rect(
                 main_x + main_half + 16,
-                lower_y,
+                649,
                 main_width.saturating_sub(main_half + 16),
                 lower_height,
             ),
