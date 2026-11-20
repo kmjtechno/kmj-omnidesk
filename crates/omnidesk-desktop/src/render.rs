@@ -1680,11 +1680,7 @@ fn premium_orbit(canvas: &mut Canvas<'_>, cx: usize, cy: usize, rx: usize, ry: u
     }
 }
 
-fn premium_header(
-    canvas: &mut Canvas<'_>,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
+fn premium_header(canvas: &mut Canvas<'_>, layout: &crate::PremiumDashboardLayout, p: Palette) {
     // Top chrome: exactly one official brand mark + company wordmark.
     canvas.fill_rect(0, 0, canvas.width, layout.header_height, 0x0b_0d_17);
     canvas.h_line(0, layout.header_height - 1, canvas.width, 0x6e_17_34);
@@ -1721,7 +1717,6 @@ fn premium_header(
         "HELP    SETTINGS",
         p.muted,
     );
-
 }
 
 fn premium_navigation(
@@ -1795,14 +1790,9 @@ fn premium_navigation(
         "Pre-alpha  |  Not released",
         p.muted,
     );
-
 }
 
-fn premium_hero(
-    canvas: &mut Canvas<'_>,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
+fn premium_hero(canvas: &mut Canvas<'_>, layout: &crate::PremiumDashboardLayout, p: Palette) {
     // Hero: abstract network art cannot be mistaken for live connectivity.
     let hero = layout.hero;
     canvas.fill_rect(hero.x, hero.y, hero.width, hero.height, 0x12_0d_19);
@@ -1834,7 +1824,6 @@ fn premium_hero(
             canvas.dot(x, y, 3, p.accent);
         }
     }
-
 }
 
 fn premium_share_identity(
@@ -1957,7 +1946,6 @@ fn premium_share_password(
         "Not configured  /  host password unavailable",
         p.muted,
     );
-
 }
 
 fn premium_share_consent(
@@ -2008,7 +1996,6 @@ fn premium_share_consent(
             p.muted,
         );
     }
-
 }
 
 fn premium_remote_identity(
@@ -2137,7 +2124,6 @@ fn premium_remote_password(
         "CONNECT TRUSTED PEER",
         if ready { p.foreground } else { 0xbc_b4_c1 },
     );
-
 }
 
 fn premium_features(
@@ -2205,7 +2191,6 @@ fn premium_features(
             );
         }
     }
-
 }
 
 fn premium_lower(
@@ -2284,7 +2269,6 @@ fn premium_lower(
         "No verified session history available",
         p.muted,
     );
-
 }
 
 fn premium_right_license(
@@ -2338,7 +2322,6 @@ fn premium_right_license(
         "Valid until                            --",
         p.muted,
     );
-
 }
 
 fn premium_right_health(
@@ -2414,14 +2397,9 @@ fn premium_right_quick(
             p.muted,
         );
     }
-
 }
 
-fn premium_footer(
-    canvas: &mut Canvas<'_>,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
+fn premium_footer(canvas: &mut Canvas<'_>, layout: &crate::PremiumDashboardLayout, p: Palette) {
     // Footer never turns unverified demo values into operational badges.
     let footer = layout.footer;
     canvas.h_line(footer.x, footer.y, footer.width, p.border);
