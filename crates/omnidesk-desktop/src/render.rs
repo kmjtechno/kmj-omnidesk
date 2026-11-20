@@ -1847,13 +1847,6 @@ fn draw_copy_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.stroke_rect(x, y + 3, 8, 9, 1, color);
 }
 
-fn draw_refresh_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.dot(x + 6, y + 6, 5, color);
-    canvas.dot(x + 6, y + 6, 3, 0x0b_12_19);
-    canvas.fill_rect(x + 6, y + 1, 4, 2, color);
-    canvas.fill_rect(x + 2, y + 9, 4, 2, color);
-}
-
 fn draw_eye_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.h_line(x + 2, y + 2, 8, color);
     canvas.h_line(x + 2, y + 8, 8, color);
@@ -1882,15 +1875,6 @@ fn draw_help_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.dot(x + 6, y + 9, 1, color);
 }
 
-fn draw_window_controls(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.h_line(x, y + 10, 8, color);
-    canvas.stroke_rect(x + 16, y + 3, 8, 8, 1, color);
-    for d in 0..8 {
-        canvas.fill_rect(x + 32 + d, y + 3 + d, 1, 1, color);
-        canvas.fill_rect(x + 39 - d, y + 3 + d, 1, 1, color);
-    }
-}
-
 fn draw_waveform_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.fill_rect(x + 1, y + 5, 2, 4, color);
     canvas.fill_rect(x + 4, y + 2, 2, 10, color);
@@ -1915,26 +1899,6 @@ fn draw_record_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
 fn draw_infinity_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.stroke_rect(x, y + 3, 6, 6, 1, color);
     canvas.stroke_rect(x + 6, y + 3, 6, 6, 1, color);
-}
-
-fn draw_windows_logo(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.fill_rect(x, y, 5, 5, color);
-    canvas.fill_rect(x + 7, y, 5, 5, color);
-    canvas.fill_rect(x, y + 7, 5, 5, color);
-    canvas.fill_rect(x + 7, y + 7, 5, 5, color);
-}
-
-fn draw_ubuntu_logo(canvas: &mut Canvas<'_>, x: usize, y: usize) {
-    canvas.dot(x + 6, y + 6, 6, 0xe9_54_20);
-    canvas.dot(x + 6, y + 6, 3, 0x14_17_24);
-    canvas.dot(x + 2, y + 4, 2, 0xff_ff_ff);
-}
-
-fn draw_crown_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.fill_rect(x + 1, y + 7, 10, 2, color);
-    canvas.fill_rect(x, y + 3, 2, 5, color);
-    canvas.fill_rect(x + 5, y + 1, 2, 7, color);
-    canvas.fill_rect(x + 10, y + 3, 2, 5, color);
 }
 
 fn draw_award_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
@@ -1993,25 +1957,6 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
     canvas.h_line(x + 9, y + 6, 5, color);
 }
 
-fn draw_signal_bars(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.fill_rect(x, y + 8, 2, 4, color);
-    canvas.fill_rect(x + 3, y + 5, 2, 7, color);
-    canvas.fill_rect(x + 6, y + 2, 2, 10, color);
-    canvas.fill_rect(x + 9, y, 2, 12, color);
-}
-
-fn draw_cloud_check(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.dot(x + 6, y + 5, 4, color);
-    canvas.fill_rect(x + 2, y + 6, 10, 3, color);
-    canvas.h_line(x + 4, y + 7, 4, 0x14_17_24);
-}
-
-#[allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::suboptimal_flops
-)]
 fn premium_orbit(canvas: &mut Canvas<'_>, cx: usize, cy: usize, rx: usize, ry: usize, color: u32) {
     const STEPS: usize = 240;
     for step in 0..STEPS {
@@ -2395,7 +2340,7 @@ fn draw_premium_dashboard(
         },
     );
     let input_text = if presentation.remote_id_input.is_empty() {
-        "Enter device ID (e.g. 734 281 905)"
+        "Enter remote device ID"
     } else {
         &presentation.remote_id_input
     };
