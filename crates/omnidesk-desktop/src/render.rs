@@ -2658,7 +2658,7 @@ fn draw_premium_dashboard(
                 if i + 1 == count {
                     0x77_1b_35
                 } else {
-                    0x20_24_32
+                    0x0020_2432
                 },
                 0x13_17_24,
                 if i + 1 == count { p.accent } else { p.border },
