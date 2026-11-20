@@ -57,27 +57,21 @@ fn feather_decorative_edges(
         return;
     }
     for y in 0..height {
-        let top_alpha = if top == 0 {
-            255
-        } else {
-            y.min(top) * 255 / top
-        };
-        let bottom_alpha = if bottom == 0 {
-            255
-        } else {
-            height.saturating_sub(y + 1).min(bottom) * 255 / bottom
-        };
+        let top_alpha = y.min(top).saturating_mul(255).checked_div(top).unwrap_or(255);
+        let bottom_alpha = height
+            .saturating_sub(y + 1)
+            .min(bottom)
+            .saturating_mul(255)
+            .checked_div(bottom)
+            .unwrap_or(255);
         for x in 0..width {
-            let left_alpha = if left == 0 {
-                255
-            } else {
-                x.min(left) * 255 / left
-            };
-            let right_alpha = if right == 0 {
-                255
-            } else {
-                width.saturating_sub(x + 1).min(right) * 255 / right
-            };
+            let left_alpha = x.min(left).saturating_mul(255).checked_div(left).unwrap_or(255);
+            let right_alpha = width
+                .saturating_sub(x + 1)
+                .min(right)
+                .saturating_mul(255)
+                .checked_div(right)
+                .unwrap_or(255);
             let edge_alpha = left_alpha.min(right_alpha).min(top_alpha).min(bottom_alpha);
             let index = (y * width + x) * 4 + 3;
             let original = usize::from(rgba[index]);
@@ -3016,7 +3010,7 @@ mod tests {
         feather_decorative_edges(&mut rgba, 4, 4, 1, 1, 1, 1);
         assert_eq!(rgba[3], 0);
         assert_eq!(rgba[(3 * 4 + 3) * 4 + 3], 0);
-        assert_eq!(rgba[(1 * 4 + 1) * 4 + 3], 255);
+        assert_eq!(rgba[23], 255);
     }
 
     #[test]
