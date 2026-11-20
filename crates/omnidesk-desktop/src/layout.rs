@@ -399,20 +399,20 @@ impl PremiumDashboardLayout {
     #[must_use]
     pub const fn local_id_copy(&self) -> DashboardRect {
         DashboardRect {
-            x: self.share.x + self.share.width - 88,
-            y: self.share.y + 91,
-            width: 66,
-            height: 38,
+            x: self.share.x + self.share.width - 61,
+            y: self.share.y + 94,
+            width: 34,
+            height: 30,
         }
     }
 
     #[must_use]
     pub const fn remote_id_input(&self) -> DashboardRect {
         DashboardRect {
-            x: self.connect.x + 19,
-            y: self.connect.y + 91,
-            width: self.connect.width.saturating_sub(38),
-            height: 38,
+            x: self.connect.x + 20,
+            y: self.connect.y + 88,
+            width: self.connect.width.saturating_sub(40),
+            height: 42,
         }
     }
 
