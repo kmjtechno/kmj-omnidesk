@@ -77,7 +77,7 @@ pub struct VisualSystem {
 }
 
 impl VisualSystem {
-    /// The owner-approved V7 OmniDesk palette: deep graphite and restrained
+    /// The owner-approved V7 `OmniDesk` palette: deep graphite and restrained
     /// `KMJ` red from the premium design lock (2026-11-20).
     ///
     /// The red is deliberately scarce. Carrying it on borders, rail edges, and
@@ -509,7 +509,7 @@ fn premium_action_at_point(
         }
     }
     let presentation = presentation_for(shell);
-    return presentation
+    presentation
         .controls
         .iter()
         .zip(control_rects_for(&presentation, width, height))
