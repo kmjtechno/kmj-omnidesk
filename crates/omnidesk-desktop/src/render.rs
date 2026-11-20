@@ -168,7 +168,8 @@ impl Canvas<'_> {
                     ly.saturating_sub(h.saturating_sub(radius))
                 };
                 let corner = (lx < radius || lx >= w - radius) && (ly < radius || ly >= h - radius);
-                let outside = corner && (dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) > outer_sq);
+                let outside = corner
+                    && (dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) > outer_sq);
                 if outside {
                     continue;
                 }
@@ -176,7 +177,8 @@ impl Canvas<'_> {
                     || ly == 0
                     || lx + 1 == w
                     || ly + 1 == h
-                    || (corner && dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) >= inner_sq);
+                    || (corner
+                        && dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) >= inner_sq);
                 self.pixels[py * self.width + px] = if outline { border } else { bg };
             }
         }
