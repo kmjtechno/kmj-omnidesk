@@ -472,9 +472,8 @@ impl DesktopHost {
                 {
                     adapter.close();
                     self.shell.disconnect();
-                    self.shell.set_error(format!(
-                        "Authenticated incoming peer rejected: {err:?}"
-                    ));
+                    self.shell
+                        .set_error(format!("Authenticated incoming peer rejected: {err:?}"));
                     self.refresh_presentation();
                     continue;
                 }
@@ -554,8 +553,7 @@ impl DesktopHost {
                     !record.revoked
                         && now <= record.trust_expires_at_epoch_secs
                         && self.session_adapter.as_ref().is_some_and(|adapter| {
-                            adapter.session().authenticated_public_key()
-                                == Some(&record.public_key)
+                            adapter.session().authenticated_public_key() == Some(&record.public_key)
                         })
                 })
             });
@@ -908,7 +906,9 @@ mod tests {
             Some("verified-peer"),
             false,
         ));
-        assert!(!verified_consent_for_authenticated_trust(&shell, None, true));
+        assert!(!verified_consent_for_authenticated_trust(
+            &shell, None, true
+        ));
         assert!(!verified_consent_for_authenticated_trust(
             &shell,
             Some("other-peer"),
