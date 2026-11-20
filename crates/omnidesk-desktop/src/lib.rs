@@ -10,7 +10,7 @@ pub mod brand;
 pub mod layout;
 pub mod render;
 
-pub use layout::{LockedDashboardLayout, ShellLayout};
+pub use layout::{LockedDashboardLayout, PremiumDashboardLayout, ShellLayout};
 
 #[cfg(windows)]
 pub mod windows_host;
@@ -371,9 +371,38 @@ pub fn control_rects_for(
     width: usize,
     height: usize,
 ) -> Vec<ControlRect> {
-    // The real four-column dashboard and its hit-testing share precisely
-    // the same panel and control rectangles. Never render one coordinate
-    // system and click in a different one.
+    // The full-screen V7 layout is matched by its exact hit-testing regions.
+    // No off-card or invisible action may remain interactive.
+    if let Some(premium) = PremiumDashboardLayout::for_window(width, height) {
+        let count = presentation.controls.len();
+        return presentation
+            .controls
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                let rect = match presentation.primary_view {
+                    PrimaryView::Devices if presentation.nav_tab == NavTab::Devices && index < 3 => {
+                        premium.device_row(index)
+                    }
+                    PrimaryView::PermissionPrompt => premium.permission_button(index),
+                    PrimaryView::Session => premium.session_button(index, count),
+                    _ => layout::DashboardRect {
+                        x: 0,
+                        y: 0,
+                        width: 0,
+                        height: 0,
+                    },
+                };
+                ControlRect {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                }
+            })
+            .collect();
+    }
+    // The previous four-column lock remains available as a responsive fallback.
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
         let count = presentation.controls.len();
         return presentation
@@ -441,6 +470,51 @@ pub fn action_at_point(
     x: usize,
     y: usize,
 ) -> Option<DesktopAction> {
+    if let Some(premium) = PremiumDashboardLayout::for_window(width, height) {
+        // Only tabs backed by a real view are clickable. All other premium
+        // navigation entries are visibly unavailable rather than fake links.
+        const TABS: [Option<NavTab>; 12] = [
+            Some(NavTab::Devices),
+            Some(NavTab::Devices),
+            Some(NavTab::Devices),
+            Some(NavTab::Connections),
+            Some(NavTab::FileTransfer),
+            None,
+            None,
+            Some(NavTab::Security),
+            None,
+            None,
+            None,
+            Some(NavTab::Settings),
+        ];
+        for (index, tab) in TABS.iter().enumerate() {
+            if premium.nav_row(index).contains(x, y) {
+                return tab.map(DesktopAction::SelectNav);
+            }
+        }
+        if shell.nav_tab() == NavTab::Devices && shell.primary_view() == PrimaryView::Devices {
+            if !shell.local_device_id().is_empty() && premium.local_id_copy().contains(x, y) {
+                return Some(DesktopAction::CopyYourId);
+            }
+            if premium.remote_id_input().contains(x, y) {
+                return Some(DesktopAction::FocusRemoteIdInput);
+            }
+            // The V7 form never advertises password authentication. The
+            // existing transport only supports known/trusted peer handshake.
+            if premium.remote_connect_button().contains(x, y)
+                && !shell.remote_id_input().is_empty()
+            {
+                return Some(DesktopAction::ConnectRemoteId);
+            }
+        }
+        let presentation = presentation_for(shell);
+        return presentation
+            .controls
+            .iter()
+            .zip(control_rects_for(&presentation, width, height))
+            .find(|(control, rect)| control.enabled && rect.contains(x, y))
+            .map(|(control, _)| control.action);
+    }
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
         // Navigation items (all 7 tabs respond to clicks)
         const NAV_TABS: [NavTab; 7] = [
