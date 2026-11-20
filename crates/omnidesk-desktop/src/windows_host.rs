@@ -20,14 +20,13 @@ use winit::{
 };
 
 use crate::{
-    AccessibilityNode, DesktopAction, accessibility_snapshot,
+    AccessibilityNode, DesktopAction, PremiumDashboardLayout, accessibility_snapshot,
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
     controls_for_shell,
     layout::{initial_window_inner_size, initial_window_origin},
     presentation_for,
-    PremiumDashboardLayout,
     render::render_shell,
 };
 
