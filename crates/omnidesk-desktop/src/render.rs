@@ -1672,22 +1672,19 @@ fn premium_orbit(canvas: &mut Canvas<'_>, cx: usize, cy: usize, rx: usize, ry: u
     const STEPS: usize = 240;
     for step in 0..STEPS {
         let angle = step as f32 * std::f32::consts::TAU / STEPS as f32;
-        let fx = cx as f32 + rx as f32 * angle.cos();
-        let fy = cy as f32 + ry as f32 * angle.sin();
+        let fx = (rx as f32).mul_add(angle.cos(), cx as f32);
+        let fy = (ry as f32).mul_add(angle.sin(), cy as f32);
         if fx >= 0.0 && fy >= 0.0 {
             canvas.fill_rect(fx.round() as usize, fy.round() as usize, 2, 2, color);
         }
     }
 }
 
-fn draw_premium_dashboard(
+fn premium_header(
     canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
     layout: &crate::PremiumDashboardLayout,
     p: Palette,
 ) {
-    use omnidesk_core::product_shell::{NavTab, PrimaryView};
-
     // Top chrome: exactly one official brand mark + company wordmark.
     canvas.fill_rect(0, 0, canvas.width, layout.header_height, 0x0b_0d_17);
     canvas.h_line(0, layout.header_height - 1, canvas.width, 0x6e_17_34);
@@ -1725,6 +1722,15 @@ fn draw_premium_dashboard(
         p.muted,
     );
 
+}
+
+fn premium_navigation(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    use omnidesk_core::product_shell::NavTab;
     // Left rail: six existing destinations are backed by real shell state.
     let nav = layout.navigation;
     canvas.fill_rect(nav.x, nav.y, nav.width, nav.height, 0x0d_11_19);
@@ -1790,6 +1796,13 @@ fn draw_premium_dashboard(
         p.muted,
     );
 
+}
+
+fn premium_hero(
+    canvas: &mut Canvas<'_>,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
     // Hero: abstract network art cannot be mistaken for live connectivity.
     let hero = layout.hero;
     canvas.fill_rect(hero.x, hero.y, hero.width, hero.height, 0x12_0d_19);
@@ -1822,6 +1835,14 @@ fn draw_premium_dashboard(
         }
     }
 
+}
+
+fn premium_share_identity(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
     let share = layout.share;
     let connect = layout.connect;
     for rect in [share, connect] {
@@ -1878,6 +1899,15 @@ fn draw_premium_dashboard(
         },
         p.foreground,
     );
+}
+
+fn premium_share_password(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    let share = layout.share;
     let copy = layout.local_id_copy();
     canvas.fill_rect(copy.x, copy.y, copy.width, copy.height, p.border);
     locked_label(
@@ -1928,6 +1958,16 @@ fn draw_premium_dashboard(
         p.muted,
     );
 
+}
+
+fn premium_share_consent(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    use omnidesk_core::product_shell::PrimaryView;
+    let share = layout.share;
     if presentation.primary_view == PrimaryView::PermissionPrompt {
         locked_label(
             canvas,
@@ -1969,6 +2009,15 @@ fn draw_premium_dashboard(
         );
     }
 
+}
+
+fn premium_remote_identity(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    let connect = layout.connect;
     locked_label(
         canvas,
         connect.x + 20,
@@ -2023,6 +2072,15 @@ fn draw_premium_dashboard(
             p.foreground
         },
     );
+}
+
+fn premium_remote_password(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    let connect = layout.connect;
     locked_label(
         canvas,
         connect.x + 20,
@@ -2080,6 +2138,15 @@ fn draw_premium_dashboard(
         if ready { p.foreground } else { 0xbc_b4_c1 },
     );
 
+}
+
+fn premium_features(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    use omnidesk_core::product_shell::PrimaryView;
     // Seven capability tiles. In a verified session, the available session
     // controls replace the decorative tiles, using the same hit geometry.
     let feature = layout.features;
@@ -2139,6 +2206,15 @@ fn draw_premium_dashboard(
         }
     }
 
+}
+
+fn premium_lower(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    use omnidesk_core::product_shell::{NavTab, PrimaryView};
     // Device names originate from real shell directory entries only.
     let devices = layout.devices;
     let sessions = layout.sessions;
@@ -2209,6 +2285,13 @@ fn draw_premium_dashboard(
         p.muted,
     );
 
+}
+
+fn premium_right_license(
+    canvas: &mut Canvas<'_>,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
     // Right inspector: never fabricate entitlement, security, relay or latency.
     let license = layout.license;
     let health = layout.health;
@@ -2256,6 +2339,14 @@ fn draw_premium_dashboard(
         p.muted,
     );
 
+}
+
+fn premium_right_health(
+    canvas: &mut Canvas<'_>,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    let health = layout.health;
     locked_label(
         canvas,
         health.x + 18,
@@ -2283,6 +2374,14 @@ fn draw_premium_dashboard(
             p.muted,
         );
     }
+}
+
+fn premium_right_quick(
+    canvas: &mut Canvas<'_>,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    let quick = layout.quick_actions;
     locked_label(
         canvas,
         quick.x + 18,
@@ -2316,6 +2415,13 @@ fn draw_premium_dashboard(
         );
     }
 
+}
+
+fn premium_footer(
+    canvas: &mut Canvas<'_>,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
     // Footer never turns unverified demo values into operational badges.
     let footer = layout.footer;
     canvas.h_line(footer.x, footer.y, footer.width, p.border);
@@ -2336,6 +2442,28 @@ fn draw_premium_dashboard(
         "KMJ OmniDesk  /  PRE-ALPHA",
         p.muted,
     );
+}
+
+fn draw_premium_dashboard(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    premium_header(canvas, layout, p);
+    premium_navigation(canvas, presentation, layout, p);
+    premium_hero(canvas, layout, p);
+    premium_share_identity(canvas, presentation, layout, p);
+    premium_share_password(canvas, presentation, layout, p);
+    premium_share_consent(canvas, presentation, layout, p);
+    premium_remote_identity(canvas, presentation, layout, p);
+    premium_remote_password(canvas, presentation, layout, p);
+    premium_features(canvas, presentation, layout, p);
+    premium_lower(canvas, presentation, layout, p);
+    premium_right_license(canvas, layout, p);
+    premium_right_health(canvas, layout, p);
+    premium_right_quick(canvas, layout, p);
+    premium_footer(canvas, layout, p);
 }
 
 fn draw_locked_dashboard(
