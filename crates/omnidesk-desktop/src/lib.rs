@@ -502,10 +502,11 @@ fn premium_action_at_point(
         if premium.remote_id_input().contains(x, y) {
             return Some(DesktopAction::FocusRemoteIdInput);
         }
-        // The V7 form never advertises password authentication. The
-        // existing transport only supports known/trusted peer handshake.
-        if premium.remote_connect_button().contains(x, y) && !shell.remote_id_input().is_empty() {
-            return Some(DesktopAction::ConnectRemoteId);
+        // The approved V7 CTA explicitly says password sign-in; this is
+        // NOT available until password proof and host credential lifecycle
+        // are implemented. Even a valid ID cannot activate this CTA.
+        if premium.remote_connect_button().contains(x, y) {
+            return None;
         }
     }
     let presentation = presentation_for(shell);
@@ -894,7 +895,8 @@ mod tests {
         shell.set_remote_id_input("KMJ-PEER-TEST");
         assert_eq!(
             action_at_point(&shell, width, height, connect.x + 12, connect.y + 12),
-            Some(DesktopAction::ConnectRemoteId)
+            None,
+            "password connect remains unavailable even with a remote ID"
         );
         assert_eq!(
             action_at_point(
