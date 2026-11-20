@@ -70,6 +70,24 @@ fn native_ui_semibold_font() -> Option<&'static FontArc> {
         .as_ref()
 }
 
+// Decorative illustration cropped from the owner-approved V7 master.
+// It contains no live pixels, network data, license claims or controls.
+// PNG is a committed project asset; the decoder is cached for cheap redraw.
+fn approved_v7_hero_art() -> Option<&'static crate::brand::BrandImage> {
+    static HERO: OnceLock<Option<crate::brand::BrandImage>> = OnceLock::new();
+    HERO.get_or_init(|| {
+        let png = include_bytes!("../../../assets/ui/omnidesk-v7-approved-hero-art.png");
+        let image = image::load_from_memory(png).ok()?.into_rgba8();
+        let (width, height) = image.dimensions();
+        Some(crate::brand::BrandImage {
+            width,
+            height,
+            rgba: image.into_raw(),
+        })
+    })
+    .as_ref()
+}
+
 const fn native_text_size(scale: usize) -> f32 {
     match scale {
         3 => 38.0, // V7 editorial hero
@@ -2088,32 +2106,6 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
     canvas.h_line(x + 9, y + 6, 5, color);
 }
 
-// The orbital step count is bounded at 240 and all coordinates are
-// checked nonnegative before conversion; the canvas clips any overflow.
-#[allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)]
-fn premium_orbit(canvas: &mut Canvas<'_>, cx: usize, cy: usize, rx: usize, ry: usize, color: u32) {
-    const STEPS: usize = 240;
-    for step in 0..STEPS {
-        let angle = step as f32 * std::f32::consts::TAU / STEPS as f32;
-        let fx = (rx as f32).mul_add(angle.cos(), cx as f32);
-        let fy = (ry as f32).mul_add(angle.sin(), cy as f32);
-        if fx >= 0.0 && fy >= 0.0 {
-            canvas.fill_rect(fx.round() as usize, fy.round() as usize, 2, 2, color);
-        }
-    }
-}
-
-#[allow(
-    clippy::too_many_lines,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::suboptimal_flops,
-    clippy::match_same_arms
-)]
 fn draw_premium_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -2267,7 +2259,9 @@ fn draw_premium_dashboard(
         0x78_82_94,
     );
 
-    // 3. Locked V7 editorial hero. Every light trail is decorative only.
+    // 3. Owner-approved V7 editorial hero. The photo-like globe and K
+    // devices are a decorative crop of the approved source, never simulated
+    // remote video or fabricated network topology.
     let hero = layout.hero;
     canvas.rounded_gradient_panel(
         hero.x,
@@ -2278,74 +2272,25 @@ fn draw_premium_dashboard(
         0x0c_0d_17,
         0x52_21_3b,
     );
-    let globe_x = hero.x + hero.width.saturating_sub(335);
-    let globe_y = hero.y + 90;
-    canvas.soft_glow(globe_x, globe_y, 260, 113, 0xe2_13_50, 0.54);
-    canvas.soft_glow(globe_x + 120, globe_y - 60, 185, 122, 0x3b_46_af, 0.25);
-    canvas.soft_glow(
-        hero.x + hero.width / 2,
-        hero.y + 158,
-        hero.width / 2,
-        26,
-        0xf5_13_4b,
-        0.49,
-    );
-    premium_orbit(canvas, globe_x, globe_y, 153, 72, 0xc1_2e_63);
-    premium_orbit(canvas, globe_x, globe_y, 102, 72, 0x006a_3164);
-    premium_orbit(canvas, globe_x, globe_y, 39, 72, 0x57_3b_65);
-    premium_orbit(canvas, globe_x, globe_y, 153, 30, 0xd9_2e_5a);
-    premium_orbit(canvas, globe_x, globe_y, 193, 52, 0x00fd_3164);
-    for (dx, dy) in [
-        (-134_i32, -40_i32),
-        (-68, -55),
-        (-13, 15),
-        (35, -62),
-        (92, -40),
-        (142, 18),
-    ] {
-        let px = i32::try_from(globe_x)
-            .unwrap_or(i32::MAX)
-            .saturating_add(dx);
-        let py = i32::try_from(globe_y)
-            .unwrap_or(i32::MAX)
-            .saturating_add(dy);
-        if let (Ok(x), Ok(y)) = (usize::try_from(px), usize::try_from(py)) {
-            canvas.dot(x, y, 3, 0xff_4b_70);
-        }
+    if let Some(art) = approved_v7_hero_art() {
+        let art_width = usize::try_from(art.width).unwrap_or(0).min(hero.width);
+        let art_height = usize::try_from(art.height)
+            .unwrap_or(0)
+            .min(hero.height.saturating_sub(4));
+        canvas.image_rgba(
+            (
+                hero.x + hero.width.saturating_sub(art_width),
+                hero.y + 1,
+                art_width,
+                art_height,
+            ),
+            (
+                usize::try_from(art.width).unwrap_or(0),
+                usize::try_from(art.height).unwrap_or(0),
+            ),
+            &art.rgba,
+        );
     }
-    // Sharp foreground hardware silhouettes provide depth without a stock
-    // desktop screenshot, which must never be mistaken for remote video.
-    let monitor_x = hero.x + hero.width.saturating_sub(167);
-    let monitor_y = hero.y + 29;
-    canvas.soft_glow(monitor_x + 62, monitor_y + 81, 102, 34, 0xf7_21_52, 0.55);
-    canvas.rounded_panel(monitor_x, monitor_y, 114, 77, 5, 0x08_0f_1d, 0xef_24_50);
-    canvas.rounded_gradient_panel(
-        monitor_x + 7,
-        monitor_y + 7,
-        100,
-        60,
-        0x0c_11_28,
-        0x1a_0b_23,
-        0x32_21_4a,
-    );
-    draw_monitor_icon(canvas, monitor_x + 43, monitor_y + 23, 31, 21, 0xef_24_50);
-    canvas.fill_rect(monitor_x + 54, monitor_y + 77, 3, 14, 0x9e_85_a5);
-    canvas.h_line(monitor_x + 35, monitor_y + 91, 47, 0x9e_85_a5);
-    let laptop_x = monitor_x.saturating_sub(80);
-    let laptop_y = monitor_y + 46;
-    canvas.rounded_panel(laptop_x, laptop_y, 83, 50, 5, 0x0c_10_21, 0xef_24_50);
-    canvas.rounded_gradient_panel(
-        laptop_x + 6,
-        laptop_y + 6,
-        71,
-        36,
-        0x17_10_29,
-        0x0b_12_25,
-        0x42_1b_48,
-    );
-    draw_monitor_icon(canvas, laptop_x + 32, laptop_y + 14, 17, 12, 0xf7_26_50);
-    canvas.h_line(laptop_x.saturating_sub(9), laptop_y + 53, 99, 0xc0_83_a1);
-
     canvas.text_bold(hero.x + 22, hero.y + 22, "KMJ", 3, 0xff_20_4e);
     let omni_x = hero.x + 22 + Canvas::text_width("KMJ", 3) + 13;
     canvas.text_bold(omni_x, hero.y + 22, "OmniDesk", 3, p.foreground);
