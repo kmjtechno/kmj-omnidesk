@@ -57,7 +57,11 @@ fn feather_decorative_edges(
         return;
     }
     for y in 0..height {
-        let top_alpha = y.min(top).saturating_mul(255).checked_div(top).unwrap_or(255);
+        let top_alpha = y
+            .min(top)
+            .saturating_mul(255)
+            .checked_div(top)
+            .unwrap_or(255);
         let bottom_alpha = height
             .saturating_sub(y + 1)
             .min(bottom)
@@ -65,7 +69,11 @@ fn feather_decorative_edges(
             .checked_div(bottom)
             .unwrap_or(255);
         for x in 0..width {
-            let left_alpha = x.min(left).saturating_mul(255).checked_div(left).unwrap_or(255);
+            let left_alpha = x
+                .min(left)
+                .saturating_mul(255)
+                .checked_div(left)
+                .unwrap_or(255);
             let right_alpha = width
                 .saturating_sub(x + 1)
                 .min(right)
