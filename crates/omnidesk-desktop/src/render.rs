@@ -1851,24 +1851,25 @@ fn premium_panel(
     p: Palette,
     accent: bool,
 ) {
-    canvas.rounded_panel(
-        rect.x,
-        rect.y,
-        rect.width,
-        rect.height,
-        10,
-        0x14_17_24,
-        if accent { 0x9e_19_35 } else { p.border },
+    canvas.rounded_gradient_panel(
+        rect.x, rect.y, rect.width, rect.height,
+        0x1c_19_2a, 0x10_13_20,
+        if accent { 0x9e_24_46 } else { p.border },
     );
     if accent {
-        canvas.rounded_panel(
-            rect.x + 1,
-            rect.y + 1,
-            rect.width.saturating_sub(2),
-            rect.height.saturating_sub(2),
-            9,
-            0x14_17_24,
-            0x5a_14_25,
+        canvas.soft_glow(
+            rect.x + rect.width / 2,
+            rect.y + rect.height.saturating_sub(9),
+            rect.width / 2,
+            40,
+            0xf7_19_4a,
+            0.24,
+        );
+        canvas.h_line(
+            rect.x + 22,
+            rect.y + rect.height.saturating_sub(2),
+            rect.width.saturating_sub(44),
+            0xc7_23_4b,
         );
     }
 }
@@ -2384,16 +2385,16 @@ fn draw_premium_dashboard(
         0x8a_1e_35,
     );
     draw_monitor_icon(canvas, share.x + 29, share.y + 30, 18, 12, 0xff_30_55);
-    canvas.text(
+    canvas.text_bold(
         share.x + 66,
-        share.y + 20,
+        share.y + 18,
         "This Device (Share Access)",
-        1,
+        4,
         p.foreground,
     );
     canvas.text_clipped(
         share.x + 66,
-        share.y + 38,
+        share.y + 49,
         "Allow others to securely connect to this device.",
         1,
         share.width.saturating_sub(76),
@@ -2490,16 +2491,16 @@ fn draw_premium_dashboard(
         0x8a_1e_35,
     );
     draw_link_icon(canvas, connect.x + 30, connect.y + 31, 0xff_30_55);
-    canvas.text(
+    canvas.text_bold(
         connect.x + 66,
-        connect.y + 20,
+        connect.y + 18,
         "Connect to Remote Device",
-        1,
+        4,
         p.foreground,
     );
     canvas.text_clipped(
         connect.x + 66,
-        connect.y + 38,
+        connect.y + 49,
         "Access and control a remote device securely.",
         1,
         connect.width.saturating_sub(76),
@@ -2680,11 +2681,11 @@ fn draw_premium_dashboard(
     // Directory is populated only by actual product-shell state; no sample
     // Windows/Linux devices and no fabricated online badges or history.
     draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, 0xff_30_55);
-    canvas.text(
-        devices.x + 44,
-        devices.y + 18,
+    canvas.text_bold(
+        devices.x + 48,
+        devices.y + 15,
         "My Devices",
-        1,
+        4,
         p.foreground,
     );
     let visible_devices = presentation
@@ -2722,11 +2723,11 @@ fn draw_premium_dashboard(
         );
     }
     canvas.dot(sessions.x + 26, sessions.y + 26, 5, 0xf7_19_3b);
-    canvas.text(
-        sessions.x + 44,
-        sessions.y + 18,
+    canvas.text_bold(
+        sessions.x + 48,
+        sessions.y + 15,
         "Recent Sessions",
-        1,
+        4,
         p.foreground,
     );
     canvas.text_clipped(
@@ -2749,11 +2750,11 @@ fn draw_premium_dashboard(
     // Entitlement and health are not provided by this renderer. Until
     // authenticated runtime probes exist all badges must remain neutral.
     draw_award_icon(canvas, license.x + 18, license.y + 20, 0xf5_a6_23);
-    canvas.text(
-        license.x + 42,
-        license.y + 18,
+    canvas.text_bold(
+        license.x + 48,
+        license.y + 16,
         "Enterprise License",
-        1,
+        4,
         p.foreground,
     );
     canvas.rounded_panel(
@@ -2830,11 +2831,11 @@ fn draw_premium_dashboard(
     );
 
     draw_heartbeat_icon(canvas, health.x + 18, health.y + 20, 0xf7_19_3b);
-    canvas.text(
-        health.x + 40,
-        health.y + 18,
+    canvas.text_bold(
+        health.x + 47,
+        health.y + 16,
         "System Status",
-        1,
+        4,
         p.foreground,
     );
     let health_rows = [
@@ -2852,7 +2853,7 @@ fn draw_premium_dashboard(
 
     // Quick Actions
     draw_lightning_icon(canvas, quick.x + 18, quick.y + 18, 0xf7_19_3b);
-    canvas.text(quick.x + 40, quick.y + 16, "Quick Actions", 1, p.foreground);
+    canvas.text_bold(quick.x + 47, quick.y + 14, "Quick Actions", 4, p.foreground);
     let quick_actions = [
         "New Session",
         "Wake on LAN",
