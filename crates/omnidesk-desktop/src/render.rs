@@ -43,7 +43,13 @@ fn native_ui_font() -> Option<&'static FontArc> {
 }
 
 const fn native_text_size(scale: usize) -> f32 {
-    if scale >= 2 { 22.0 } else { 16.0 }
+    if scale >= 3 {
+        34.0
+    } else if scale >= 2 {
+        22.0
+    } else {
+        16.0
+    }
 }
 
 struct Canvas<'a> {
