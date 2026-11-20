@@ -1,0 +1,17 @@
+{
+  "product_slug": "kmj-omnidesk",
+  "product_id": "KMJ_OMNIDESK",
+  "authority": "KMJ Main Platform",
+  "plans": [
+    "personal",
+    "professional",
+    "business",
+    "enterprise"
+  ],
+  "codec_licenses": [
+    "Apache-2.0",
+    "MIT",
+    "BSD-3-Clause"
+  ],
+  "authority_note": "Commercial availability is gated by M14 legal_and_codec_license_review_complete sign-off. This document declares the licensing plan set; it is not itself a legal opinion."
+}

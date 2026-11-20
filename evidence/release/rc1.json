@@ -1,0 +1,47 @@
+{
+  "release_id": "kmj-omnidesk-0.0.1-rc",
+  "release": "kmj-omnidesk-0.0.1-rc",
+  "channel": "beta",
+  "version": "0.0.1-rc",
+  "version_code": 1,
+  "release_state": "UNSIGNED_CANDIDATE",
+  "publishable": false,
+  "signature_declared": false,
+  "performance_matrix_root": "evidence/m13-rc1",
+  "artifacts": [
+    {
+      "name": "omnidesk-desktop.exe",
+      "path": "artifacts/release-candidate/kmj-omnidesk-0.0.1-rc-windows-x86_64/omnidesk-desktop.exe",
+      "sha256": "3e3dfebefe1f84a099ffbfd683c3a5a1557e82c0908b68bd20777bf9182ecbb4",
+      "size_bytes": 2083328,
+      "signature_declared": false
+    }
+  ],
+  "update_metadata": [
+    {
+      "channel": "stable",
+      "path": "evidence/release/stable.json"
+    },
+    {
+      "channel": "beta",
+      "path": "evidence/release/beta.json"
+    }
+  ],
+  "licensing_contract": {
+    "path": "evidence/release/licensing-contract.json"
+  },
+  "security_checks": [
+    {
+      "name": "cargo-deny",
+      "status": "green"
+    },
+    {
+      "name": "Rust quality gates",
+      "status": "green"
+    },
+    {
+      "name": "Windows capture gate",
+      "status": "green"
+    }
+  ]
+}
