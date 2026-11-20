@@ -2121,12 +2121,14 @@ fn draw_premium_dashboard(
 
     canvas.pixels.fill(p.background);
 
-    // 1. Top Chrome Header
-    canvas.fill_rect(0, 0, canvas.width, layout.header_height, 0x0b_0d_17);
-    canvas.h_line(0, layout.header_height - 1, canvas.width, 0x6e_17_34);
+    // 1. Premium header. KMJ TECHNO official mark appears only once.
+    // The actual OS owns titlebar minimize/maximize/close controls.
+    canvas.fill_rect(0, 0, canvas.width, layout.header_height, 0x09_0b_14);
+    canvas.soft_glow(canvas.width / 2, 0, canvas.width / 2, 106, 0x47_1b_45, 0.31);
+    canvas.h_line(0, layout.header_height - 1, canvas.width, 0x71_16_35);
     if let Some(mark) = official_kmj_mark() {
         canvas.image_rgba(
-            (22, 11, 48, 48),
+            (31, 7, 56, 56),
             (
                 usize::try_from(mark.width).unwrap_or(0),
                 usize::try_from(mark.height).unwrap_or(0),
@@ -2134,30 +2136,30 @@ fn draw_premium_dashboard(
             &mark.rgba,
         );
     }
-    canvas.text(77, 15, "KMJ TECHNO", 2, p.foreground);
-    canvas.text(79, 44, "INNOVATE | BUILD | SCALE", 1, p.muted);
-    canvas.fill_rect(296, 16, 1, 40, p.accent);
-    canvas.text(318, 19, "OmniDesk", 2, p.foreground);
-    canvas.text(410, 17, "TM", 1, 0x99_a3_b3);
-    canvas.rounded_panel(435, 22, 92, 26, 6, 0x85_12_2d, p.accent);
-    canvas.text(449, 28, "Enterprise", 1, p.foreground);
+    canvas.text_bold(102, 11, "KMJ TECHNO", 2, p.foreground);
+    canvas.text(104, 44, "INNOVATE | BUILD | SCALE", 5, 0xc6_c9_d4);
+    canvas.fill_rect(301, 12, 2, 44, p.accent);
+
+    let wordmark_x = 333;
+    canvas.text_bold(wordmark_x, 13, "OmniDesk", 6, p.foreground);
+    let wordmark_end = wordmark_x + Canvas::text_width("OmniDesk", 6);
+    canvas.text(wordmark_end + 4, 15, "TM", 5, 0xc7_c6_cf);
+    let license_pill = wordmark_end + 28;
+    canvas.rounded_gradient_panel(
+        license_pill, 20, 96, 30, 0xd5_18_37, 0x82_0a_29, p.accent,
+    );
+    canvas.text_bold(license_pill + 14, 25, "Enterprise", 5, p.foreground);
     locked_label(
-        canvas,
-        545,
-        30,
-        canvas.width.saturating_sub(840),
-        "Unified Remote Access & Support Platform",
-        0xa0_ab_bc,
+        canvas, license_pill + 126, 29,
+        canvas.width.saturating_sub(license_pill + 350),
+        "Unified Remote Access & Support Platform", 0xc1_c2_d1,
     );
 
-    // Top Right Icons: Bell, Help, Settings, Window Controls
-    let right_ctrl_x = canvas.width.saturating_sub(180);
-    draw_bell_icon(canvas, right_ctrl_x, 26, 0xcb_d2_df);
+    let right_ctrl_x = canvas.width.saturating_sub(143);
+    draw_bell_icon(canvas, right_ctrl_x, 26, 0xe2_e4_eb);
     canvas.dot(right_ctrl_x + 10, 24, 3, 0xf7_19_3b);
-    draw_help_icon(canvas, right_ctrl_x + 28, 25, 0xcb_d2_df);
-    draw_gear_icon(canvas, right_ctrl_x + 56, 25, 0xcb_d2_df);
-    // Native Windows titlebar already owns minimize/maximize/close.
-    // Never paint fake window controls that cannot receive real clicks.
+    draw_help_icon(canvas, right_ctrl_x + 33, 25, 0xe2_e4_eb);
+    draw_gear_icon(canvas, right_ctrl_x + 69, 25, 0xe2_e4_eb);
 
     // 2. Left Navigation Rail
     let nav = layout.navigation;
@@ -2261,56 +2263,66 @@ fn draw_premium_dashboard(
         0x78_82_94,
     );
 
-    // 3. Hero Banner
+    // 3. Locked V7 editorial hero. Every light trail is decorative only.
     let hero = layout.hero;
-    canvas.rounded_panel(
-        hero.x,
-        hero.y,
-        hero.width,
-        hero.height,
-        12,
-        0x0f_13_1e,
-        0x3d_14_25,
+    canvas.rounded_gradient_panel(
+        hero.x, hero.y, hero.width, hero.height,
+        0x11_0d_1d, 0x0c_0d_17, 0x52_21_3b,
     );
-    canvas.text(hero.x + 22, hero.y + 24, "KMJ", 3, 0xff_20_4e);
-    canvas.text(hero.x + 92, hero.y + 24, "OmniDesk", 3, p.foreground);
-    canvas.text(hero.x + 236, hero.y + 22, "TM", 1, 0x90_9a_ac);
-    locked_label(
-        canvas,
-        hero.x + 24,
-        hero.y + 76,
-        hero.width.saturating_sub(44),
-        "Secure Remote Access  ·  Support  ·  Manage  ·  Collaborate",
-        0xc5_cb_d8,
-    );
-
-    // Red orbital globe background + 3D monitor outline
-    let globe_x = hero.x + hero.width.saturating_sub(190);
-    let globe_y = hero.y + 78;
-    premium_orbit(canvas, globe_x, globe_y, 130, 56, 0xa7_1b_46);
-    premium_orbit(canvas, globe_x, globe_y, 65, 56, 0x5d_27_48);
-    premium_orbit(canvas, globe_x, globe_y, 130, 26, 0xcb_1b_4c);
-    premium_orbit(canvas, globe_x, globe_y, 150, 33, p.accent);
-    for (dx, dy) in [(-70_i32, -30_i32), (32, -44), (95, -10), (-25, 40)] {
-        let px = i32::try_from(globe_x)
-            .unwrap_or(i32::MAX)
-            .saturating_add(dx);
-        let py = i32::try_from(globe_y)
-            .unwrap_or(i32::MAX)
-            .saturating_add(dy);
+    let globe_x = hero.x + hero.width.saturating_sub(335);
+    let globe_y = hero.y + 90;
+    canvas.soft_glow(globe_x, globe_y, 260, 113, 0xe2_13_50, 0.54);
+    canvas.soft_glow(globe_x + 120, globe_y - 60, 185, 122, 0x3b_46_af, 0.25);
+    canvas.soft_glow(hero.x + hero.width / 2, hero.y + 158, hero.width / 2, 26, 0xf5_13_4b, 0.49);
+    premium_orbit(canvas, globe_x, globe_y, 153, 72, 0xc1_2e_63);
+    premium_orbit(canvas, globe_x, globe_y, 102, 72, 0x6a_31_64);
+    premium_orbit(canvas, globe_x, globe_y, 39, 72, 0x57_3b_65);
+    premium_orbit(canvas, globe_x, globe_y, 153, 30, 0xd9_2e_5a);
+    premium_orbit(canvas, globe_x, globe_y, 193, 52, 0xfd_31_64);
+    for (dx, dy) in [
+        (-134_i32, -40_i32), (-68, -55), (-13, 15),
+        (35, -62), (92, -40), (142, 18),
+    ] {
+        let px = i32::try_from(globe_x).unwrap_or(i32::MAX).saturating_add(dx);
+        let py = i32::try_from(globe_y).unwrap_or(i32::MAX).saturating_add(dy);
         if let (Ok(x), Ok(y)) = (usize::try_from(px), usize::try_from(py)) {
-            canvas.dot(x, y, 3, p.accent);
+            canvas.dot(x, y, 3, 0xff_4b_70);
         }
     }
-    // Monitor and Laptop wireframes in hero
-    let mon_x = hero.x + hero.width.saturating_sub(140);
-    let mon_y = hero.y + 30;
-    canvas.rounded_panel(mon_x, mon_y, 90, 56, 6, 0x14_17_24, 0xf7_19_3b);
-    draw_monitor_icon(canvas, mon_x + 36, mon_y + 18, 18, 13, 0xf7_19_3b);
-    let lap_x = mon_x.saturating_sub(55);
-    let lap_y = mon_y + 22;
-    canvas.rounded_panel(lap_x, lap_y, 65, 42, 4, 0x11_15_20, 0xd0_18_38);
-    draw_monitor_icon(canvas, lap_x + 24, lap_y + 12, 14, 10, 0xd0_18_38);
+    // Sharp foreground hardware silhouettes provide depth without a stock
+    // desktop screenshot, which must never be mistaken for remote video.
+    let monitor_x = hero.x + hero.width.saturating_sub(167);
+    let monitor_y = hero.y + 29;
+    canvas.soft_glow(monitor_x + 62, monitor_y + 81, 102, 34, 0xf7_21_52, 0.55);
+    canvas.rounded_panel(monitor_x, monitor_y, 114, 77, 5, 0x08_0f_1d, 0xef_24_50);
+    canvas.rounded_gradient_panel(
+        monitor_x + 7, monitor_y + 7, 100, 60,
+        0x0c_11_28, 0x1a_0b_23, 0x32_21_4a,
+    );
+    draw_monitor_icon(canvas, monitor_x + 43, monitor_y + 23, 31, 21, 0xef_24_50);
+    canvas.fill_rect(monitor_x + 54, monitor_y + 77, 3, 14, 0x9e_85_a5);
+    canvas.h_line(monitor_x + 35, monitor_y + 91, 47, 0x9e_85_a5);
+    let laptop_x = monitor_x.saturating_sub(80);
+    let laptop_y = monitor_y + 46;
+    canvas.rounded_panel(laptop_x, laptop_y, 83, 50, 5, 0x0c_10_21, 0xef_24_50);
+    canvas.rounded_gradient_panel(
+        laptop_x + 6, laptop_y + 6, 71, 36, 0x17_10_29, 0x0b_12_25, 0x42_1b_48,
+    );
+    draw_monitor_icon(canvas, laptop_x + 32, laptop_y + 14, 17, 12, 0xf7_26_50);
+    canvas.h_line(laptop_x.saturating_sub(9), laptop_y + 53, 99, 0xc0_83_a1);
+
+    canvas.text_bold(hero.x + 22, hero.y + 22, "KMJ", 3, 0xff_20_4e);
+    let omni_x = hero.x + 22 + Canvas::text_width("KMJ", 3) + 13;
+    canvas.text_bold(omni_x, hero.y + 22, "OmniDesk", 3, p.foreground);
+    canvas.text(omni_x + Canvas::text_width("OmniDesk", 3) + 3, hero.y + 23, "TM", 5, 0xde_d4_e0);
+    locked_label(
+        canvas, hero.x + 24, hero.y + 104,
+        hero.width.saturating_sub(44),
+        "Secure Remote Access  ·  Support  ·  Manage  ·  Collaborate",
+        0xe2_d9_e4,
+    );
+    canvas.h_line(hero.x + 1, hero.y + hero.height.saturating_sub(2),
+        hero.width.saturating_sub(2), 0x9f_10_37);
 
     // 4. Two Primary Cards: "This Device" and "Connect to Remote Device"
     let share = layout.share;
