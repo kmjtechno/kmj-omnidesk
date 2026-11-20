@@ -2171,7 +2171,12 @@ fn draw_premium_dashboard(
     canvas.fill_rect(nav.width.saturating_sub(1), nav.y, 1, nav.height, p.border);
     if let Some((source_width, source_height, rgba)) = approved_v7_sidebar_wave_art() {
         canvas.image_rgba(
-            (nav.x, nav.y + nav.height.saturating_sub(185), nav.width, 185),
+            (
+                nav.x,
+                nav.y + nav.height.saturating_sub(185),
+                nav.width,
+                185,
+            ),
             (*source_width, *source_height),
             rgba,
         );
