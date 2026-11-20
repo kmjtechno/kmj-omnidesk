@@ -518,6 +518,7 @@ fn premium_action_at_point(
 }
 
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn action_at_point(
     shell: &ProductShell,
     width: usize,

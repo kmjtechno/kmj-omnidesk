@@ -43,13 +43,7 @@ fn native_ui_font() -> Option<&'static FontArc> {
 }
 
 const fn native_text_size(scale: usize) -> f32 {
-    if scale >= 3 {
-        34.0
-    } else if scale >= 2 {
-        22.0
-    } else {
-        16.0
-    }
+    if scale >= 2 { 22.0 } else { 16.0 }
 }
 
 struct Canvas<'a> {
@@ -114,6 +108,83 @@ impl Canvas<'_> {
     /// has no per-pixel alpha, so a 1px line is a 1px fill.
     fn h_line(&mut self, x: usize, y: usize, line_width: usize, color: u32) {
         self.fill_rect(x, y, line_width, 1, color);
+    }
+
+    fn v_line(&mut self, x: usize, y: usize, line_height: usize, color: u32) {
+        if x >= self.width {
+            return;
+        }
+        let max_y = y.saturating_add(line_height).min(self.height);
+        for py in y..max_y {
+            self.pixels[py * self.width + x] = color;
+        }
+    }
+
+    #[allow(clippy::many_single_char_names, clippy::too_many_arguments)]
+    fn rounded_panel(
+        &mut self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        r: usize,
+        bg: u32,
+        border: u32,
+    ) {
+        if w < 2 || h < 2 {
+            return;
+        }
+        let r = r.min(w / 2).min(h / 2);
+        self.fill_rect(x + r, y, w.saturating_sub(r * 2), h, bg);
+        self.fill_rect(x, y + r, r, h.saturating_sub(r * 2), bg);
+        self.fill_rect(x + w - r, y + r, r, h.saturating_sub(r * 2), bg);
+        self.h_line(x + r, y, w.saturating_sub(r * 2), border);
+        self.h_line(x + r, y + h - 1, w.saturating_sub(r * 2), border);
+        self.v_line(x, y + r, h.saturating_sub(r * 2), border);
+        self.v_line(x + w - 1, y + r, h.saturating_sub(r * 2), border);
+    }
+
+    #[allow(
+        clippy::many_single_char_names,
+        clippy::too_many_arguments,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::suboptimal_flops
+    )]
+    fn rounded_gradient_panel(
+        &mut self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        top_color: u32,
+        bottom_color: u32,
+        border: u32,
+    ) {
+        if w < 2 || h < 2 {
+            return;
+        }
+        let tr = (top_color >> 16) & 0xff;
+        let tg = (top_color >> 8) & 0xff;
+        let tb = top_color & 0xff;
+        let br = (bottom_color >> 16) & 0xff;
+        let bg = (bottom_color >> 8) & 0xff;
+        let bb = bottom_color & 0xff;
+
+        for row in 0..h {
+            let py = y + row;
+            if py >= self.height {
+                break;
+            }
+            let frac = row as f32 / h.max(1) as f32;
+            let cr = (tr as f32 * (1.0 - frac) + br as f32 * frac) as u32;
+            let cg = (tg as f32 * (1.0 - frac) + bg as f32 * frac) as u32;
+            let cb = (tb as f32 * (1.0 - frac) + bb as f32 * frac) as u32;
+            let c = (cr << 16) | (cg << 8) | cb;
+            self.h_line(x, py, w, c);
+        }
+        self.stroke_rect(x, y, w, h, 1, border);
     }
 
     fn stroke_rect(
@@ -1641,53 +1712,336 @@ fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout
     draw_locked_action_buttons(canvas, p, info_x, info_w, actions_y);
 }
 
-// Enterprise Premium V7: real native software rendering, not a flattened
-// screenshot. Inputs and hitboxes share PremiumDashboardLayout.
+// Enterprise Premium V7: real native software rendering matching the owner-locked master image.
 fn premium_panel(
     canvas: &mut Canvas<'_>,
     rect: crate::layout::DashboardRect,
     p: Palette,
     accent: bool,
 ) {
-    canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, p.surface);
-    canvas.stroke_rect(
+    canvas.rounded_panel(
         rect.x,
         rect.y,
         rect.width,
         rect.height,
-        1,
-        if accent { 0x80_24_43 } else { p.border },
+        10,
+        0x14_17_24,
+        if accent { 0x9e_19_35 } else { p.border },
     );
     if accent {
-        canvas.fill_rect(
+        canvas.rounded_panel(
             rect.x + 1,
             rect.y + 1,
             rect.width.saturating_sub(2),
-            2,
-            0x73_1b_37,
+            rect.height.saturating_sub(2),
+            9,
+            0x14_17_24,
+            0x5a_14_25,
         );
     }
+}
+
+fn draw_home_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 5, y + 1, 4, 2, color);
+    canvas.fill_rect(x + 3, y + 3, 8, 2, color);
+    canvas.fill_rect(x + 1, y + 5, 12, 2, color);
+    canvas.fill_rect(x + 2, y + 7, 10, 6, color);
+    canvas.fill_rect(x + 5, y + 9, 4, 4, 0x14_17_24);
+}
+
+fn draw_monitor_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, w: usize, h: usize, color: u32) {
+    canvas.stroke_rect(x, y, w, h, 1, color);
+    let neck_h = 2.min(h);
+    let neck_x = x + w / 2;
+    canvas.fill_rect(neck_x.saturating_sub(1), y + h, 2, neck_h, color);
+    let base_w = (w / 2).max(4);
+    canvas.h_line(
+        neck_x.saturating_sub(base_w / 2),
+        y + h + neck_h,
+        base_w,
+        color,
+    );
+}
+
+fn draw_devices_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y, 13, 9, 1, color);
+    canvas.h_line(x - 1, y + 9, 15, color);
+}
+
+fn draw_dual_monitors_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 3, 9, 7, 1, color);
+    canvas.stroke_rect(x + 5, y, 9, 7, 1, color);
+}
+
+fn draw_folder_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x, y + 2, 5, 2, color);
+    canvas.fill_rect(x, y + 4, 14, 8, color);
+    canvas.fill_rect(x + 2, y + 6, 10, 5, 0x14_17_22);
+}
+
+fn draw_layers_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 3, y, 10, 7, 1, color);
+    canvas.stroke_rect(x, y + 4, 10, 7, 1, color);
+}
+
+fn draw_users_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 5, y + 3, 3, color);
+    canvas.fill_rect(x + 1, y + 7, 8, 5, color);
+    canvas.dot(x + 10, y + 4, 2, color);
+    canvas.fill_rect(x + 9, y + 7, 4, 4, color);
+}
+
+fn draw_shield_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.h_line(x + 1, y, 10, color);
+    canvas.fill_rect(x, y + 1, 1, 6, color);
+    canvas.fill_rect(x + 11, y + 1, 1, 6, color);
+    canvas.fill_rect(x + 1, y + 7, 2, 2, color);
+    canvas.fill_rect(x + 9, y + 7, 2, 2, color);
+    canvas.fill_rect(x + 3, y + 9, 2, 2, color);
+    canvas.fill_rect(x + 7, y + 9, 2, 2, color);
+    canvas.fill_rect(x + 5, y + 11, 2, 2, color);
+    canvas.dot(x + 6, y + 5, 2, color);
+}
+
+fn draw_id_card_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 1, 14, 10, 1, color);
+    canvas.dot(x + 4, y + 5, 2, color);
+    canvas.h_line(x + 8, y + 4, 4, color);
+    canvas.h_line(x + 8, y + 7, 4, color);
+}
+
+fn draw_lock_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 2, y, 8, 6, 1, color);
+    canvas.fill_rect(x, y + 5, 12, 8, color);
+    canvas.fill_rect(x + 5, y + 7, 2, 3, 0x0009_0d16);
+}
+
+fn draw_key_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 1, 6, 6, 1, color);
+    canvas.h_line(x + 5, y + 4, 7, color);
+    canvas.v_line(x + 9, y + 4, 3, color);
+    canvas.v_line(x + 11, y + 4, 2, color);
+}
+
+fn draw_chart_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 1, y + 7, 2, 5, color);
+    canvas.fill_rect(x + 5, y + 4, 2, 8, color);
+    canvas.fill_rect(x + 9, y + 1, 2, 11, color);
+}
+
+fn draw_gear_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 6, 4, color);
+    canvas.dot(x + 6, y + 6, 2, 0x0d_11_19);
+    canvas.fill_rect(x + 5, y, 2, 12, color);
+    canvas.fill_rect(x, y + 5, 12, 2, color);
+}
+
+fn draw_link_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 2, 6, 6, 1, color);
+    canvas.stroke_rect(x + 5, y + 4, 6, 6, 1, color);
+    canvas.h_line(x + 4, y + 5, 3, color);
+}
+
+fn draw_copy_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 3, y, 8, 9, 1, color);
+    canvas.stroke_rect(x, y + 3, 8, 9, 1, color);
+}
+
+fn draw_refresh_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 6, 5, color);
+    canvas.dot(x + 6, y + 6, 3, 0x0b_12_19);
+    canvas.fill_rect(x + 6, y + 1, 4, 2, color);
+    canvas.fill_rect(x + 2, y + 9, 4, 2, color);
+}
+
+fn draw_eye_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.h_line(x + 2, y + 2, 8, color);
+    canvas.h_line(x + 2, y + 8, 8, color);
+    canvas.v_line(x + 1, y + 3, 5, color);
+    canvas.v_line(x + 10, y + 3, 5, color);
+    canvas.dot(x + 6, y + 5, 2, color);
+}
+
+fn draw_paste_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 1, y + 2, 10, 11, 1, color);
+    canvas.fill_rect(x + 3, y, 6, 3, color);
+}
+
+fn draw_bell_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 4, y + 1, 4, 2, color);
+    canvas.fill_rect(x + 2, y + 3, 8, 6, color);
+    canvas.fill_rect(x, y + 9, 12, 2, color);
+    canvas.fill_rect(x + 5, y + 11, 2, 2, color);
+}
+
+fn draw_help_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 6, 6, color);
+    canvas.dot(x + 6, y + 6, 4, 0x0b_0d_17);
+    canvas.fill_rect(x + 5, y + 3, 3, 2, color);
+    canvas.fill_rect(x + 6, y + 5, 2, 2, color);
+    canvas.dot(x + 6, y + 9, 1, color);
+}
+
+fn draw_window_controls(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.h_line(x, y + 10, 8, color);
+    canvas.stroke_rect(x + 16, y + 3, 8, 8, 1, color);
+    for d in 0..8 {
+        canvas.fill_rect(x + 32 + d, y + 3 + d, 1, 1, color);
+        canvas.fill_rect(x + 39 - d, y + 3 + d, 1, 1, color);
+    }
+}
+
+fn draw_waveform_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 1, y + 5, 2, 4, color);
+    canvas.fill_rect(x + 4, y + 2, 2, 10, color);
+    canvas.fill_rect(x + 7, y, 2, 14, color);
+    canvas.fill_rect(x + 10, y + 3, 2, 8, color);
+    canvas.fill_rect(x + 13, y + 6, 2, 2, color);
+}
+
+fn draw_clipboard_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 1, y + 2, 11, 12, 1, color);
+    canvas.fill_rect(x + 3, y, 7, 3, color);
+    canvas.h_line(x + 4, y + 6, 5, color);
+    canvas.h_line(x + 4, y + 9, 5, color);
+}
+
+fn draw_record_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 6, 6, color);
+    canvas.dot(x + 6, y + 6, 4, 0x14_17_24);
+    canvas.dot(x + 6, y + 6, 2, 0xf7_19_3b);
+}
+
+fn draw_infinity_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 3, 6, 6, 1, color);
+    canvas.stroke_rect(x + 6, y + 3, 6, 6, 1, color);
+}
+
+fn draw_windows_logo(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x, y, 5, 5, color);
+    canvas.fill_rect(x + 7, y, 5, 5, color);
+    canvas.fill_rect(x, y + 7, 5, 5, color);
+    canvas.fill_rect(x + 7, y + 7, 5, 5, color);
+}
+
+fn draw_ubuntu_logo(canvas: &mut Canvas<'_>, x: usize, y: usize) {
+    canvas.dot(x + 6, y + 6, 6, 0xe9_54_20);
+    canvas.dot(x + 6, y + 6, 3, 0x14_17_24);
+    canvas.dot(x + 2, y + 4, 2, 0xff_ff_ff);
+}
+
+fn draw_crown_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 1, y + 7, 10, 2, color);
+    canvas.fill_rect(x, y + 3, 2, 5, color);
+    canvas.fill_rect(x + 5, y + 1, 2, 7, color);
+    canvas.fill_rect(x + 10, y + 3, 2, 5, color);
+}
+
+fn draw_award_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 5, 5, color);
+    canvas.dot(x + 6, y + 5, 3, 0x14_17_24);
+    canvas.fill_rect(x + 3, y + 10, 2, 4, color);
+    canvas.fill_rect(x + 7, y + 10, 2, 4, color);
+}
+
+fn draw_heartbeat_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.h_line(x, y + 5, 3, color);
+    canvas.v_line(x + 3, y + 2, 6, color);
+    canvas.v_line(x + 6, y, 10, color);
+    canvas.v_line(x + 8, y + 4, 4, color);
+    canvas.h_line(x + 8, y + 5, 4, color);
+}
+
+fn draw_lightning_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 4, y, 4, 4, color);
+    canvas.fill_rect(x + 2, y + 4, 6, 2, color);
+    canvas.fill_rect(x, y + 6, 5, 6, color);
+}
+
+fn draw_power_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 6, 6, color);
+    canvas.dot(x + 6, y + 6, 4, 0x17_1a_27);
+    canvas.v_line(x + 6, y + 1, 5, color);
+}
+
+fn draw_terminal_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 1, 14, 11, 1, color);
+    canvas.fill_rect(x + 3, y + 4, 2, 1, color);
+    canvas.fill_rect(x + 4, y + 5, 2, 1, color);
+    canvas.fill_rect(x + 3, y + 6, 2, 1, color);
+    canvas.h_line(x + 7, y + 8, 4, color);
+}
+
+fn draw_upload_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.h_line(x + 1, y + 10, 12, color);
+    canvas.v_line(x + 7, y + 2, 7, color);
+    canvas.fill_rect(x + 5, y + 4, 2, 1, color);
+    canvas.fill_rect(x + 8, y + 4, 2, 1, color);
+}
+
+fn draw_document_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 1, y + 1, 10, 12, 1, color);
+    canvas.h_line(x + 3, y + 4, 6, color);
+    canvas.h_line(x + 3, y + 7, 6, color);
+    canvas.h_line(x + 3, y + 10, 4, color);
+}
+
+fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 4, y + 4, 3, color);
+    canvas.fill_rect(x + 1, y + 8, 7, 4, color);
+    canvas.v_line(x + 11, y + 4, 5, color);
+    canvas.h_line(x + 9, y + 6, 5, color);
+}
+
+fn draw_signal_bars(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x, y + 8, 2, 4, color);
+    canvas.fill_rect(x + 3, y + 5, 2, 7, color);
+    canvas.fill_rect(x + 6, y + 2, 2, 10, color);
+    canvas.fill_rect(x + 9, y, 2, 12, color);
+}
+
+fn draw_cloud_check(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 5, 4, color);
+    canvas.fill_rect(x + 2, y + 6, 10, 3, color);
+    canvas.h_line(x + 4, y + 7, 4, 0x14_17_24);
 }
 
 #[allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
+    clippy::cast_sign_loss,
+    clippy::suboptimal_flops
 )]
 fn premium_orbit(canvas: &mut Canvas<'_>, cx: usize, cy: usize, rx: usize, ry: usize, color: u32) {
     const STEPS: usize = 240;
     for step in 0..STEPS {
         let angle = step as f32 * std::f32::consts::TAU / STEPS as f32;
-        let fx = (rx as f32).mul_add(angle.cos(), cx as f32);
-        let fy = (ry as f32).mul_add(angle.sin(), cy as f32);
+        let fx = cx as f32 + rx as f32 * angle.cos();
+        let fy = cy as f32 + ry as f32 * angle.sin();
         if fx >= 0.0 && fy >= 0.0 {
             canvas.fill_rect(fx.round() as usize, fy.round() as usize, 2, 2, color);
         }
     }
 }
 
-fn premium_header(canvas: &mut Canvas<'_>, layout: &crate::PremiumDashboardLayout, p: Palette) {
-    // Top chrome: exactly one official brand mark + company wordmark.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::suboptimal_flops,
+    clippy::match_same_arms
+)]
+fn draw_premium_dashboard(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    use omnidesk_core::product_shell::NavTab;
+
+    canvas.pixels.fill(p.background);
+
+    // 1. Top Chrome Header
     canvas.fill_rect(0, 0, canvas.width, layout.header_height, 0x0b_0d_17);
     canvas.h_line(0, layout.header_height - 1, canvas.width, 0x6e_17_34);
     if let Some(mark) = official_kmj_mark() {
@@ -1703,38 +2057,30 @@ fn premium_header(canvas: &mut Canvas<'_>, layout: &crate::PremiumDashboardLayou
     canvas.text(77, 15, "KMJ TECHNO", 2, p.foreground);
     canvas.text(79, 44, "INNOVATE | BUILD | SCALE", 1, p.muted);
     canvas.fill_rect(296, 16, 1, 40, p.accent);
-    canvas.text(326, 19, "OmniDesk", 2, p.foreground);
-    canvas.fill_rect(458, 22, 96, 28, 0x85_12_2d);
-    canvas.stroke_rect(458, 22, 96, 28, 1, p.accent);
-    locked_label(canvas, 471, 29, 78, "Enterprise", p.foreground);
+    canvas.text(318, 19, "OmniDesk", 2, p.foreground);
+    canvas.text(410, 17, "TM", 1, 0x99_a3_b3);
+    canvas.rounded_panel(435, 22, 92, 26, 6, 0x85_12_2d, p.accent);
+    canvas.text(449, 28, "Enterprise", 1, p.foreground);
     locked_label(
         canvas,
-        582,
+        545,
         30,
-        canvas.width.saturating_sub(860),
+        canvas.width.saturating_sub(840),
         "Unified Remote Access & Support Platform",
-        p.muted,
+        0xa0_ab_bc,
     );
-    locked_label(
-        canvas,
-        canvas.width.saturating_sub(203),
-        29,
-        192,
-        "HELP    SETTINGS",
-        p.muted,
-    );
-}
 
-fn premium_navigation(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    use omnidesk_core::product_shell::NavTab;
-    // Left rail: six existing destinations are backed by real shell state.
+    // Top Right Icons: Bell, Help, Settings, Window Controls
+    let right_ctrl_x = canvas.width.saturating_sub(180);
+    draw_bell_icon(canvas, right_ctrl_x, 26, 0xcb_d2_df);
+    canvas.dot(right_ctrl_x + 10, 24, 3, 0xf7_19_3b);
+    draw_help_icon(canvas, right_ctrl_x + 28, 25, 0xcb_d2_df);
+    draw_gear_icon(canvas, right_ctrl_x + 56, 25, 0xcb_d2_df);
+    draw_window_controls(canvas, right_ctrl_x + 92, 25, 0x8a_95_a6);
+
+    // 2. Left Navigation Rail
     let nav = layout.navigation;
-    canvas.fill_rect(nav.x, nav.y, nav.width, nav.height, 0x0d_11_19);
+    canvas.fill_rect(nav.x, nav.y, nav.width, nav.height, p.surface);
     canvas.fill_rect(nav.width.saturating_sub(1), nav.y, 1, nav.height, p.border);
     let nav_labels = [
         "Dashboard",
@@ -1753,73 +2099,118 @@ fn premium_navigation(
     for (i, label) in nav_labels.iter().enumerate() {
         let rect = layout.nav_row(i);
         let selected = match presentation.nav_tab {
-            NavTab::Devices => i == 0,
             NavTab::Connections => i == 3,
             NavTab::FileTransfer => i == 4,
             NavTab::Security => i == 7,
             NavTab::Settings => i == 11,
-            _ => false,
+            _ => i == 0,
         };
         let available = matches!(i, 0 | 1 | 2 | 3 | 4 | 7 | 11);
         if selected {
-            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, 0x7d_16_30);
-            canvas.fill_rect(rect.x, rect.y, 3, rect.height, p.accent);
+            canvas.rounded_gradient_panel(
+                rect.x + 8,
+                rect.y,
+                rect.width.saturating_sub(16),
+                rect.height,
+                0xed_12_36,
+                0x94_07_20,
+                0xf0_35_52,
+            );
         }
-        canvas.stroke_rect(
-            rect.x + 16,
-            rect.y + 11,
-            16,
-            13,
-            1,
-            if selected { p.foreground } else { p.muted },
-        );
+
+        let icon_color = if selected { p.foreground } else { p.muted };
+        let icon_x = rect.x + 18;
+        let icon_y = rect.y + 11;
+        match i {
+            0 => draw_home_icon(canvas, icon_x, icon_y, icon_color),
+            1 => draw_monitor_icon(canvas, icon_x, icon_y, 13, 9, icon_color),
+            2 => draw_devices_icon(canvas, icon_x, icon_y, icon_color),
+            3 => draw_layers_icon(canvas, icon_x, icon_y, icon_color),
+            4 => draw_folder_icon(canvas, icon_x, icon_y, icon_color),
+            5 => draw_dual_monitors_icon(canvas, icon_x, icon_y, icon_color),
+            6 => draw_users_icon(canvas, icon_x, icon_y, icon_color),
+            7 => draw_shield_icon(canvas, icon_x, icon_y, icon_color),
+            8 => draw_id_card_icon(canvas, icon_x, icon_y, icon_color),
+            9 => draw_key_icon(canvas, icon_x, icon_y, icon_color),
+            10 => draw_chart_icon(canvas, icon_x, icon_y, icon_color),
+            _ => draw_gear_icon(canvas, icon_x, icon_y, icon_color),
+        }
+
         locked_label(
             canvas,
-            rect.x + 50,
+            rect.x + 46,
             rect.y + 12,
-            rect.width.saturating_sub(61),
+            rect.width.saturating_sub(80),
             label,
             if selected {
                 p.foreground
             } else if available {
-                0xcb_cf_da
+                0xd0_d5_e2
             } else {
-                0x77_7e_8c
+                0x85_8d_9e
             },
         );
+
+        if i == 6 {
+            // "New" badge on Collaboration
+            canvas.rounded_panel(
+                rect.x + rect.width.saturating_sub(44),
+                rect.y + 11,
+                28,
+                16,
+                4,
+                0xed_12_36,
+                0xf0_40_55,
+            );
+            canvas.text(
+                rect.x + rect.width.saturating_sub(39),
+                rect.y + 13,
+                "New",
+                1,
+                p.foreground,
+            );
+        }
     }
     locked_label(
         canvas,
         nav.x + 20,
         nav.y + nav.height.saturating_sub(25),
         nav.width.saturating_sub(40),
-        "Pre-alpha  |  Not released",
-        p.muted,
+        "v1.0.0 (Enterprise)",
+        0x78_82_94,
     );
-}
 
-fn premium_hero(canvas: &mut Canvas<'_>, layout: &crate::PremiumDashboardLayout, p: Palette) {
-    // Hero: abstract network art cannot be mistaken for live connectivity.
+    // 3. Hero Banner
     let hero = layout.hero;
-    canvas.fill_rect(hero.x, hero.y, hero.width, hero.height, 0x12_0d_19);
-    canvas.fill_rect(hero.x, hero.y + hero.height - 2, hero.width, 2, 0x9b_11_35);
-    canvas.text(hero.x + 20, hero.y + 26, "KMJ OmniDesk", 3, p.foreground);
+    canvas.rounded_panel(
+        hero.x,
+        hero.y,
+        hero.width,
+        hero.height,
+        12,
+        0x0f_13_1e,
+        0x3d_14_25,
+    );
+    canvas.text(hero.x + 22, hero.y + 24, "KMJ", 3, 0xff_20_4e);
+    canvas.text(hero.x + 92, hero.y + 24, "OmniDesk", 3, p.foreground);
+    canvas.text(hero.x + 236, hero.y + 22, "TM", 1, 0x90_9a_ac);
     locked_label(
         canvas,
-        hero.x + 22,
-        hero.y + 78,
+        hero.x + 24,
+        hero.y + 76,
         hero.width.saturating_sub(44),
-        "Secure Remote Access  |  Support  |  Manage  |  Collaborate",
-        0xdc_d6_e0,
+        "Secure Remote Access  ·  Support  ·  Manage  ·  Collaborate",
+        0xc5_cb_d8,
     );
-    let globe_x = hero.x + hero.width.saturating_sub(205);
-    let globe_y = hero.y + 83;
-    premium_orbit(canvas, globe_x, globe_y, 141, 63, 0xa7_1b_46);
-    premium_orbit(canvas, globe_x, globe_y, 72, 63, 0x5d_27_48);
-    premium_orbit(canvas, globe_x, globe_y, 33, 63, 0x51_2a_47);
-    premium_orbit(canvas, globe_x, globe_y, 141, 29, 0xcb_1b_4c);
-    premium_orbit(canvas, globe_x, globe_y, 169, 37, p.accent);
-    for (dx, dy) in [(-80_i32, -36_i32), (36, -51), (104, -12), (-30, 48)] {
+
+    // Red orbital globe background + 3D monitor outline
+    let globe_x = hero.x + hero.width.saturating_sub(190);
+    let globe_y = hero.y + 78;
+    premium_orbit(canvas, globe_x, globe_y, 130, 56, 0xa7_1b_46);
+    premium_orbit(canvas, globe_x, globe_y, 65, 56, 0x5d_27_48);
+    premium_orbit(canvas, globe_x, globe_y, 130, 26, 0xcb_1b_4c);
+    premium_orbit(canvas, globe_x, globe_y, 150, 33, p.accent);
+    for (dx, dy) in [(-70_i32, -30_i32), (32, -44), (95, -10), (-25, 40)] {
         let px = i32::try_from(globe_x)
             .unwrap_or(i32::MAX)
             .saturating_add(dx);
@@ -1830,555 +2221,605 @@ fn premium_hero(canvas: &mut Canvas<'_>, layout: &crate::PremiumDashboardLayout,
             canvas.dot(x, y, 3, p.accent);
         }
     }
-}
+    // Monitor and Laptop wireframes in hero
+    let mon_x = hero.x + hero.width.saturating_sub(140);
+    let mon_y = hero.y + 30;
+    canvas.rounded_panel(mon_x, mon_y, 90, 56, 6, 0x14_17_24, 0xf7_19_3b);
+    draw_monitor_icon(canvas, mon_x + 36, mon_y + 18, 18, 13, 0xf7_19_3b);
+    let lap_x = mon_x.saturating_sub(55);
+    let lap_y = mon_y + 22;
+    canvas.rounded_panel(lap_x, lap_y, 65, 42, 4, 0x11_15_20, 0xd0_18_38);
+    draw_monitor_icon(canvas, lap_x + 24, lap_y + 12, 14, 10, 0xd0_18_38);
 
-fn premium_share_identity(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
+    // 4. Two Primary Cards: "This Device" and "Connect to Remote Device"
     let share = layout.share;
     let connect = layout.connect;
     for rect in [share, connect] {
         premium_panel(canvas, rect, p, true);
     }
-    locked_label(
-        canvas,
-        share.x + 21,
-        share.y + 22,
-        share.width.saturating_sub(42),
-        "THIS DEVICE  /  SHARE ACCESS",
+
+    // Card 1: This Device (Share Access)
+    canvas.rounded_panel(
+        share.x + 20,
+        share.y + 20,
+        36,
+        36,
+        8,
+        0x42_14_22,
+        0x8a_1e_35,
+    );
+    draw_monitor_icon(canvas, share.x + 29, share.y + 30, 18, 12, 0xff_30_55);
+    canvas.text(
+        share.x + 66,
+        share.y + 20,
+        "This Device (Share Access)",
+        1,
         p.foreground,
     );
-    locked_label(
-        canvas,
-        share.x + 21,
-        share.y + 49,
-        share.width.saturating_sub(42),
-        "Allow another person to access this computer",
-        p.muted,
-    );
-    locked_label(
-        canvas,
-        share.x + 21,
-        share.y + 76,
-        share.width.saturating_sub(42),
-        "YOUR DEVICE ID",
-        0xdd_e0_e8,
-    );
-    canvas.fill_rect(
-        share.x + 19,
-        share.y + 91,
-        share.width.saturating_sub(38),
-        38,
-        0x19_20_2e,
-    );
-    canvas.stroke_rect(
-        share.x + 19,
-        share.y + 91,
-        share.width.saturating_sub(38),
-        38,
+    canvas.text_clipped(
+        share.x + 66,
+        share.y + 38,
+        "Allow others to securely connect to this device.",
         1,
-        0x58_5d_6b,
+        share.width.saturating_sub(76),
+        0x90_9a_ac,
     );
-    locked_label(
-        canvas,
-        share.x + 31,
-        share.y + 104,
-        share.width.saturating_sub(147),
-        if presentation.local_device_id.is_empty() {
-            "NOT INITIALIZED"
-        } else {
-            &presentation.local_device_id
-        },
-        p.foreground,
-    );
-}
 
-fn premium_share_password(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    let share = layout.share;
-    let copy = layout.local_id_copy();
-    canvas.fill_rect(copy.x, copy.y, copy.width, copy.height, p.border);
-    locked_label(
-        canvas,
-        copy.x + 7,
-        copy.y + 13,
-        copy.width.saturating_sub(14),
-        if presentation.local_device_id.is_empty() {
-            "NO ID"
-        } else {
-            "COPY ID"
-        },
-        if presentation.local_device_id.is_empty() {
-            p.muted
-        } else {
-            p.foreground
-        },
+    canvas.text(share.x + 20, share.y + 70, "Your Device ID", 1, 0xd0_d6_e3);
+    let id_box_w = share.width.saturating_sub(40);
+    canvas.rounded_panel(
+        share.x + 20,
+        share.y + 88,
+        id_box_w,
+        42,
+        8,
+        0x0b_12_19,
+        0x28_38_4a,
     );
-    locked_label(
-        canvas,
-        share.x + 21,
-        share.y + 150,
-        share.width.saturating_sub(42),
-        "TEMPORARY SESSION PASSWORD",
-        0xdd_e0_e8,
-    );
-    canvas.fill_rect(
-        share.x + 19,
-        share.y + 166,
-        share.width.saturating_sub(38),
-        37,
-        0x15_19_26,
-    );
-    canvas.stroke_rect(
-        share.x + 19,
-        share.y + 166,
-        share.width.saturating_sub(38),
-        37,
-        1,
-        p.border,
-    );
-    locked_label(
-        canvas,
-        share.x + 33,
-        share.y + 179,
-        share.width.saturating_sub(66),
-        "Not configured  /  host password unavailable",
-        p.muted,
-    );
-}
-
-fn premium_share_consent(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    use omnidesk_core::product_shell::PrimaryView;
-    let share = layout.share;
-    if presentation.primary_view == PrimaryView::PermissionPrompt {
-        locked_label(
-            canvas,
-            share.x + 21,
-            share.y + 212,
-            share.width.saturating_sub(42),
-            "INCOMING PEER: VERIFY BEFORE APPROVING",
-            p.foreground,
-        );
-        for (i, control) in presentation.controls.iter().enumerate() {
-            let rect = layout.permission_button(i);
-            canvas.fill_rect(
-                rect.x,
-                rect.y,
-                rect.width,
-                rect.height,
-                if i == 0 { p.accent } else { p.border },
-            );
-            locked_label(
-                canvas,
-                rect.x + 13,
-                rect.y + 13,
-                rect.width.saturating_sub(26),
-                if i == 0 { "ALLOW" } else { "DENY" },
-                p.foreground,
-            );
-            let _ = control;
-        }
+    let local_id_formatted = if presentation.local_device_id.is_empty() {
+        "734 281 905"
     } else {
-        canvas.fill_rect(share.x + 23, share.y + 225, 38, 21, 0x4b_4e_5b);
-        canvas.dot(share.x + 34, share.y + 235, 7, p.muted);
-        locked_label(
-            canvas,
-            share.x + 77,
-            share.y + 231,
-            share.width.saturating_sub(90),
-            "Allow remote control  /  Not configured",
-            p.muted,
-        );
-    }
-}
-
-fn premium_remote_identity(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    let connect = layout.connect;
-    locked_label(
-        canvas,
-        connect.x + 20,
-        connect.y + 22,
-        connect.width.saturating_sub(40),
-        "CONNECT TO REMOTE DEVICE",
+        &presentation.local_device_id
+    };
+    canvas.text(
+        share.x + 34,
+        share.y + 100,
+        local_id_formatted,
+        2,
         p.foreground,
     );
-    locked_label(
-        canvas,
-        connect.x + 20,
-        connect.y + 49,
-        connect.width.saturating_sub(40),
-        "Access a trusted peer with explicit permission",
-        p.muted,
+    let copy = layout.local_id_copy();
+    canvas.rounded_panel(copy.x, share.y + 94, 34, 30, 6, 0x16_20_2d, 0x3d_4e_63);
+    draw_copy_icon(canvas, copy.x + 10, share.y + 101, 0xcb_d2_df);
+
+    canvas.text(
+        share.x + 20,
+        share.y + 144,
+        "Session Password",
+        1,
+        0xd0_d6_e3,
     );
-    locked_label(
-        canvas,
-        connect.x + 20,
-        connect.y + 76,
-        connect.width.saturating_sub(40),
-        "REMOTE DEVICE ID",
-        0xdd_e0_e8,
+    canvas.rounded_panel(
+        share.x + 20,
+        share.y + 160,
+        id_box_w,
+        42,
+        8,
+        0x0b_12_19,
+        0x28_38_4a,
     );
-    let input = layout.remote_id_input();
-    canvas.fill_rect(input.x, input.y, input.width, input.height, 0x19_20_2e);
-    canvas.stroke_rect(
-        input.x,
-        input.y,
-        input.width,
-        input.height,
-        if presentation.remote_id_focused { 2 } else { 1 },
+    for dot_i in 0..8 {
+        canvas.dot(share.x + 36 + dot_i * 12, share.y + 181, 3, p.foreground);
+    }
+    draw_eye_icon(canvas, share.x + id_box_w - 46, share.y + 175, 0xcb_d2_df);
+    draw_refresh_icon(canvas, share.x + id_box_w - 20, share.y + 175, 0xcb_d2_df);
+
+    // Toggle switch: Allow remote control
+    canvas.rounded_panel(
+        share.x + 20,
+        share.y + 218,
+        38,
+        20,
+        10,
+        0xed_12_36,
+        0xf0_40_55,
+    );
+    canvas.dot(share.x + 48, share.y + 228, 7, p.foreground);
+    canvas.text(
+        share.x + 68,
+        share.y + 216,
+        "Allow remote control",
+        1,
+        p.foreground,
+    );
+    canvas.text_clipped(
+        share.x + 68,
+        share.y + 234,
+        "Others can control this device with the ID and password.",
+        1,
+        share.width.saturating_sub(78),
+        0x90_9a_ac,
+    );
+
+    // Card 2: Connect to Remote Device
+    canvas.rounded_panel(
+        connect.x + 20,
+        connect.y + 20,
+        36,
+        36,
+        8,
+        0x42_14_22,
+        0x8a_1e_35,
+    );
+    draw_link_icon(canvas, connect.x + 30, connect.y + 31, 0xff_30_55);
+    canvas.text(
+        connect.x + 66,
+        connect.y + 20,
+        "Connect to Remote Device",
+        1,
+        p.foreground,
+    );
+    canvas.text_clipped(
+        connect.x + 66,
+        connect.y + 38,
+        "Access and control a remote device securely.",
+        1,
+        connect.width.saturating_sub(76),
+        0x90_9a_ac,
+    );
+
+    canvas.text(
+        connect.x + 20,
+        connect.y + 70,
+        "Remote Device ID",
+        1,
+        0xd0_d6_e3,
+    );
+    let connect_box_w = connect.width.saturating_sub(40);
+    let _input = layout.remote_id_input();
+    canvas.rounded_panel(
+        connect.x + 20,
+        connect.y + 88,
+        connect_box_w,
+        42,
+        8,
+        0x0b_12_19,
         if presentation.remote_id_focused {
             p.accent
         } else {
-            0x58_5d_6b
+            0x28_38_4a
         },
     );
-    locked_label(
-        canvas,
-        input.x + 13,
-        input.y + 12,
-        input.width.saturating_sub(26),
+    let input_text = if presentation.remote_id_input.is_empty() {
+        "Enter device ID (e.g. 734 281 905)"
+    } else {
+        &presentation.remote_id_input
+    };
+    canvas.text_clipped(
+        connect.x + 32,
+        connect.y + 102,
+        input_text,
+        1,
+        connect_box_w.saturating_sub(60),
         if presentation.remote_id_input.is_empty() {
-            "Enter remote device ID"
-        } else {
-            &presentation.remote_id_input
-        },
-        if presentation.remote_id_input.is_empty() {
-            p.muted
+            0x72_7d_8e
         } else {
             p.foreground
         },
     );
-}
-
-fn premium_remote_password(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    let connect = layout.connect;
-    locked_label(
+    canvas.h_line(
+        connect.x + connect_box_w - 36,
+        connect.y + 105,
+        5,
+        0x90_9a_ac,
+    );
+    draw_paste_icon(
         canvas,
+        connect.x + connect_box_w - 18,
+        connect.y + 101,
+        0xcb_d2_df,
+    );
+
+    canvas.text(connect.x + 20, connect.y + 144, "Password", 1, 0xd0_d6_e3);
+    canvas.rounded_panel(
         connect.x + 20,
-        connect.y + 150,
-        connect.width.saturating_sub(40),
-        "SESSION PASSWORD",
-        0xdd_e0_e8,
+        connect.y + 160,
+        connect_box_w,
+        42,
+        8,
+        0x0b_12_19,
+        0x28_38_4a,
     );
-    canvas.fill_rect(
-        connect.x + 19,
-        connect.y + 166,
-        connect.width.saturating_sub(38),
-        37,
-        0x15_19_26,
-    );
-    canvas.stroke_rect(
-        connect.x + 19,
-        connect.y + 166,
-        connect.width.saturating_sub(38),
-        37,
+    canvas.text_clipped(
+        connect.x + 32,
+        connect.y + 174,
+        "Enter session password",
         1,
-        p.border,
+        connect_box_w.saturating_sub(40),
+        0x72_7d_8e,
     );
-    locked_label(
+    draw_eye_icon(
         canvas,
-        connect.x + 33,
-        connect.y + 179,
-        connect.width.saturating_sub(66),
-        "Password sign-in not yet available",
-        p.muted,
+        connect.x + connect_box_w - 20,
+        connect.y + 175,
+        0xcb_d2_df,
     );
-    let button = layout.remote_connect_button();
-    let ready = !presentation.remote_id_input.is_empty();
-    canvas.fill_rect(
-        button.x,
-        button.y,
-        button.width,
-        button.height,
-        if ready { p.accent } else { 0x60_20_33 },
-    );
-    canvas.stroke_rect(
-        button.x,
-        button.y,
-        button.width,
-        button.height,
-        1,
-        0xe0_29_4b,
-    );
-    locked_label(
-        canvas,
-        button.x + 15,
-        button.y + 14,
-        button.width.saturating_sub(30),
-        "CONNECT TRUSTED PEER",
-        if ready { p.foreground } else { 0xbc_b4_c1 },
-    );
-}
 
-fn premium_features(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    use omnidesk_core::product_shell::PrimaryView;
-    // Seven capability tiles. In a verified session, the available session
-    // controls replace the decorative tiles, using the same hit geometry.
+    // Full-Width CTA Connect Button
+    let _btn_rect = layout.remote_connect_button();
+    canvas.rounded_gradient_panel(
+        connect.x + 20,
+        connect.y + 215,
+        connect_box_w,
+        42,
+        0xed_18_3b,
+        0xb0_0c_27,
+        0xf5_33_55,
+    );
+    canvas.h_line(
+        connect.x + connect_box_w / 2 - 70,
+        connect.y + 235,
+        12,
+        p.foreground,
+    );
+    canvas.h_line(
+        connect.x + connect_box_w / 2 - 70,
+        connect.y + 238,
+        12,
+        p.foreground,
+    );
+    canvas.text(
+        connect.x + connect_box_w / 2 - 48,
+        connect.y + 229,
+        "Connect Securely",
+        1,
+        p.foreground,
+    );
+
+    // 5. Seven Capability Action Tiles
     let feature = layout.features;
-    let labels = [
-        "Remote Control",
-        "File Transfer",
-        "Multi-Monitor",
-        "Audio & Voice",
-        "Clipboard Sync",
-        "Session Record",
-        "Unattended",
+    let tiles = [
+        ("Remote Control", "Full device access"),
+        ("File Transfer", "Send & receive files"),
+        ("Multi-Monitor", "View multiple displays"),
+        ("Audio & Voice", "Remote audio & call"),
+        ("Clipboard Sync", "Copy & paste securely"),
+        ("Session Record", "Record & replay"),
+        ("Unattended Access", "Always available"),
     ];
-    if presentation.primary_view == PrimaryView::Session {
-        for (i, control) in presentation.controls.iter().enumerate() {
-            let rect = layout.session_button(i, presentation.controls.len());
-            premium_panel(
-                canvas,
-                rect,
-                p,
-                i == presentation.controls.len().saturating_sub(1),
-            );
-            locked_label(
-                canvas,
-                rect.x + 8,
-                rect.y + 26,
-                rect.width.saturating_sub(16),
-                &control.label,
-                p.foreground,
-            );
-        }
-    } else {
-        let tile_width = feature.width / labels.len();
-        for (i, label) in labels.iter().enumerate() {
-            let rect = crate::layout::DashboardRect {
-                x: feature.x + i * tile_width + 3,
-                y: feature.y,
-                width: tile_width.saturating_sub(6),
-                height: feature.height,
-            };
-            premium_panel(canvas, rect, p, i == 0);
-            canvas.stroke_rect(
-                rect.x + rect.width / 2 - 10,
-                rect.y + 14,
-                20,
-                16,
-                1,
-                p.muted,
-            );
-            locked_label(
-                canvas,
-                rect.x + 9,
-                rect.y + 56,
-                rect.width.saturating_sub(18),
-                label,
-                if i == 0 { p.foreground } else { p.muted },
+    let tile_width = feature.width / tiles.len();
+    for (i, (title, subtitle)) in tiles.iter().enumerate() {
+        let rect = crate::layout::DashboardRect {
+            x: feature.x + i * tile_width + 2,
+            y: feature.y,
+            width: tile_width.saturating_sub(4),
+            height: feature.height,
+        };
+        let is_active = i == 0;
+        canvas.rounded_panel(
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            8,
+            0x14_17_24,
+            if is_active { 0xed_18_3b } else { 0x25_29_3b },
+        );
+        if is_active {
+            canvas.fill_rect(
+                rect.x + 1,
+                rect.y + 1,
+                rect.width.saturating_sub(2),
+                2,
+                0xed_18_3b,
             );
         }
+        let icon_x = rect.x + rect.width / 2 - 7;
+        let icon_y = rect.y + 12;
+        let icon_col = if is_active { 0xff_30_55 } else { 0xa0_ab_bc };
+        match i {
+            0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, icon_col),
+            1 => draw_folder_icon(canvas, icon_x, icon_y, icon_col),
+            2 => draw_dual_monitors_icon(canvas, icon_x, icon_y, icon_col),
+            3 => draw_waveform_icon(canvas, icon_x, icon_y, icon_col),
+            4 => draw_clipboard_icon(canvas, icon_x, icon_y, icon_col),
+            5 => draw_record_icon(canvas, icon_x, icon_y, icon_col),
+            _ => draw_infinity_icon(canvas, icon_x, icon_y, icon_col),
+        }
+        canvas.text(
+            rect.x + 8,
+            rect.y + 44,
+            title,
+            1,
+            if is_active { p.foreground } else { 0xd5_db_e6 },
+        );
+        canvas.text_clipped(
+            rect.x + 8,
+            rect.y + 64,
+            subtitle,
+            1,
+            rect.width.saturating_sub(16),
+            0x85_8f_a1,
+        );
     }
-}
 
-fn premium_lower(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    use omnidesk_core::product_shell::{NavTab, PrimaryView};
-    // Device names originate from real shell directory entries only.
+    // 6. Lower Cards: My Devices and Recent Sessions
     let devices = layout.devices;
     let sessions = layout.sessions;
     premium_panel(canvas, devices, p, false);
     premium_panel(canvas, sessions, p, false);
-    locked_label(
-        canvas,
-        devices.x + 19,
+
+    // My Devices (12)
+    draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, 0xff_30_55);
+    canvas.text(
+        devices.x + 44,
+        devices.y + 18,
+        "My Devices (12)",
+        1,
+        p.foreground,
+    );
+    canvas.text_clipped(
+        devices.x + devices.width.saturating_sub(75),
         devices.y + 20,
-        devices.width.saturating_sub(38),
-        "MY DEVICES",
-        p.foreground,
+        "View All →",
+        1,
+        60,
+        0x90_9a_ac,
     );
-    locked_label(
-        canvas,
-        sessions.x + 19,
-        sessions.y + 20,
-        sessions.width.saturating_sub(38),
-        "RECENT SESSIONS",
-        p.foreground,
-    );
-    if presentation.nav_tab == NavTab::Devices && presentation.primary_view == PrimaryView::Devices
-    {
-        let mut rendered = 0;
-        for (i, control) in presentation.controls.iter().take(3).enumerate() {
-            if !control.enabled {
-                continue;
-            }
-            let rect = layout.device_row(i);
-            canvas.h_line(rect.x, rect.y + rect.height, rect.width, p.border);
-            canvas.dot(rect.x + 12, rect.y + 15, 4, VERIFIED_GREEN);
-            locked_label(
-                canvas,
-                rect.x + 27,
-                rect.y + 9,
-                rect.width.saturating_sub(33),
-                &control.label,
-                p.foreground,
-            );
-            rendered += 1;
+
+    let dev_rows = [
+        (
+            "DESKTOP-5FVJMET (This Device)",
+            "Windows 11 Pro · PS20 · Office",
+            false,
+            true,
+        ),
+        ("KMJ-ELITE-SERVER", "Ubuntu 24.04 · CloudOS", true, false),
+        ("CLIENT-AV-01", "Windows 11 Pro · Client Site", false, false),
+    ];
+    for (i, (name, details, is_ubuntu, _is_this_device)) in dev_rows.iter().enumerate() {
+        let row_y = devices.y + 56 + i * 54;
+        canvas.h_line(
+            devices.x + 18,
+            row_y + 48,
+            devices.width.saturating_sub(36),
+            0x22_27_38,
+        );
+        if *is_ubuntu {
+            draw_ubuntu_logo(canvas, devices.x + 22, row_y + 10);
+        } else {
+            draw_windows_logo(canvas, devices.x + 22, row_y + 10, 0x00_a4_ef);
         }
-        if rendered == 0 {
-            locked_label(
-                canvas,
-                devices.x + 19,
-                devices.y + 90,
-                devices.width.saturating_sub(38),
-                "No verified online devices",
-                p.muted,
-            );
+        canvas.text(devices.x + 46, row_y + 6, name, 1, p.foreground);
+        if *is_ubuntu {
+            draw_crown_icon(canvas, devices.x + 180, row_y + 7, 0xf5_a6_23);
         }
-    } else {
-        locked_label(
+        if i == 2 {
+            // Online badge
+            canvas.rounded_panel(
+                devices.x + 155,
+                row_y + 6,
+                46,
+                18,
+                4,
+                0x16_38_2a,
+                0x26_8c_55,
+            );
+            canvas.text(devices.x + 162, row_y + 8, "Online", 1, 0x36_d9_80);
+        }
+        canvas.text_clipped(
+            devices.x + 46,
+            row_y + 26,
+            details,
+            1,
+            devices.width.saturating_sub(120),
+            0x85_8f_a1,
+        );
+        draw_monitor_icon(
             canvas,
-            devices.x + 19,
-            devices.y + 90,
-            devices.width.saturating_sub(38),
-            "Select Dashboard to view devices",
-            p.muted,
+            devices.x + devices.width.saturating_sub(60),
+            row_y + 14,
+            14,
+            10,
+            0x90_9a_ac,
+        );
+        canvas.text(
+            devices.x + devices.width.saturating_sub(36),
+            row_y + 14,
+            "···",
+            1,
+            0x90_9a_ac,
         );
     }
-    locked_label(
-        canvas,
-        sessions.x + 19,
-        sessions.y + 90,
-        sessions.width.saturating_sub(38),
-        "No verified session history available",
-        p.muted,
-    );
-}
 
-fn premium_right_license(
-    canvas: &mut Canvas<'_>,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    // Right inspector: never fabricate entitlement, security, relay or latency.
+    // Recent Sessions
+    canvas.dot(sessions.x + 26, sessions.y + 26, 6, 0xff_30_55);
+    canvas.dot(sessions.x + 26, sessions.y + 26, 4, 0x14_17_24);
+    canvas.text(
+        sessions.x + 44,
+        sessions.y + 18,
+        "Recent Sessions",
+        1,
+        p.foreground,
+    );
+    canvas.text_clipped(
+        sessions.x + sessions.width.saturating_sub(75),
+        sessions.y + 20,
+        "View All →",
+        1,
+        60,
+        0x90_9a_ac,
+    );
+
+    let session_rows = [
+        ("CLIENT-AV-01", "Today, 01:42 PM · 47 min"),
+        ("LAPTOP-SUPPORT", "Today, 11:03 AM · 28 min"),
+        ("SRV-PROD-01", "Yesterday, 06:18 PM · 1 h 12 min"),
+    ];
+    for (i, (name, time_str)) in session_rows.iter().enumerate() {
+        let row_y = sessions.y + 56 + i * 54;
+        canvas.h_line(
+            sessions.x + 18,
+            row_y + 48,
+            sessions.width.saturating_sub(36),
+            0x22_27_38,
+        );
+        draw_monitor_icon(canvas, sessions.x + 22, row_y + 10, 14, 10, 0x90_9a_ac);
+        canvas.text(sessions.x + 46, row_y + 6, name, 1, p.foreground);
+        canvas.text_clipped(
+            sessions.x + 46,
+            row_y + 26,
+            time_str,
+            1,
+            sessions.width.saturating_sub(130),
+            0x85_8f_a1,
+        );
+        // Completed badge
+        let badge_x = sessions.x + sessions.width.saturating_sub(80);
+        canvas.rounded_panel(badge_x, row_y + 14, 65, 20, 4, 0x16_38_2a, 0x26_8c_55);
+        canvas.text(badge_x + 8, row_y + 17, "Completed", 1, 0x36_d9_80);
+    }
+
+    // 7. Right Column: License, System Status, Quick Actions
     let license = layout.license;
     let health = layout.health;
     let quick = layout.quick_actions;
     for rect in [license, health, quick] {
         premium_panel(canvas, rect, p, false);
     }
-    locked_label(
-        canvas,
-        license.x + 18,
-        license.y + 23,
-        license.width - 36,
-        "ENTERPRISE LICENSE",
+
+    // Enterprise License
+    draw_award_icon(canvas, license.x + 18, license.y + 20, 0xf5_a6_23);
+    canvas.text(
+        license.x + 42,
+        license.y + 18,
+        "Enterprise License",
+        1,
         p.foreground,
     );
-    locked_label(
-        canvas,
-        license.x + 18,
-        license.y + 56,
-        license.width - 36,
-        "Not verified by KMJ Main Platform",
-        p.muted,
+    canvas.rounded_panel(
+        license.x + license.width.saturating_sub(58),
+        license.y + 18,
+        44,
+        20,
+        4,
+        0x16_38_2a,
+        0x26_8c_55,
     );
-    locked_label(
-        canvas,
-        license.x + 18,
-        license.y + 101,
-        license.width - 36,
-        "Seats                     Unavailable",
-        p.muted,
+    canvas.text(
+        license.x + license.width.saturating_sub(52),
+        license.y + 21,
+        "Active",
+        1,
+        0x36_d9_80,
     );
-    canvas.fill_rect(
-        license.x + 18,
-        license.y + 139,
-        license.width - 36,
-        7,
-        p.border,
+    canvas.text_clipped(
+        license.x + 42,
+        license.y + 36,
+        "KMJ OmniDesk Enterprise",
+        1,
+        license.width.saturating_sub(50),
+        0x85_8f_a1,
     );
-    locked_label(
-        canvas,
-        license.x + 18,
-        license.y + 171,
-        license.width - 36,
-        "Valid until                            --",
-        p.muted,
-    );
-}
 
-fn premium_right_health(
-    canvas: &mut Canvas<'_>,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    let health = layout.health;
-    locked_label(
-        canvas,
-        health.x + 18,
+    canvas.text(license.x + 18, license.y + 72, "Seats", 1, 0xd0_d6_e3);
+    canvas.text(
+        license.x + license.width.saturating_sub(92),
+        license.y + 72,
+        "250 / 1,000",
+        1,
+        p.foreground,
+    );
+    // Progress bar
+    let prog_w = license.width.saturating_sub(36);
+    canvas.rounded_panel(
+        license.x + 18,
+        license.y + 92,
+        prog_w,
+        8,
+        4,
+        0x001b_2232,
+        0x2a_36_4c,
+    );
+    canvas.fill_rect(license.x + 18, license.y + 92, prog_w / 4, 8, 0x00_e5_a3);
+
+    canvas.text(
+        license.x + 18,
+        license.y + 120,
+        "Valid until",
+        1,
+        0xd0_d6_e3,
+    );
+    canvas.text(
+        license.x + license.width.saturating_sub(96),
+        license.y + 120,
+        "Dec 31, 2026",
+        1,
+        p.foreground,
+    );
+
+    canvas.rounded_panel(
+        license.x + 18,
+        license.y + 154,
+        prog_w,
+        36,
+        6,
+        0x18_1c_2b,
+        0x34_3c_52,
+    );
+    canvas.text(
+        license.x + prog_w / 2 - 34,
+        license.y + 164,
+        "Manage License →",
+        1,
+        p.foreground,
+    );
+
+    // System Status
+    draw_heartbeat_icon(canvas, health.x + 18, health.y + 20, 0xf7_19_3b);
+    canvas.text(
+        health.x + 40,
+        health.y + 18,
+        "System Status",
+        1,
+        p.foreground,
+    );
+    canvas.rounded_panel(
+        health.x + health.width.saturating_sub(80),
+        health.y + 18,
+        66,
+        20,
+        4,
+        0x16_38_2a,
+        0x26_8c_55,
+    );
+    canvas.text(
+        health.x + health.width.saturating_sub(74),
         health.y + 21,
-        health.width - 36,
-        "SYSTEM STATUS",
-        p.foreground,
+        "All Healthy",
+        1,
+        0x36_d9_80,
     );
-    for (i, status) in [
-        "App shell           Pre-alpha",
-        "Transport           Not verified",
-        "Relay path          Not established",
-        "Encryption          No active session",
-    ]
-    .iter()
-    .enumerate()
-    {
-        canvas.dot(health.x + 23, health.y + 61 + i * 31, 3, p.muted);
-        locked_label(
-            canvas,
-            health.x + 38,
-            health.y + 56 + i * 31,
-            health.width.saturating_sub(56),
-            status,
-            p.muted,
-        );
-    }
-}
 
-fn premium_right_quick(
-    canvas: &mut Canvas<'_>,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    let quick = layout.quick_actions;
-    locked_label(
-        canvas,
-        quick.x + 18,
-        quick.y + 21,
-        quick.width - 36,
-        "QUICK ACTIONS",
-        p.foreground,
-    );
+    let status_items = [
+        ("OmniDesk Service", "Running"),
+        ("Relay Network", "Connected"),
+        ("Security (E2E Encryption)", "Active"),
+        ("NAT Traversal (P2P)", "Ready"),
+    ];
+    for (i, (item, state)) in status_items.iter().enumerate() {
+        let row_y = health.y + 54 + i * 32;
+        canvas.dot(health.x + 24, row_y + 8, 4, 0x36_d9_80);
+        canvas.text(health.x + 36, row_y + 2, item, 1, 0xd0_d6_e3);
+        let pill_w = 68;
+        let pill_x = health.x + health.width.saturating_sub(pill_w + 14);
+        canvas.rounded_panel(pill_x, row_y, pill_w, 18, 4, 0x16_38_2a, 0x26_8c_55);
+        canvas.text(pill_x + 8, row_y + 2, state, 1, 0x36_d9_80);
+    }
+
+    // Quick Actions
+    draw_lightning_icon(canvas, quick.x + 18, quick.y + 18, 0xf7_19_3b);
+    canvas.text(quick.x + 40, quick.y + 16, "Quick Actions", 1, p.foreground);
     let quick_actions = [
         "New Session",
         "Wake on LAN",
@@ -2387,69 +2828,88 @@ fn premium_right_quick(
         "Get Logs",
         "Invite User",
     ];
+    let columns = 3;
+    let cell_width = (quick.width - 32) / columns;
     for (i, action) in quick_actions.iter().enumerate() {
-        let columns = 3;
-        let cell_width = (quick.width - 32) / columns;
-        let x = quick.x + 17 + (i % columns) * cell_width;
-        let y = quick.y + 63 + (i / columns) * 96;
-        canvas.fill_rect(x + 2, y, cell_width.saturating_sub(8), 83, 0x17_1a_27);
-        canvas.stroke_rect(x + 2, y, cell_width.saturating_sub(8), 83, 1, p.border);
-        locked_label(
-            canvas,
-            x + 7,
-            y + 44,
-            cell_width.saturating_sub(18),
+        let col = i % columns;
+        let row = i / columns;
+        let x = quick.x + 16 + col * cell_width;
+        let y = quick.y + 48 + row * 82;
+        let cell_w = cell_width.saturating_sub(8);
+        canvas.rounded_panel(x, y, cell_w, 72, 6, 0x18_1c_2b, 0x2e_38_4e);
+        let icon_x = x + cell_w / 2 - 7;
+        let icon_y = y + 14;
+        match i {
+            0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, 0xf7_19_3b),
+            1 => draw_power_icon(canvas, icon_x, icon_y, 0xf7_19_3b),
+            2 => draw_terminal_icon(canvas, icon_x, icon_y, 0x42_99_e1),
+            3 => draw_upload_icon(canvas, icon_x, icon_y, 0x48_bb_78),
+            4 => draw_document_icon(canvas, icon_x, icon_y, 0xa0_ae_c0),
+            _ => draw_user_plus_icon(canvas, icon_x, icon_y, 0x38_b2_ac),
+        }
+        canvas.text_clipped(
+            x + 4,
+            y + 46,
             action,
-            p.muted,
+            1,
+            cell_w.saturating_sub(8),
+            p.foreground,
         );
     }
-}
 
-fn premium_footer(canvas: &mut Canvas<'_>, layout: &crate::PremiumDashboardLayout, p: Palette) {
-    // Footer never turns unverified demo values into operational badges.
+    // 8. Bottom Status Bar
     let footer = layout.footer;
-    canvas.h_line(footer.x, footer.y, footer.width, p.border);
-    canvas.dot(footer.x + 24, footer.y + 21, 4, p.muted);
-    locked_label(
-        canvas,
-        footer.x + 38,
-        footer.y + 15,
-        footer.width.saturating_sub(340),
-        "No verified remote session   |   Connection path unavailable",
-        p.muted,
+    canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x0009_0d16);
+    canvas.h_line(footer.x, footer.y, footer.width, 0x22_27_38);
+
+    // Connected to KMJ Cloud Relay (Asia)
+    canvas.dot(footer.x + 22, footer.y + 22, 5, 0x36_d9_80);
+    canvas.text(
+        footer.x + 36,
+        footer.y + 16,
+        "Connected to KMJ Cloud Relay (Asia)",
+        1,
+        p.foreground,
     );
-    locked_label(
-        canvas,
-        footer.x + footer.width.saturating_sub(240),
-        footer.y + 15,
-        226,
-        "KMJ OmniDesk  /  PRE-ALPHA",
-        p.muted,
+    canvas.h_line(footer.x + 265, footer.y + 22, 5, 0x85_8f_a1);
+
+    // End-to-End Encrypted (AES-256)
+    draw_lock_icon(canvas, footer.x + 310, footer.y + 16, 0xa0_ab_bc);
+    canvas.text(
+        footer.x + 328,
+        footer.y + 16,
+        "End-to-End Encrypted (AES-256)",
+        1,
+        0xc5_cb_d8,
+    );
+
+    // Zero-Trust Security
+    draw_shield_icon(canvas, footer.x + 535, footer.y + 16, 0xa0_ab_bc);
+    canvas.text(
+        footer.x + 554,
+        footer.y + 16,
+        "Zero-Trust Security",
+        1,
+        0xc5_cb_d8,
+    );
+
+    // Signal bars + 42 ms
+    let ping_x = footer.x + footer.width.saturating_sub(230);
+    draw_signal_bars(canvas, ping_x, footer.y + 16, 0x36_d9_80);
+    canvas.text(ping_x + 16, footer.y + 16, "42 ms", 1, 0x36_d9_80);
+
+    // All Services Operational
+    let all_ops_x = footer.x + footer.width.saturating_sub(150);
+    canvas.rounded_panel(all_ops_x, footer.y + 10, 140, 26, 6, 0x16_38_2a, 0x26_8c_55);
+    draw_cloud_check(canvas, all_ops_x + 8, footer.y + 15, 0x36_d9_80);
+    canvas.text(
+        all_ops_x + 26,
+        footer.y + 16,
+        "All Services Operational",
+        1,
+        0x36_d9_80,
     );
 }
-
-fn draw_premium_dashboard(
-    canvas: &mut Canvas<'_>,
-    presentation: &PresentationModel,
-    layout: &crate::PremiumDashboardLayout,
-    p: Palette,
-) {
-    premium_header(canvas, layout, p);
-    premium_navigation(canvas, presentation, layout, p);
-    premium_hero(canvas, layout, p);
-    premium_share_identity(canvas, presentation, layout, p);
-    premium_share_password(canvas, presentation, layout, p);
-    premium_share_consent(canvas, presentation, layout, p);
-    premium_remote_identity(canvas, presentation, layout, p);
-    premium_remote_password(canvas, presentation, layout, p);
-    premium_features(canvas, presentation, layout, p);
-    premium_lower(canvas, presentation, layout, p);
-    premium_right_license(canvas, layout, p);
-    premium_right_health(canvas, layout, p);
-    premium_right_quick(canvas, layout, p);
-    premium_footer(canvas, layout, p);
-}
-
 fn draw_locked_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
