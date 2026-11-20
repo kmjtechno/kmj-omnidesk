@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KMJ TECHNO · OmniDesk — Enterprise Premium V7 (Design Reference)</title>
+<meta name="description" content="Owner-locked OmniDesk enterprise premium visual reference. Design only; connection flows and sample features are not live.">
+<style>
+:root{color-scheme:dark;--bg:#070910;--shell:#0a0c14;--surface:#111521;--elev:#171823;--stroke:#353747;--fg:#f7f7fa;--soft:#bac0ce;--muted:#8f95a5;--red:#f7193b;--red-dark:#a61230;--glow:rgba(240,16,55,.15);--focus:#ff5270;--r:14px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:500 14px/1.45 "Segoe UI",Inter,Arial,sans-serif}button,input{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.56}button:focus-visible,input:focus-visible{outline:2px solid var(--focus);outline-offset:3px}button:focus-visible{opacity:1}a{color:inherit;text-decoration:none}.muted{color:var(--muted)}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+.app{min-height:100vh;display:grid;grid-template-columns:258px minmax(0,1fr);grid-template-rows:70px minmax(0,1fr);background:radial-gradient(ellipse at 40% 5%,rgba(40,26,56,.13),transparent 48%),var(--bg)}
+header{grid-column:1/-1;display:flex;align-items:center;gap:27px;padding:0 30px;border-bottom:1px solid #492131;background:linear-gradient(105deg,#0a0911 20%,#0c0f1b 78%,#08090f);min-width:0;position:relative;z-index:2}
+header:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,#f7193b55 18%,transparent 65%);pointer-events:none}
+.brand{display:flex;align-items:center;flex:0 0 252px;min-width:0}.brand img{width:240px;height:59px;object-fit:contain;object-position:left center}
+.head-divider{height:36px;width:1px;background:var(--red);box-shadow:0 0 13px var(--glow)}
+.product-name{font-size:29px;font-weight:750;letter-spacing:-1.4px;white-space:nowrap}.product-name sup{font-size:9px;vertical-align:top;letter-spacing:0;margin-left:2px}
+.head-pill{padding:4px 13px;border-radius:999px;background:linear-gradient(90deg,#8d1128,#cc1434);border:1px solid #f43a59;font-size:12px;font-weight:700}
+.head-desc{color:#c4c7d5;font-size:13px;white-space:nowrap}.header-fill{flex:1}.icon-btn{display:grid;place-items:center;width:36px;height:36px;background:none;color:#f2f3f8;border:0;font-size:20px}.window-icons{display:flex;align-items:center;gap:18px;margin-left:12px;border-left:1px solid #515364;padding-left:20px;font-size:17px}
+nav{min-width:0;border-right:1px solid #333342;background:radial-gradient(ellipse at 3% 83%,rgba(214,7,45,.16),transparent 40%),#0c0f17;padding:31px 10px 20px;display:flex;flex-direction:column;gap:5px;position:relative;overflow:hidden}
+nav:after{content:"";position:absolute;left:-140px;bottom:-160px;width:400px;height:270px;border:1px solid #be1746;border-radius:50%;box-shadow:0 0 90px 8px #c70d3b45;transform:rotate(-24deg);pointer-events:none}
+.nav-item{border:0;background:transparent;color:#d1d5e0;display:flex;align-items:center;gap:17px;height:45px;padding:0 20px;border-radius:10px;font-weight:560;text-align:left;white-space:nowrap;position:relative;z-index:1}
+.nav-item .ico{width:22px;text-align:center;font-size:20px;color:#e0e2e9}.nav-item.active{background:linear-gradient(100deg,#c70d30,#671327);color:#fff;box-shadow:inset 3px 0 #f93853,0 0 21px #ba12392b}.nav-item.active .ico{color:#fff}
+.nav-item[aria-disabled=true]{color:#8b8fa0}.nav-foot{margin-top:auto;padding:15px 14px;color:#8e94a2;font-size:11px;z-index:1}
+main{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,330px);gap:15px;align-content:start;padding:26px 20px 16px;overflow-x:hidden}
+.center{min-width:0;display:flex;flex-direction:column;gap:14px}.right{display:flex;flex-direction:column;gap:16px;min-width:0}
+.hero{height:166px;position:relative;border-bottom:2px solid #b60f31;overflow:hidden;background:linear-gradient(90deg,transparent,#140b17 48%,#080a15)}
+.hero:after{content:"";position:absolute;left:-10%;right:-10%;bottom:0;height:64px;pointer-events:none;background:linear-gradient(0deg,rgba(185,5,42,.1),transparent)}
+.hero-copy{position:relative;z-index:1;padding:19px 12px}.hero h1{margin:0;font-size:39px;line-height:1.15;letter-spacing:-1.7px;font-weight:780}.hero h1 em{font-style:italic;color:var(--red)}.hero p{font-size:15px;color:#e2dce5;margin:12px 0}
+.hero img{position:absolute;width:min(80%,790px);height:218px;right:-20px;top:-35px;object-fit:contain;object-position:right center;opacity:.96;pointer-events:none}
+.primary{display:grid;grid-template-columns:1fr 1fr;gap:17px}
+.panel{background:linear-gradient(133deg,#161725 0%,#10131d 57%,#121321 100%);border:1px solid #4b3749;border-radius:var(--r);box-shadow:0 4px 27px #0005;position:relative;overflow:hidden}
+.panel.primary-card{padding:21px 23px 19px;min-height:272px;border-color:#71253e;box-shadow:inset 0 1px #f62c4a55,0 0 20px #ee154317}
+.panel.primary-card:after{content:"";height:2px;position:absolute;left:18px;right:18px;bottom:0;background:linear-gradient(90deg,transparent,#c5153b9c,transparent)}
+.card-heading{display:flex;align-items:flex-start;gap:14px;margin-bottom:18px}.accent-icon{width:35px;flex:none;color:#ff536d;text-align:center;font-size:29px;text-shadow:0 0 20px #ff245a9e}.card-heading h2{font-size:16px;line-height:1.2;margin:0;font-weight:760;letter-spacing:-.25px}.card-heading p{color:#bdc1cf;font-size:12px;margin:5px 0 0}
+.field{margin:11px 0}.field label{display:block;margin-bottom:6px;color:#e2e3e9;font-size:12px;font-weight:700}.control{height:39px;width:100%;display:flex;align-items:center;background:#171c2a;border:1px solid #596071;border-radius:7px;padding:0 12px;box-shadow:inset 0 1px 2px #05070a;gap:10px}.control input{color:#f7f7fa;min-width:0;flex:1;border:0;outline:0;background:transparent}.control input:focus-visible{outline:none}.control:focus-within{border-color:#fa4866;box-shadow:0 0 0 2px #f7193b25}.control input::placeholder{color:#9ca3b3}.control .glyph{color:#cfd5e3;font-size:18px;flex:none}.control .minor{font-size:14px;border:0;color:#cbd0dd;background:transparent;padding:5px}
+.control.output{color:#d7d8e0}.control.disabled{opacity:.74}.primary-btn{height:44px;width:100%;margin-top:11px;border-radius:7px;border:1px solid #ff4765;background:linear-gradient(100deg,#f52245,#b50f2d);color:white;font-weight:740;box-shadow:0 5px 21px #f7193b45}.primary-btn:disabled{filter:grayscale(.3);opacity:.54}
+.small-note{font-size:11px;color:#949aab;margin:9px 0 0}.switch-row{display:flex;gap:10px;align-items:center;margin-top:15px}.switch{width:39px;height:23px;border:1px solid #696e7c;background:#3e4351;border-radius:30px;position:relative;flex:none}.switch:before{content:"";position:absolute;left:4px;top:4px;width:13px;height:13px;border-radius:50%;background:#d9dae0}.switch-label{font-size:12px;font-weight:650}.switch-label small{display:block;color:#959bac;font-weight:450;font-size:10px}
+.features{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:9px}
+.feature{height:97px;border:1px solid #384054;border-radius:11px;background:linear-gradient(135deg,#1d1c2b,#111522);padding:13px 4px;text-align:center;color:#e6e6ed;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-width:0;position:relative}.feature .fi{font-size:25px;color:#f1dfe7}.feature b{font-size:11px;line-height:1.2}.feature small{font-size:9px;color:#858b9b}
+.feature:first-child{border:1px solid #f91d44;box-shadow:0 0 23px #de153533,inset 0 0 14px #a50a2629}.feature:first-child .fi{color:#ff5572}
+.lower{display:grid;grid-template-columns:1fr 1fr;gap:17px}
+.small-card{height:203px;padding:15px 16px}.small-card h3,.right-card h3{margin:0;display:flex;align-items:center;gap:10px;font-size:15px}.small-card .symbol,.right-card .symbol{font-size:22px;color:#ff506d;text-shadow:0 0 17px #f5255399}.small-card .empty{height:131px;display:grid;place-items:center;text-align:center;color:#949bab;font-size:12px}.small-card .empty .big-icon{display:block;color:#d0d4df;font-size:35px;margin-bottom:7px}
+.right-card{padding:18px 17px}.status-line{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;font-size:12px}.status-line span:last-child{color:#c2c5d1}.bar{height:8px;background:#353b4e;border-radius:10px;margin:13px 0}.tag{background:#383d4b;border:1px solid #555c70;color:#d6d9e2;padding:3px 10px;border-radius:99px;font-size:10px;font-weight:700}
+.ghost-btn{display:block;border:1px solid #555c6d;color:#c3c9d5;padding:8px 11px;text-align:center;border-radius:7px;background:#131826;width:100%;margin-top:15px;font-weight:650;font-size:12px}
+.health-list{padding:0;list-style:none;margin:12px 0 0}.health-list li{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid #252938;padding:8px 0;font-size:12px}.health-list .value{font-size:11px;color:#a2a8b7}.health-list .c{color:#9ba2b0;margin-right:9px}
+.quick-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:15px}.quick{border-radius:9px;border:1px solid #41485c;background:#191c2b;padding:13px 3px;min-height:86px;font-size:10px;color:#c7c9d4;text-align:center}.quick span{font-size:22px;display:block;margin-bottom:9px;color:#eab7c5}
+.footer{grid-column:1/-1;border-top:1px solid #333543;margin-top:2px;padding:13px 7px 2px;color:#979dab;font-size:11px;display:flex;gap:25px;align-items:center;flex-wrap:wrap}.footer .end{margin-left:auto}.footer .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#788193;margin-right:8px}
+.preview-note{background:rgba(108,15,35,.14);border:1px solid #5a3446;padding:9px 14px;border-radius:8px;margin-bottom:1px;color:#e5c9d0;font-size:11px;letter-spacing:.05px}
+@media(max-width:1350px){.app{grid-template-columns:218px minmax(0,1fr)}.brand{flex-basis:224px}.brand img{width:220px}header{gap:16px;padding:0 17px}.head-desc{display:none}main{grid-template-columns:minmax(0,1fr) 278px;padding:18px 12px}.panel.primary-card{padding:17px 15px}.features{gap:5px}.feature b{font-size:10px}}
+@media(max-width:1070px){main{grid-template-columns:minmax(0,1fr)}.right{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start}.features{grid-template-columns:repeat(4,1fr)}.hero img{right:-100px;opacity:.75}.footer{grid-column:1}.quick-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){.app{grid-template-columns:1fr;grid-template-rows:70px auto 1fr}header{grid-column:1;gap:12px}.brand{flex-basis:170px}.brand img{width:170px}.product-name{font-size:23px}.head-pill,.head-divider,.window-icons{display:none}nav{padding:8px;display:flex;flex-direction:row;overflow-x:auto;gap:5px;white-space:nowrap;border-right:0;border-bottom:1px solid #393a44}nav:after,.nav-foot{display:none}.nav-item{flex:none;height:40px;padding:0 10px;gap:8px;font-size:11px}.nav-item .ico{font-size:16px}main{padding:12px;display:block}.center{gap:10px}.hero{height:120px}.hero h1{font-size:31px}.hero img{opacity:.43;width:100%;right:-50%;top:-15px}.hero-copy{padding:14px 5px}.hero p{font-size:11px}.primary,.lower{grid-template-columns:1fr}.right{grid-template-columns:1fr;margin-top:12px}.features{grid-template-columns:repeat(3,minmax(0,1fr))}.footer{margin-top:15px}.footer .end{margin-left:0}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+<header aria-label="Application header">
+  <div class="brand"><img alt="KMJ TECHNO — Innovate | Build | Scale" src="../../assets/ui/kmj-premium-header-lockup.svg"></div>
+  <div class="head-divider" aria-hidden="true"></div>
+  <div class="product-name">OmniDesk<sup>TM</sup></div><span class="head-pill">Enterprise</span>
+  <span class="head-desc">Unified Remote Access &amp; Support Platform</span><div class="header-fill"></div>
+  <span class="muted" style="font-size:12px">DESIGN REFERENCE</span>
+  <button class="icon-btn" aria-label="Help unavailable" disabled>?</button><button class="icon-btn" aria-label="Settings unavailable" disabled>⚙</button>
+  <div class="window-icons" aria-hidden="true">− &nbsp; □ &nbsp; ×</div>
+</header>
+<nav aria-label="Primary navigation">
+  <button class="nav-item active" aria-current="page"><span class="ico">⌂</span>Dashboard</button>
+  <button class="nav-item" disabled><span class="ico">▣</span>Remote Access</button>
+  <button class="nav-item" disabled><span class="ico">▱</span>My Devices</button>
+  <button class="nav-item" disabled><span class="ico">▤</span>Sessions</button>
+  <button class="nav-item" disabled><span class="ico">▢</span>File Transfer</button>
+  <button class="nav-item" disabled><span class="ico">▫</span>Multi-Monitor</button>
+  <button class="nav-item" disabled><span class="ico">♧</span>Collaboration</button>
+  <button class="nav-item" disabled><span class="ico">♢</span>Security &amp; Access</button>
+  <button class="nav-item" disabled><span class="ico">♧</span>Users &amp; Teams</button>
+  <button class="nav-item" disabled><span class="ico">◈</span>Licensing</button>
+  <button class="nav-item" disabled><span class="ico">▥</span>Reports &amp; Logs</button>
+  <button class="nav-item" disabled><span class="ico">⚙</span>Settings</button>
+  <div class="nav-foot">KMJ OmniDesk · Pre-alpha</div>
+</nav>
+<main>
+<section class="center" aria-label="Remote access dashboard">
+<div class="preview-note"><strong>LOCKED VISUAL DESIGN</strong> — Preview only. Password authentication, sharing credentials, remote actions and live metrics are not represented as functioning.</div>
+<div class="hero"><div class="hero-copy"><h1><em>KMJ</em> OmniDesk<sup style="font-size:10px;vertical-align:top">™</sup></h1><p>Secure Remote Access&nbsp; · &nbsp;Support&nbsp; · &nbsp;Manage&nbsp; · &nbsp;Collaborate</p></div>
+<img src="../../assets/ui/omnidesk-premium-network.svg" aria-hidden="true" alt=""></div>
+<div class="primary">
+<section class="panel primary-card" aria-labelledby="share-title">
+ <div class="card-heading"><span class="accent-icon" aria-hidden="true">▣</span><div><h2 id="share-title">This Device (Share Access)</h2><p>Allow others to securely connect to this device.</p></div></div>
+ <div class="field"><label for="own-id">Your Device ID</label><div class="control output"><span class="glyph">▤</span><span id="own-id" style="flex:1">Not initialized</span><button class="minor" aria-label="Copy ID unavailable" disabled>▣</button></div></div>
+ <div class="field"><label for="own-password">Temporary Session Password</label><div class="control disabled"><span class="glyph">♧</span><input id="own-password" type="password" value="" placeholder="Not configured" disabled><button class="minor" aria-label="Reveal session password unavailable" disabled>◉</button><button class="minor" aria-label="Rotate password unavailable" disabled>↻</button></div></div>
+ <div class="switch-row"><span class="switch" aria-hidden="true"></span><div class="switch-label">Allow remote control <small>Requires authenticated host credentials and approval</small></div></div>
+</section>
+<section class="panel primary-card" aria-labelledby="connect-title">
+ <div class="card-heading"><span class="accent-icon" aria-hidden="true">⇄</span><div><h2 id="connect-title">Connect to Remote Device</h2><p>Access and control a remote device securely.</p></div></div>
+ <div class="field"><label for="remote-id">Remote Device ID</label><div class="control"><span class="glyph">▤</span><input id="remote-id" placeholder="Enter remote device ID" autocomplete="off" spellcheck="false"></div></div>
+ <div class="field"><label for="remote-password">Session Password</label><div class="control disabled"><span class="glyph">♧</span><input id="remote-password" type="password" placeholder="Password authentication not wired" disabled><button class="minor" disabled aria-label="Show remote password unavailable">◉</button></div></div>
+ <button class="primary-btn" disabled>⇄ &nbsp; Connect Securely</button>
+ <p class="small-note">Requires a verified peer, a reviewed password proof and explicit authorization.</p>
+</section>
+</div>
+<div class="features" aria-label="Product capabilities (availability not asserted)">
+ <div class="feature"><span class="fi">▣</span><b>Remote Control</b><small>Permission gated</small></div>
+ <div class="feature"><span class="fi">▢</span><b>File Transfer</b><small>Policy gated</small></div>
+ <div class="feature"><span class="fi">▫</span><b>Multi-Monitor</b><small>Session only</small></div>
+ <div class="feature"><span class="fi">◖))</span><b>Audio &amp; Voice</b><small>Session only</small></div>
+ <div class="feature"><span class="fi">▤</span><b>Clipboard Sync</b><small>Permission gated</small></div>
+ <div class="feature"><span class="fi">◉</span><b>Session Record</b><small>Unavailable</small></div>
+ <div class="feature"><span class="fi">∞</span><b>Unattended</b><small>Not activated</small></div>
+</div>
+<div class="lower">
+ <section class="panel small-card"><h3><span class="symbol">▣</span>My Devices</h3><div class="empty"><div><span class="big-icon">▤</span>No verified devices in this design preview.</div></div></section>
+ <section class="panel small-card"><h3><span class="symbol">◷</span>Recent Sessions</h3><div class="empty"><div><span class="big-icon">◷</span>No authenticated session history loaded.</div></div></section>
+</div>
+</section>
+<aside class="right" aria-label="Status and tools">
+ <section class="panel right-card"><h3><span class="symbol">◈</span> Enterprise License <span class="tag" style="margin-left:auto">Not verified</span></h3>
+ <p class="muted" style="font-size:11px;margin:8px 0 15px">License state is owned by KMJ Main Platform.</p>
+ <div class="status-line"><span>Seats</span><span>Unavailable</span></div><div class="bar"></div>
+ <div class="status-line"><span>Valid until</span><span>—</span></div><button class="ghost-btn" disabled>Manage License ↗</button>
+ </section>
+ <section class="panel right-card"><h3><span class="symbol">✧</span> System Status <span class="tag" style="margin-left:auto">Unverified</span></h3>
+ <ul class="health-list"><li><span><span class="c">○</span>OmniDesk Service</span><span class="value">Not measured</span></li>
+ <li><span><span class="c">○</span>Relay Network</span><span class="value">Not connected</span></li>
+ <li><span><span class="c">○</span>Session Security</span><span class="value">No session</span></li>
+ <li><span><span class="c">○</span>Direct Path / NAT</span><span class="value">Not verified</span></li></ul></section>
+ <section class="panel right-card"><h3><span class="symbol">ϟ</span> Quick Actions</h3><div class="quick-grid">
+ <button class="quick" disabled><span>▣</span>New Session</button>
+ <button class="quick" disabled><span>◴</span>Wake on LAN</button>
+ <button class="quick" disabled><span>⌘</span>Remote CMD</button>
+ <button class="quick" disabled><span>⇧</span>Send File</button>
+ <button class="quick" disabled><span>▤</span>Get Logs</button>
+ <button class="quick" disabled><span>♧</span>Invite User</button>
+ </div></section>
+</aside>
+<footer class="footer">
+ <span><span class="dot"></span>No verified remote session</span>
+ <span>Transport: not established</span><span>Security: no authenticated peer</span>
+ <span class="end">KMJ OmniDesk · Pre-alpha · V7 UI design reference</span>
+</footer>
+</main>
+</div>
+</body></html>
