@@ -1852,8 +1852,12 @@ fn premium_panel(
     accent: bool,
 ) {
     canvas.rounded_gradient_panel(
-        rect.x, rect.y, rect.width, rect.height,
-        0x1c_19_2a, 0x10_13_20,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        0x1c_19_2a,
+        0x10_13_20,
         if accent { 0x9e_24_46 } else { p.border },
     );
     if accent {
