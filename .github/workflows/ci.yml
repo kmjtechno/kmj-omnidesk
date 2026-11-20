@@ -23,6 +23,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Attest exact Rust source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -307,6 +312,16 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Attest exact Windows source SHA
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne '${{ github.event.pull_request.head.sha || github.sha }}') {
+            throw "Windows source SHA mismatch: $actual"
+          }
       - name: M9 protected signer path refusal gate (unsigned negative tests)
         shell: pwsh
         run: pwsh -NoProfile -File scripts/test_windows_release_signing_gate.ps1
@@ -345,7 +360,7 @@ jobs:
       - name: Package fail-closed Windows release candidate
         shell: pwsh
         run: |
-          python scripts/package_release_candidate.py --binary target/release/omnidesk-desktop.exe --output artifacts/release-candidate --version "ci-${{ github.sha }}" --platform windows --arch x86_64 --channel beta | Tee-Object -FilePath artifacts/release-candidate-result.json
+          python scripts/package_release_candidate.py --binary target/release/omnidesk-desktop.exe --output artifacts/release-candidate --version "ci-${{ github.event.pull_request.head.sha || github.sha }}" --platform windows --arch x86_64 --channel beta | Tee-Object -FilePath artifacts/release-candidate-result.json
           $result = Get-Content -Raw artifacts/release-candidate-result.json | ConvertFrom-Json
           if ($result.manifest.release_state -ne 'UNSIGNED_CANDIDATE') { throw 'candidate state is not fail-closed' }
           if ($result.manifest.publishable -ne $false) { throw 'unsigned candidate became publishable' }
@@ -471,6 +486,32 @@ jobs:
           $report = Get-Content -Raw artifacts/locked-dashboard-evidence.json | ConvertFrom-Json
           if ($report.evidence_type -ne 'deterministic_native_renderer_empty_state') { throw 'invalid UI QA evidence type' }
           if ($report.remote_video_authenticated -ne $false) { throw 'mock UI falsely claims a live session' }
+      - name: Export owner-locked V5 responsive renderer matrix
+        shell: pwsh
+        run: |
+          cargo run -p omnidesk-desktop --example capture_v5_screens --release -- artifacts/v5-responsive
+          $receipt = Get-Content -Raw artifacts/v5-responsive/RECEIPT.txt
+          foreach ($expected in @(
+            'KMJ_OMNIDESK_V5_CAPTURE_TYPE=OFFLINE_NATIVE_RENDER_BUFFER_PNG',
+            'WINDOWS_EXE_SCREENSHOT=NO',
+            'VERIFIED_NETWORK_SESSION=NO',
+            'SCREEN_COUNT=13'
+          )) {
+            if (-not $receipt.Contains($expected)) { throw "V5 evidence receipt missing: $expected" }
+          }
+          $pngs = @(Get-ChildItem -LiteralPath artifacts/v5-responsive -Filter '*.png' -File)
+          if ($pngs.Count -ne 13) { throw "Expected exactly 13 V5 responsive PNGs; found $($pngs.Count)" }
+          Add-Type -AssemblyName System.Drawing
+          $ownerCapture = [System.Drawing.Image]::FromFile(
+            (Resolve-Path artifacts/v5-responsive/12_owner_screenshot_1308.png).Path
+          )
+          try {
+            if ($ownerCapture.Width -ne 1308 -or $ownerCapture.Height -ne 777) {
+              throw 'Owner screenshot geometry must remain exactly 1308 x 777'
+            }
+          } finally {
+            $ownerCapture.Dispose()
+          }
       - name: Check project-scoped CodeBridge visual QA bridge
         shell: pwsh
         run: |
@@ -509,4 +550,6 @@ jobs:
             artifacts/native-ui/*.png
             artifacts/locked-dashboard.png
             artifacts/locked-dashboard-evidence.json
+            artifacts/v5-responsive/*.png
+            artifacts/v5-responsive/RECEIPT.txt
           if-no-files-found: error

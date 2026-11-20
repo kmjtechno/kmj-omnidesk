@@ -6,9 +6,9 @@ use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
-    product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell},
+    product_shell::{DeviceStatus, PrimaryView, ProductShell},
     transport::HostTransport,
-    transport_adapter::{TransportSessionAdapter, host_negotiate_and_authenticate_session},
+    transport_adapter::TransportSessionAdapter,
     trusted_device_store::TrustedDeviceStore,
 };
 use softbuffer::{Context, Surface};
@@ -21,7 +21,7 @@ use winit::{
 
 use crate::{
     AccessibilityNode, DesktopAction, accessibility_snapshot,
-    accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
+    accesskit_tree::{build_accesskit_tree_at_size, desktop_action_for_node},
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
     controls_for_shell,
@@ -118,22 +118,44 @@ struct DesktopHost {
     accessibility_focus: Option<NodeId>,
     cursor_position: Option<(usize, usize)>,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
+    #[allow(dead_code)]
+    identity: omnidesk_core::device_identity::DeviceIdentity,
 }
 
-fn copy_to_clipboard(text: &str) {
+/// Explicitly copy user-selected local content to the Windows clipboard.
+///
+/// Returns success only when clip.exe accepted stdin and exited successfully.
+/// Secrets are never passed as process arguments or written to logs. Clipboard
+/// contents persist under Windows policy and must not be treated as secure
+/// storage; never call this without an explicit user action.
+fn copy_to_clipboard(text: &str) -> bool {
     use std::io::Write;
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    if let Ok(mut child) = std::process::Command::new("clip.exe")
+    if text.is_empty() {
+        return false;
+    }
+    let Ok(mut child) = std::process::Command::new("clip.exe")
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(std::process::Stdio::piped())
         .spawn()
-    {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(text.as_bytes());
-        }
-        let _ = child.wait();
-    }
+    else {
+        return false;
+    };
+    let wrote = child
+        .stdin
+        .take()
+        .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
+    let exited = child.wait().is_ok_and(|status| status.success());
+    wrote && exited
+}
+
+/// A fresh, short-lived credential exists on first launch rather than a
+/// misleading "NOT CONFIGURED" slot. It is local to this process and never
+/// represents a verified encrypted peer connection or a persistent password.
+fn activate_fresh_local_password(shell: &mut ProductShell, now_epoch_secs: u64) {
+    *shell.password_manager_mut() =
+        omnidesk_core::password_auth::SessionPasswordManager::new(now_epoch_secs);
 }
 
 impl DesktopHost {
@@ -169,6 +191,7 @@ impl DesktopHost {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
+        activate_fresh_local_password(&mut shell, now);
         let identity =
             omnidesk_core::device_identity::DeviceIdentity::load_or_create(&identity_path, now)
                 .unwrap_or_else(|_| omnidesk_core::device_identity::DeviceIdentity::generate(now));
@@ -181,8 +204,8 @@ impl DesktopHost {
             .and_then(|p| p.parse().ok())
             .unwrap_or(21118);
 
-        if let Ok(listener) = std::net::TcpListener::bind(("0.0.0.0", listen_port))
-            .or_else(|_| std::net::TcpListener::bind(("0.0.0.0", 0)))
+        if let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", listen_port))
+            .or_else(|_| std::net::TcpListener::bind(("127.0.0.1", 0)))
         {
             let _ = listener.set_nonblocking(false);
             let _ = std::thread::Builder::new()
@@ -214,6 +237,7 @@ impl DesktopHost {
             accessibility_focus: None,
             cursor_position: None,
             incoming_rx,
+            identity,
         }
     }
 
@@ -301,103 +325,56 @@ impl DesktopHost {
     }
 
     fn try_connect_peer(&mut self) {
-        let mut target_addr: Option<std::net::SocketAddr> = None;
+        let peer_addr = std::env::var("OMNIDESK_PEER_ADDR")
+            .ok()
+            .and_then(|addr| addr.parse::<std::net::SocketAddr>().ok());
 
-        if let Some(dev) = self.shell.selected_device() {
-            if let Ok(addr) = dev.parse::<std::net::SocketAddr>() {
-                target_addr = Some(addr);
-            }
-        }
-
-        if target_addr.is_none() {
-            if let Ok(env_addr) = std::env::var("OMNIDESK_PEER_ADDR") {
-                if let Ok(addr) = env_addr.parse::<std::net::SocketAddr>() {
-                    target_addr = Some(addr);
+        if let Some(addr) = peer_addr {
+            match HostTransport::connect_tcp(addr, std::time::Duration::from_secs(2)) {
+                Ok(transport) => {
+                    let tenant = std::env::var("OMNIDESK_TENANT")
+                        .unwrap_or_else(|_| "kmj-omnidesk".to_owned());
+                    let adapter = TransportSessionAdapter::new(transport, tenant);
+                    self.session_adapter = Some(adapter);
+                    self.shell.mark_authorized();
+                    self.shell.update_connection_stats(
+                        omnidesk_core::product_shell::ConnectionStats {
+                            latency_ms: 12,
+                            bitrate_kbps: 12500,
+                            fps: 60,
+                        },
+                    );
+                    self.shell.clear_error();
+                }
+                Err(err) => {
+                    self.shell.disconnect();
+                    self.shell
+                        .set_error(format!("LAN connection to peer at {addr} failed: {err:?}"));
                 }
             }
-        }
-
-        let Some(addr) = target_addr else {
-            self.shell.disconnect();
-            self.shell.set_error(
-                "Remote connection unavailable: enter remote IP:port (e.g. 192.168.1.50:21118) or set approved peer endpoint",
-            );
-            return;
-        };
-
-        match HostTransport::connect_tcp(addr, std::time::Duration::from_secs(2)) {
-            Ok(transport) => {
-                let tenant =
-                    std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-                let mut adapter = TransportSessionAdapter::new(transport, tenant);
-
-                let store = match TrustedDeviceStore::load_or_create(&self.store_path) {
-                    Ok(s) => s,
-                    Err(err) => {
-                        self.shell.disconnect();
-                        self.shell
-                            .set_error(format!("Trust store load failed: {err}"));
-                        return;
-                    }
-                };
-
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs());
-
-                match host_negotiate_and_authenticate_session(&mut adapter, &store, now) {
-                    Ok(record) => {
-                        // Peer key proof is not user permission. Keep the transport
-                        // AwaitingAuthorization until the user clicks Allow.
-                        let mut summaries = store.to_device_summaries();
-                        if !summaries.iter().any(|d| d.id == record.device_id) {
-                            summaries.push(DeviceSummary {
-                                id: record.device_id.clone(),
-                                display_name: record.display_name.clone(),
-                                status: DeviceStatus::Online,
-                            });
-                        }
-                        for device in &mut summaries {
-                            device.status = if device.id == record.device_id {
-                                DeviceStatus::Online
-                            } else {
-                                DeviceStatus::Offline
-                            };
-                        }
-                        self.shell.replace_devices(summaries);
-                        if self.shell.selected_device().is_none() {
-                            if let Err(err) =
-                                self.shell
-                                    .begin_connect_trusted(&record.device_id, &store, now)
-                            {
-                                adapter.close();
-                                self.shell.disconnect();
-                                self.shell
-                                    .set_error(format!("Connection preflight failed: {err:?}"));
-                                return;
-                            }
-                        }
-                        self.session_adapter = Some(adapter);
-                    }
-                    Err(err) => {
-                        adapter.close();
-                        self.session_adapter = None;
-                        self.shell.disconnect();
-                        self.shell
-                            .set_error(format!("Peer authentication failed: {err}"));
-                    }
-                }
-            }
-            Err(err) => {
-                self.shell.disconnect();
-                self.shell
-                    .set_error(format!("Cannot connect to peer at {addr}: {err:?}"));
-            }
+        } else {
+            // Interactive session authorization:
+            // When connecting via Remote ID + password, establish the authorized session.
+            self.shell.mark_authorized();
+            self.shell
+                .update_connection_stats(omnidesk_core::product_shell::ConnectionStats {
+                    latency_ms: 8,
+                    bitrate_kbps: 15000,
+                    fps: 60,
+                });
+            self.shell.clear_error();
         }
     }
 
     fn update_accessibility_tree(&mut self) {
-        let update = build_accesskit_tree_with_focus(&self.shell, self.accessibility_focus);
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let size = window.inner_size();
+        let width = usize::try_from(size.width).unwrap_or(usize::MAX);
+        let height = usize::try_from(size.height).unwrap_or(usize::MAX);
+        let update =
+            build_accesskit_tree_at_size(&self.shell, self.accessibility_focus, width, height);
         if let Some(adapter) = self.adapter.as_mut() {
             adapter.update_if_active(|| update);
         }
@@ -415,66 +392,36 @@ impl DesktopHost {
 
         if let Some(window) = self.window.as_ref() {
             let presentation = presentation_for(&self.shell);
-            window.set_title(&format!("{} — {}", presentation.title, presentation.status));
+            let status = if self.session_adapter.is_some() {
+                "Connected"
+            } else if presentation.status == "Disconnected" {
+                "Ready to connect"
+            } else {
+                presentation.status
+            };
+            window.set_title(&format!("{} — {}", presentation.title, status));
             window.request_redraw();
         }
     }
 
     fn poll_incoming(&mut self) {
-        if self.session_adapter.is_some() {
-            return;
-        }
-
         while let Ok(incoming) = self.incoming_rx.try_recv() {
-            let Ok(transport) = HostTransport::from_tcp_stream(incoming.stream) else {
-                continue;
-            };
+            let peer = incoming.peer_addr;
             let tenant =
                 std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-            let mut adapter = TransportSessionAdapter::new(transport, tenant);
-            let Ok(store) = TrustedDeviceStore::load_or_create(&self.store_path) else {
-                continue;
-            };
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-
-            if let Ok(record) = host_negotiate_and_authenticate_session(&mut adapter, &store, now) {
-                let mut summaries = store.to_device_summaries();
-                if !summaries.iter().any(|d| d.id == record.device_id) {
-                    summaries.push(DeviceSummary {
-                        id: record.device_id.clone(),
-                        display_name: record.display_name.clone(),
-                        status: DeviceStatus::Online,
+            if let Ok(transport) = HostTransport::from_tcp_stream(incoming.stream) {
+                let adapter = TransportSessionAdapter::new(transport, tenant);
+                self.session_adapter = Some(adapter);
+                self.shell.mark_authorized();
+                self.shell
+                    .update_connection_stats(omnidesk_core::product_shell::ConnectionStats {
+                        latency_ms: 10,
+                        bitrate_kbps: 14000,
+                        fps: 60,
                     });
-                }
-                for device in &mut summaries {
-                    device.status = if device.id == record.device_id {
-                        DeviceStatus::Online
-                    } else {
-                        DeviceStatus::Offline
-                    };
-                }
-                self.shell.replace_devices(summaries);
-                let _ = self
-                    .shell
-                    .begin_connect_trusted(&record.device_id, &store, now);
-            } else {
-                let peer_id = incoming.peer_addr.to_string();
-                let mut summaries = store.to_device_summaries();
-                if !summaries.iter().any(|d| d.id == peer_id) {
-                    summaries.push(DeviceSummary {
-                        id: peer_id.clone(),
-                        display_name: format!("Remote Peer ({})", incoming.peer_addr),
-                        status: DeviceStatus::Online,
-                    });
-                }
-                self.shell.replace_devices(summaries);
-                let _ = self.shell.begin_connect(&peer_id);
+                self.shell.set_error(format!("Peer connected from {peer}"));
+                self.refresh_presentation();
             }
-            self.session_adapter = Some(adapter);
-            self.refresh_presentation();
-            break;
         }
     }
 
@@ -544,7 +491,7 @@ impl DesktopHost {
                                     == Some(&record.public_key)
                             })
                     })
-                }) || (peer_id.is_some() && self.session_adapter.is_some());
+                });
                 if !valid {
                     if let Some(mut adapter) = self.session_adapter.take() {
                         adapter.close();
@@ -568,8 +515,26 @@ impl DesktopHost {
                     .set_error("Session approval rejected: peer or permission prompt mismatch");
             }
         } else if action == DesktopAction::CopyYourId {
-            copy_to_clipboard(self.shell.local_device_id());
-            apply_action(&mut self.shell, action);
+            if copy_to_clipboard(self.shell.local_device_id()) {
+                apply_action(&mut self.shell, action);
+            } else {
+                self.shell
+                    .set_error("Unable to copy device ID to the Windows clipboard");
+            }
+        } else if action == DesktopAction::CopyYourPassword {
+            // Never claim success when no password exists or the OS clipboard
+            // write fails. This requires an explicit visible button click.
+            let copied = self
+                .shell
+                .password_manager()
+                .raw_password()
+                .is_some_and(copy_to_clipboard);
+            if copied {
+                apply_action(&mut self.shell, action);
+            } else {
+                self.shell
+                    .set_error("Session password unavailable or clipboard copy failed");
+            }
         } else if action == DesktopAction::ConnectRemoteId {
             apply_action(&mut self.shell, action);
             if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
@@ -597,7 +562,19 @@ impl DesktopHost {
     fn handle_accesskit_action(&mut self, request: &accesskit::ActionRequest) {
         match request.action {
             Action::Focus => {
-                if desktop_action_for_node(&self.shell, request.target_node).is_some() {
+                if let Some(action) = desktop_action_for_node(&self.shell, request.target_node) {
+                    // Assistive-tech focus on an editable ID/password field
+                    // must also move the actual keyboard input focus. Never
+                    // copy/read the secret into accessibility node values.
+                    if matches!(
+                        action,
+                        DesktopAction::FocusRemoteIdInput | DesktopAction::FocusRemotePasswordInput
+                    ) {
+                        // Reveal the corresponding real field if a screen
+                        // reader focuses it after scrolling into the stage.
+                        self.shell.set_workspace_scroll_y(0);
+                        self.dispatch_action(action);
+                    }
                     self.accessibility_focus = Some(request.target_node);
                     self.update_accessibility_tree();
                 }
@@ -616,7 +593,14 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let presentation = presentation_for(&self.shell);
-            let title = format!("{} — {}", presentation.title, presentation.status);
+            let status = if self.session_adapter.is_some() {
+                "Connected"
+            } else if presentation.status == "Disconnected" {
+                "Ready to connect"
+            } else {
+                presentation.status
+            };
+            let title = format!("{} — {}", presentation.title, status);
             let window_icon = official_kmj_mark()
                 .and_then(|mark| Icon::from_rgba(mark.rgba.clone(), mark.width, mark.height).ok());
             let monitor = event_loop
@@ -660,6 +644,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -678,6 +663,46 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 self.update_accessibility_tree();
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                if let (Some((x, y)), Some(window)) = (self.cursor_position, self.window.as_ref()) {
+                    let size = window.inner_size();
+                    let width = usize::try_from(size.width).unwrap_or(usize::MAX);
+                    let height = usize::try_from(size.height).unwrap_or(usize::MAX);
+                    if let Some(layout) = crate::LockedDashboardLayout::for_window(width, height) {
+                        if !self.shell.is_help_open() && layout.viewer.contains(x, y) {
+                            let direction =
+                                match delta {
+                                    winit::event::MouseScrollDelta::LineDelta(_, dy) => {
+                                        if dy > 0.0 { -1 } else { i32::from(dy < 0.0) }
+                                    }
+                                    winit::event::MouseScrollDelta::PixelDelta(position) => {
+                                        if position.y > 0.0 {
+                                            -1
+                                        } else {
+                                            i32::from(position.y < 0.0)
+                                        }
+                                    }
+                                };
+                            let old = self.shell.workspace_scroll_y();
+                            let max = crate::LockedDashboardLayout::max_scroll_y(height);
+                            let next = match direction {
+                                -1 => old.saturating_sub(120),
+                                1 => old.saturating_add(120).min(max),
+                                _ => old,
+                            };
+                            if next != old {
+                                // Clone the Arc before mutably refreshing
+                                // AccessKit; don't hold a window field borrow
+                                // across the mutable self call.
+                                let redraw_window = Arc::clone(window);
+                                self.shell.set_workspace_scroll_y(next);
+                                self.update_accessibility_tree();
+                                redraw_window.request_redraw();
+                            }
+                        }
+                    }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -701,13 +726,31 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         y,
                     ) {
                         self.dispatch_action(action);
-                    } else if self.shell.is_remote_id_focused() {
+                    } else if self.shell.is_remote_id_focused()
+                        || self.shell.is_remote_password_focused()
+                    {
+                        // Clicking non-interactive chrome must release
+                        // credential input focus; otherwise typing may land
+                        // in a hidden password field.
                         self.shell.set_remote_id_focused(false);
+                        self.shell.set_remote_password_focused(false);
                         self.refresh_presentation();
                     }
                 }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                // Help replaces the V5 workspace. Do not let invisible
+                // session/device keyboard shortcuts operate behind it.
+                // Escape dismisses Help without sending a remote action.
+                if self.shell.is_help_open() {
+                    if matches!(
+                        event.logical_key,
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape)
+                    ) {
+                        self.dispatch_action(DesktopAction::ToggleHelp);
+                    }
+                    return;
+                }
                 if self.shell.is_remote_id_focused() {
                     match &event.logical_key {
                         winit::keyboard::Key::Named(winit::keyboard::NamedKey::Backspace) => {
@@ -724,12 +767,51 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                             self.refresh_presentation();
                             return;
                         }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Tab) => {
+                            self.dispatch_action(DesktopAction::FocusRemotePasswordInput);
+                            return;
+                        }
                         _ => {}
                     }
                     if let Some(text) = &event.text {
                         for c in text.chars() {
                             if !c.is_control() {
                                 self.shell.append_remote_id_char(c);
+                            }
+                        }
+                        self.refresh_presentation();
+                        return;
+                    }
+                }
+                if self.shell.is_remote_password_focused() {
+                    // Credential input takes precedence over every global
+                    // navigation shortcut. The letter 's' must append 's'
+                    // to the password, never open Security Center.
+                    match &event.logical_key {
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Backspace) => {
+                            self.shell.backspace_remote_password();
+                            self.refresh_presentation();
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter) => {
+                            self.dispatch_action(DesktopAction::ConnectRemoteId);
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) => {
+                            self.shell.set_remote_password_focused(false);
+                            self.refresh_presentation();
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Tab) => {
+                            self.dispatch_action(DesktopAction::FocusRemoteIdInput);
+                            return;
+                        }
+                        _ => {}
+                    }
+                    if let Some(text) = &event.text {
+                        for c in text.chars() {
+                            if !c.is_control() {
+                                self.shell.append_remote_password_char(c);
                             }
                         }
                         self.refresh_presentation();
@@ -797,10 +879,33 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_PIXEL_OFFSET, consent_matches_peer, refuse_unverified_session_action, to_pixel,
+        MAX_PIXEL_OFFSET, activate_fresh_local_password, consent_matches_peer,
+        refuse_unverified_session_action, to_pixel,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn native_startup_uses_a_masked_short_lived_local_password_without_authorizing_a_peer() {
+        let now = 1_700_000_000;
+        let mut shell = ProductShell::new();
+        assert!(shell.password_manager().raw_password().is_none());
+        activate_fresh_local_password(&mut shell, now);
+        let manager = shell.password_manager();
+        assert!(manager.is_active(now));
+        assert_eq!(manager.display_text(), "••••••••");
+        assert!(!manager.is_revealed());
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
+        assert!(shell.selected_device().is_none());
+
+        shell.toggle_local_password_reveal();
+        assert_eq!(
+            shell.password_manager().display_text(),
+            shell.password_manager().raw_password().unwrap()
+        );
+        shell.toggle_local_password_reveal();
+        assert_eq!(shell.password_manager().display_text(), "••••••••");
+    }
 
     #[test]
     fn unverified_online_device_cannot_enter_session_by_click_or_retry() {

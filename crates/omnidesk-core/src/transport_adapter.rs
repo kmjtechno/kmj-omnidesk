@@ -136,10 +136,14 @@ impl<T: Transport> TransportSessionAdapter<T> {
         matches!(self.session.state(), SessionState::Active)
     }
 
-    /// Whether control operations are cryptographically authorized.
+    /// Whether control is authorized on a verified confidential channel.
+    /// An Ed25519 proof alone does not encrypt transport frames.
     #[must_use]
-    pub const fn is_control_authorized(&self) -> bool {
-        self.session.control_authorized() && matches!(self.session.state(), SessionState::Active)
+    pub fn is_control_authorized(&self) -> bool {
+        self.transport.is_peer_authenticated_and_encrypted()
+            && self.authenticated_device_id.is_some()
+            && self.session.control_authorized()
+            && matches!(self.session.state(), SessionState::Active)
     }
 
     /// Initiates session negotiation with a verified peer identity.
@@ -205,12 +209,19 @@ impl<T: Transport> TransportSessionAdapter<T> {
         Ok(record.clone())
     }
 
-    /// Authorizes remote session control once authentication has succeeded.
+    /// Authorizes remote session control only after BOTH verified device
+    /// authentication and an independently authenticated encrypted channel.
     ///
     /// # Errors
     ///
-    /// Returns [`TransportSessionError`] if the session is not awaiting authorization.
+    /// Returns [`TransportSessionError::UnverifiedControlBlocked`] if the
+    /// underlying channel is unverified; otherwise returns session errors.
     pub fn authorize_session(&mut self) -> Result<(), TransportSessionError> {
+        if self.authenticated_device_id.is_none()
+            || !self.transport.is_peer_authenticated_and_encrypted()
+        {
+            return Err(TransportSessionError::UnverifiedControlBlocked);
+        }
         self.session
             .authorize_control()
             .map_err(TransportSessionError::Session)
@@ -270,6 +281,12 @@ pub enum SessionAuthWireMessage {
         #[serde(with = "crate::device_enrollment::serde_bytes_64")]
         signature: [u8; 64],
     },
+    /// Peer returns password proof
+    PasswordProof {
+        host_id: String,
+        client_id: String,
+        proof: [u8; 32],
+    },
     /// Host confirms session is authenticated
     Success { device_id: String },
     /// Host or peer rejects
@@ -296,23 +313,20 @@ impl SessionAuthWireMessage {
     }
 }
 
-/// Executes the host-side authentication handshake over the adapter's transport.
-///
-/// 1. Receives `Hello { device_id, peer_tenant }`.
-/// 2. Begins session negotiation with `PeerIdentity::new(&device_id)`.
-/// 3. Generates a fresh CSPRNG nonce and sends `Challenge { nonce }`.
-/// 4. Receives `Proof { public_key, signature }`.
-/// 5. Strictly authenticates via `adapter.authenticate_peer(public_key, nonce, signature, &peer_tenant, store, now_epoch_secs)`.
-/// 6. Sends `Success { device_id }` and returns the verified [`TrustedDeviceRecord`].
+/// Executes the host-side authentication handshake over the adapter's transport,
+/// supporting both trusted public-key proof and in-band session password proof.
 ///
 /// On any failure, transmits `Reject { reason }`, closes the session, and fails closed.
 ///
 /// # Errors
 ///
 /// Returns [`TransportSessionError`] if negotiation, authentication, or transport fails.
-pub fn host_negotiate_and_authenticate_session<T: Transport>(
+#[allow(clippy::too_many_lines)]
+pub fn host_negotiate_and_authenticate_session_with_password<T: Transport>(
     adapter: &mut TransportSessionAdapter<T>,
     store: &TrustedDeviceStore,
+    local_device_id: &str,
+    mut password_mgr: Option<&mut crate::password_auth::SessionPasswordManager>,
     now_epoch_secs: u64,
 ) -> Result<TrustedDeviceRecord, TransportSessionError> {
     let raw = adapter.transport_mut().receive()?.ok_or_else(|| {
@@ -349,49 +363,134 @@ pub fn host_negotiate_and_authenticate_session<T: Transport>(
     })?;
 
     let proof_msg = SessionAuthWireMessage::from_bytes(&raw_proof)?;
-    let (public_key, signature) = match proof_msg {
+    match proof_msg {
         SessionAuthWireMessage::Proof {
             public_key,
             signature,
-        } => (public_key, signature),
-        SessionAuthWireMessage::Reject { reason } => {
-            return Err(TransportSessionError::Protocol(format!(
-                "peer rejected: {reason}"
-            )));
-        }
-        _ => {
-            return Err(TransportSessionError::Protocol(
-                "expected Proof message".to_owned(),
-            ));
-        }
-    };
-
-    match adapter.authenticate_peer(
-        public_key,
-        nonce,
-        signature,
-        &peer_tenant,
-        store,
-        now_epoch_secs,
-    ) {
-        Ok(record) => {
-            let success_msg = SessionAuthWireMessage::Success {
-                device_id: record.device_id.clone(),
-            };
-            adapter.transport_mut().send(&success_msg.to_bytes()?)?;
-            Ok(record)
-        }
-        Err(err) => {
-            let reject_msg = SessionAuthWireMessage::Reject {
-                reason: err.to_string(),
-            };
-            if let Ok(bytes) = reject_msg.to_bytes() {
-                let _ = adapter.transport_mut().send(&bytes);
+        } => {
+            match adapter.authenticate_peer(
+                public_key,
+                nonce,
+                signature,
+                &peer_tenant,
+                store,
+                now_epoch_secs,
+            ) {
+                Ok(record) => {
+                    let success_msg = SessionAuthWireMessage::Success {
+                        device_id: record.device_id.clone(),
+                    };
+                    adapter.transport_mut().send(&success_msg.to_bytes()?)?;
+                    Ok(record)
+                }
+                Err(err) => {
+                    let reject_msg = SessionAuthWireMessage::Reject {
+                        reason: err.to_string(),
+                    };
+                    if let Ok(bytes) = reject_msg.to_bytes() {
+                        let _ = adapter.transport_mut().send(&bytes);
+                    }
+                    adapter.close();
+                    Err(err)
+                }
             }
-            adapter.close();
-            Err(err)
         }
+        SessionAuthWireMessage::PasswordProof {
+            host_id,
+            client_id,
+            proof,
+        } => {
+            // Password knowledge cannot establish the remote host's
+            // identity, confidentiality or integrity of a raw TCP channel.
+            // Never accept an unbound proof as remote-control authorization.
+            if !adapter
+                .transport_mut()
+                .is_peer_authenticated_and_encrypted()
+            {
+                let reject = SessionAuthWireMessage::Reject {
+                    reason: "authenticated encrypted channel required".to_owned(),
+                };
+                if let Ok(bytes) = reject.to_bytes() {
+                    let _ = adapter.transport_mut().send(&bytes);
+                }
+                adapter.close();
+                return Err(TransportSessionError::UnverifiedControlBlocked);
+            }
+            let res = password_mgr.as_mut().map_or_else(
+                || {
+                    Err(TransportSessionError::Protocol(
+                        "no session password active".to_owned(),
+                    ))
+                },
+                |mgr| {
+                    mgr.verify_proof(&host_id, &client_id, &nonce, &proof, now_epoch_secs)
+                        .map_err(|e| TransportSessionError::Protocol(e.to_string()))
+                },
+            );
+
+            match res {
+                Ok(()) => {
+                    let host_display_id = if local_device_id.is_empty() {
+                        "KMJ-HOST".to_owned()
+                    } else {
+                        local_device_id.to_owned()
+                    };
+                    let success_msg = SessionAuthWireMessage::Success {
+                        device_id: host_display_id,
+                    };
+                    adapter.transport_mut().send(&success_msg.to_bytes()?)?;
+                    Ok(TrustedDeviceRecord {
+                        device_id: client_id.clone(),
+                        display_name: format!("Password-Auth Peer ({client_id})"),
+                        public_key: [0_u8; 32],
+                        enrolled_at_epoch_secs: now_epoch_secs,
+                        trust_expires_at_epoch_secs: now_epoch_secs.saturating_add(86_400),
+                        managed: false,
+                        revoked: false,
+                        status: crate::trusted_device_store::PersistedDeviceStatus::Online,
+                    })
+                }
+                Err(err) => {
+                    let reject_msg = SessionAuthWireMessage::Reject {
+                        reason: err.to_string(),
+                    };
+                    if let Ok(bytes) = reject_msg.to_bytes() {
+                        let _ = adapter.transport_mut().send(&bytes);
+                    }
+                    adapter.close();
+                    Err(err)
+                }
+            }
+        }
+        SessionAuthWireMessage::Reject { reason } => Err(TransportSessionError::Protocol(format!(
+            "peer rejected: {reason}"
+        ))),
+        _ => Err(TransportSessionError::Protocol(
+            "expected Proof or PasswordProof message".to_owned(),
+        )),
     }
+}
+
+/// Executes the host-side authentication handshake over the adapter's transport.
+///
+/// 1. Receives `Hello { device_id, peer_tenant }`.
+/// 2. Begins session negotiation with `PeerIdentity::new(&device_id)`.
+/// 3. Generates a fresh CSPRNG nonce and sends `Challenge { nonce }`.
+/// 4. Receives `Proof { public_key, signature }`.
+/// 5. Strictly authenticates via `adapter.authenticate_peer(public_key, nonce, signature, &peer_tenant, store, now_epoch_secs)`.
+/// 6. Sends `Success { device_id }` and returns the verified [`TrustedDeviceRecord`].
+///
+/// On any failure, transmits `Reject { reason }`, closes the session, and fails closed.
+///
+/// # Errors
+///
+/// Returns [`TransportSessionError`] if negotiation, authentication, or transport fails.
+pub fn host_negotiate_and_authenticate_session<T: Transport>(
+    adapter: &mut TransportSessionAdapter<T>,
+    store: &TrustedDeviceStore,
+    now_epoch_secs: u64,
+) -> Result<TrustedDeviceRecord, TransportSessionError> {
+    host_negotiate_and_authenticate_session_with_password(adapter, store, "", None, now_epoch_secs)
 }
 
 /// Executes the client/peer side authentication handshake over any transport.
@@ -457,6 +556,76 @@ pub fn peer_negotiate_and_authenticate_session<T: Transport>(
         ))),
         _ => Err(TransportSessionError::Protocol(
             "unexpected response".to_owned(),
+        )),
+    }
+}
+
+/// Executes client/peer password authentication handshake over any transport.
+///
+/// 1. Sends `Hello { device_id, peer_tenant }`.
+/// 2. Receives `Challenge { nonce }`.
+/// 3. Computes HMAC-SHA256 password proof with `(password, host_id, client_id, nonce)`.
+/// 4. Sends `PasswordProof { host_id, client_id, proof }`.
+/// 5. Receives `Success { device_id }` from host.
+///
+/// # Errors
+///
+/// Returns [`TransportSessionError`] on rejection or transport error.
+pub fn peer_negotiate_and_authenticate_with_password<T: Transport>(
+    transport: &mut T,
+    client_id: &str,
+    host_id: &str,
+    password: &str,
+    tenant: &str,
+) -> Result<String, TransportSessionError> {
+    // Do not even transmit Hello or a password proof over a channel that has
+    // not independently authenticated the peer and established encryption.
+    if !transport.is_peer_authenticated_and_encrypted() {
+        return Err(TransportSessionError::UnverifiedControlBlocked);
+    }
+    let hello = SessionAuthWireMessage::Hello {
+        device_id: client_id.to_owned(),
+        peer_tenant: tenant.to_owned(),
+    };
+    transport.send(&hello.to_bytes()?)?;
+
+    let raw_challenge = transport
+        .receive()?
+        .ok_or_else(|| TransportSessionError::Protocol("no challenge received".to_owned()))?;
+
+    let nonce = match SessionAuthWireMessage::from_bytes(&raw_challenge)? {
+        SessionAuthWireMessage::Challenge { nonce } => nonce,
+        SessionAuthWireMessage::Reject { reason } => {
+            return Err(TransportSessionError::Protocol(format!(
+                "host rejected: {reason}"
+            )));
+        }
+        _ => {
+            return Err(TransportSessionError::Protocol(
+                "expected Challenge".to_owned(),
+            ));
+        }
+    };
+
+    let proof = crate::password_auth::compute_password_proof(password, host_id, client_id, &nonce);
+    let proof_msg = SessionAuthWireMessage::PasswordProof {
+        host_id: host_id.to_owned(),
+        client_id: client_id.to_owned(),
+        proof,
+    };
+    transport.send(&proof_msg.to_bytes()?)?;
+
+    let raw_response = transport.receive()?.ok_or_else(|| {
+        TransportSessionError::Protocol("no response received after proof".to_owned())
+    })?;
+
+    match SessionAuthWireMessage::from_bytes(&raw_response)? {
+        SessionAuthWireMessage::Success { device_id } => Ok(device_id),
+        SessionAuthWireMessage::Reject { reason } => Err(TransportSessionError::Protocol(format!(
+            "password authentication rejected: {reason}"
+        ))),
+        _ => Err(TransportSessionError::Protocol(
+            "unexpected auth wire response".to_owned(),
         )),
     }
 }

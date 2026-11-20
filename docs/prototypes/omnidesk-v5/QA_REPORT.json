@@ -1,0 +1,68 @@
+{
+  "status": "PASS",
+  "scope": "interactive browser prototype only; native Windows QA and peer authentication are NOT verified",
+  "checked_at": "2026-11-10",
+  "checks": [
+    "responsive_7_viewports",
+    "no_js_errors",
+    "local_demo_password_show_hide_rotate",
+    "remote_input_validation",
+    "no_fake_connection",
+    "remote_password_cleared",
+    "navigation",
+    "quality_preview",
+    "mobile_priority",
+    "simulation_preview_clearly_marked",
+    "simulated_toolbar_no_remote_action",
+    "exit_preview"
+  ],
+  "reports": [
+    {
+      "viewport": "wide",
+      "size": "1920x1080",
+      "horizontal_overflow": false,
+      "console_errors": []
+    },
+    {
+      "viewport": "desktop",
+      "size": "1600x920",
+      "horizontal_overflow": false,
+      "console_errors": []
+    },
+    {
+      "viewport": "laptop",
+      "size": "1280x800",
+      "horizontal_overflow": false,
+      "console_errors": []
+    },
+    {
+      "viewport": "compact",
+      "size": "1024x768",
+      "horizontal_overflow": false,
+      "console_errors": []
+    },
+    {
+      "viewport": "tablet",
+      "size": "820x1024",
+      "horizontal_overflow": false,
+      "console_errors": []
+    },
+    {
+      "viewport": "mobile",
+      "size": "390x844",
+      "horizontal_overflow": false,
+      "console_errors": []
+    },
+    {
+      "viewport": "small",
+      "size": "360x740",
+      "horizontal_overflow": false,
+      "console_errors": []
+    }
+  ],
+  "limitations": [
+    "No real remote device discovery, host password, authenticated encrypted session or remote input has been tested",
+    "The browser samples cannot become production authentication credentials",
+    "No native Windows DPI/keyboard/screen reader release acceptance or signed build has been completed"
+  ]
+}

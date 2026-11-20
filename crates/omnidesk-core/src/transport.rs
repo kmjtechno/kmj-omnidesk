@@ -26,6 +26,20 @@ pub enum TransportError {
 pub trait Transport {
     /// Returns the currently selected transport path.
     fn path_kind(&self) -> PathKind;
+
+    /// Whether this connection has independently established BOTH
+    /// authenticated peer identity and confidential, integrity-protected
+    /// encryption. This is a security claim by the transport implementation,
+    /// not evidence inferred from the path kind or a password proof.
+    ///
+    /// Raw TCP, relay labels and in-memory loopback transports MUST return
+    /// false. A future audited secure transport may override this only after
+    /// verifying its live handshake, peer identity and channel binding.
+    /// Fail closed by default for every existing transport implementation.
+    fn is_peer_authenticated_and_encrypted(&self) -> bool {
+        false
+    }
+
     /// Sends one bounded transport payload.
     ///
     /// # Errors

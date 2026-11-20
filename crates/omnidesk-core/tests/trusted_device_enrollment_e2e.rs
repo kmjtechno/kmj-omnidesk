@@ -20,8 +20,10 @@ use omnidesk_core::{
     session::{PeerIdentity, Session, SessionError, SessionState},
     transport::{HostTransport, LoopbackTransport, TcpLanTransport, Transport},
     transport_adapter::{
-        TransportSessionAdapter, TransportSessionError, host_negotiate_and_authenticate_session,
-        peer_negotiate_and_authenticate_session,
+        SessionAuthWireMessage, TransportSessionAdapter, TransportSessionError,
+        host_negotiate_and_authenticate_session,
+        host_negotiate_and_authenticate_session_with_password,
+        peer_negotiate_and_authenticate_session, peer_negotiate_and_authenticate_with_password,
     },
     trusted_device_store::{
         DeviceStoreError, PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
@@ -482,7 +484,7 @@ fn enrollment_coordinator_corrupted_store_fails_closed() {
 }
 
 #[test]
-fn transport_session_adapter_full_success_lifecycle() {
+fn signed_peer_authentication_without_encryption_cannot_authorize_control() {
     let transport = LoopbackTransport::default();
     let mut adapter = TransportSessionAdapter::new(transport, "tenant-acme");
     let now = 3_000_000_u64;
@@ -527,17 +529,24 @@ fn transport_session_adapter_full_success_lifecycle() {
     );
     assert!(!adapter.is_control_authorized());
 
-    // 3. Authorize session
-    adapter.authorize_session().expect("authorize");
-    assert!(adapter.is_active());
-    assert!(adapter.is_control_authorized());
+    // 3. A valid Ed25519 signature does not protect an unencrypted
+    // loopback transport. Reject authorization and ALL payloads.
+    assert_eq!(
+        adapter.authorize_session(),
+        Err(TransportSessionError::UnverifiedControlBlocked)
+    );
+    assert!(!adapter.is_active());
+    assert!(!adapter.is_control_authorized());
+    assert_eq!(
+        adapter.send(b"hello authenticated peer"),
+        Err(TransportSessionError::UnverifiedControlBlocked)
+    );
+    assert_eq!(
+        adapter.receive(),
+        Err(TransportSessionError::UnverifiedControlBlocked)
+    );
 
-    // 4. Send and receive payload
-    adapter.send(b"hello authenticated peer").expect("send");
-    let received = adapter.receive().expect("receive");
-    assert_eq!(received, Some(b"hello authenticated peer".to_vec()));
-
-    // 5. Close resets authorization
+    // 4. Close resets authentication state
     adapter.close();
     assert!(!adapter.is_active());
     assert!(!adapter.is_control_authorized());
@@ -767,7 +776,7 @@ fn tcp_lan_pairing_exchange_e2e() {
 }
 
 #[test]
-fn tcp_lan_authenticated_session_e2e() {
+fn raw_tcp_signed_peer_session_does_not_enable_control() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
     let addr = listener.local_addr().expect("local addr");
     let now = 5_000_000_u64;
@@ -810,32 +819,27 @@ fn tcp_lan_authenticated_session_e2e() {
             .expect("auth");
         assert_eq!(rec.device_id, "tcp-session-peer");
 
-        adapter.authorize_session().expect("authorize");
-        assert!(adapter.is_control_authorized());
-
-        // Echo server over TCP
-        let payload = adapter.receive().expect("receive").expect("payload");
-        assert_eq!(payload, b"ping tcp remote desktop");
-        adapter.send(b"pong tcp remote desktop").expect("send");
-
-        adapter.close();
+        assert_eq!(
+            adapter.authorize_session(),
+            Err(TransportSessionError::UnverifiedControlBlocked)
+        );
         assert!(!adapter.is_control_authorized());
+        assert_eq!(
+            adapter.receive(),
+            Err(TransportSessionError::UnverifiedControlBlocked)
+        );
+        assert_eq!(
+            adapter.send(b"pong tcp remote desktop"),
+            Err(TransportSessionError::UnverifiedControlBlocked)
+        );
+        adapter.close();
     });
 
-    // Client thread
+    // A raw TCP endpoint can be opened, but it has no encrypted
+    // remote-control authorization, even with a valid device signature.
     let client_stream = std::net::TcpStream::connect(addr).expect("connect client");
-    let mut client_transport = TcpLanTransport::from_stream(client_stream).expect("from stream");
-
-    // Client sends ping payload and receives pong over TCP
-    client_transport
-        .send(b"ping tcp remote desktop")
-        .expect("client send");
-    let resp = client_transport
-        .receive()
-        .expect("client receive")
-        .expect("resp");
-    assert_eq!(resp, b"pong tcp remote desktop");
-
+    let client_transport = TcpLanTransport::from_stream(client_stream).expect("from stream");
+    assert!(!client_transport.is_peer_authenticated_and_encrypted());
     server_handle.join().expect("server join");
 }
 
@@ -908,7 +912,7 @@ fn host_transport_loopback_and_tcp_conformance() {
 }
 
 #[test]
-fn tcp_lan_full_handshake_session_auth_success() {
+fn tcp_lan_full_handshake_auth_cannot_enable_unencrypted_control() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
     let addr = listener.local_addr().expect("local addr");
     let now = 7_000_000_u64;
@@ -939,13 +943,16 @@ fn tcp_lan_full_handshake_session_auth_success() {
             .expect("host handshake must succeed");
         assert_eq!(record.device_id, "handshake-peer");
 
-        adapter.authorize_session().expect("session must authorize");
-        assert!(adapter.is_control_authorized());
-
-        // Test sending authorized control payload
-        adapter.send(b"authorized payload").expect("send payload");
-        adapter.close();
+        assert_eq!(
+            adapter.authorize_session(),
+            Err(TransportSessionError::UnverifiedControlBlocked)
+        );
         assert!(!adapter.is_control_authorized());
+        assert_eq!(
+            adapter.send(b"authorized payload"),
+            Err(TransportSessionError::UnverifiedControlBlocked)
+        );
+        adapter.close();
     });
 
     let client_stream = std::net::TcpStream::connect(addr).expect("client connect");
@@ -960,12 +967,7 @@ fn tcp_lan_full_handshake_session_auth_success() {
     .expect("peer handshake must succeed");
     assert_eq!(device_id, "handshake-peer");
 
-    let payload = client_transport
-        .receive()
-        .expect("receive")
-        .expect("payload");
-    assert_eq!(payload, b"authorized payload");
-
+    assert!(!client_transport.is_peer_authenticated_and_encrypted());
     server_handle.join().expect("server join");
 }
 
@@ -1144,4 +1146,70 @@ fn tcp_lan_full_handshake_expired_peer_rejected() {
     assert!(err.is_err());
 
     server_handle.join().expect("server join");
+}
+
+#[test]
+fn raw_tcp_password_proofs_never_authorize_remote_control() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    let client_stream = std::net::TcpStream::connect(addr).expect("connect");
+    let (host_stream, _) = listener.accept().expect("accept");
+    let mut client = HostTransport::from_tcp_stream(client_stream).expect("client transport");
+    let host_transport = HostTransport::from_tcp_stream(host_stream).expect("host transport");
+    let mut host = TransportSessionAdapter::new(host_transport, "kmj-tenant");
+
+    assert!(!client.is_peer_authenticated_and_encrypted());
+    assert!(!host.transport().is_peer_authenticated_and_encrypted());
+
+    // A hostile peer may bypass the higher-level client helper and supply
+    // a structurally valid proof anyway. The host still must reject it.
+    client
+        .send(
+            &SessionAuthWireMessage::Hello {
+                device_id: "client-pc-1".to_owned(),
+                peer_tenant: "kmj-tenant".to_owned(),
+            }
+            .to_bytes()
+            .expect("hello"),
+        )
+        .expect("send hello");
+    client
+        .send(
+            &SessionAuthWireMessage::PasswordProof {
+                host_id: "KMJ-HOST-001".to_owned(),
+                client_id: "client-pc-1".to_owned(),
+                proof: [0_u8; 32],
+            }
+            .to_bytes()
+            .expect("password proof"),
+        )
+        .expect("send forged proof");
+
+    let now = 8_000_000_u64;
+    let store = TrustedDeviceStore::new();
+    let mut password_manager = omnidesk_core::password_auth::SessionPasswordManager::new(now);
+    let result = host_negotiate_and_authenticate_session_with_password(
+        &mut host,
+        &store,
+        "KMJ-HOST-001",
+        Some(&mut password_manager),
+        now,
+    );
+    assert_eq!(result, Err(TransportSessionError::UnverifiedControlBlocked));
+    assert!(!host.is_control_authorized());
+    assert_eq!(host.authenticated_device_id(), None);
+
+    // The normal client entrypoint must reject a plain TCP connection
+    // *before* emitting a password-bearing frame.
+    let client_result = peer_negotiate_and_authenticate_with_password(
+        &mut client,
+        "client-pc-1",
+        "KMJ-HOST-001",
+        "example-not-a-real-password",
+        "kmj-tenant",
+    );
+    assert_eq!(
+        client_result,
+        Err(TransportSessionError::UnverifiedControlBlocked)
+    );
 }
