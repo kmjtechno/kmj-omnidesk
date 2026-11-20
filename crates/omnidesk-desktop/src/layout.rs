@@ -376,12 +376,7 @@ impl PremiumDashboardLayout {
             ),
             license: rect(right_x, 101, right_width, 204),
             health: rect(right_x, 321, right_width, 194),
-            quick_actions: rect(
-                right_x,
-                533,
-                right_width,
-                footer_y.saturating_sub(533 + 18),
-            ),
+            quick_actions: rect(right_x, 533, right_width, footer_y.saturating_sub(533 + 18)),
             footer: rect(
                 navigation_width,
                 footer_y,
