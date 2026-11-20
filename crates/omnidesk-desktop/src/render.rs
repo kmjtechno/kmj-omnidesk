@@ -2286,10 +2286,10 @@ fn draw_premium_dashboard(
         0.49,
     );
     premium_orbit(canvas, globe_x, globe_y, 153, 72, 0xc1_2e_63);
-    premium_orbit(canvas, globe_x, globe_y, 102, 72, 0x6a3164);
+    premium_orbit(canvas, globe_x, globe_y, 102, 72, 0x006a_3164);
     premium_orbit(canvas, globe_x, globe_y, 39, 72, 0x57_3b_65);
     premium_orbit(canvas, globe_x, globe_y, 153, 30, 0xd9_2e_5a);
-    premium_orbit(canvas, globe_x, globe_y, 193, 52, 0xfd3164);
+    premium_orbit(canvas, globe_x, globe_y, 193, 52, 0x00fd_3164);
     for (dx, dy) in [
         (-134_i32, -40_i32),
         (-68, -55),
@@ -2794,7 +2794,7 @@ fn draw_premium_dashboard(
         license.width.saturating_sub(36),
         8,
         4,
-        0x1b2232,
+        0x001b_2232,
         0x2a_36_4c,
     );
     canvas.text(
@@ -2893,7 +2893,7 @@ fn draw_premium_dashboard(
     // No fabricated relay health, encryption algorithm, latency or service
     // status. These values may become green only after measured verification.
     let footer = layout.footer;
-    canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x090d16);
+    canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x0009_0d16);
     canvas.h_line(footer.x, footer.y, footer.width, 0x22_27_38);
     canvas.dot(footer.x + 22, footer.y + 22, 4, 0x9a_a2_b2);
     canvas.text(
