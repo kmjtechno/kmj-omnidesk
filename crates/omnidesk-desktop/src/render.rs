@@ -149,8 +149,8 @@ impl Canvas<'_> {
         }
         let inner_radius = radius.saturating_sub(1);
         let outer_center = radius.saturating_sub(1);
-        let outer_sq = (radius * radius) as i64;
-        let inner_sq = (inner_radius * inner_radius) as i64;
+        let outer_sq = radius.saturating_mul(radius);
+        let inner_sq = inner_radius.saturating_mul(inner_radius);
         let max_x = x.saturating_add(w).min(self.width);
         let max_y = y.saturating_add(h).min(self.height);
         for py in y..max_y {
@@ -168,7 +168,7 @@ impl Canvas<'_> {
                     ly.saturating_sub(h.saturating_sub(radius))
                 };
                 let corner = (lx < radius || lx >= w - radius) && (ly < radius || ly >= h - radius);
-                let outside = corner && ((dx * dx + dy * dy) as i64 > outer_sq);
+                let outside = corner && (dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) > outer_sq);
                 if outside {
                     continue;
                 }
@@ -176,7 +176,7 @@ impl Canvas<'_> {
                     || ly == 0
                     || lx + 1 == w
                     || ly + 1 == h
-                    || (corner && (dx * dx + dy * dy) as i64 >= inner_sq);
+                    || (corner && dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) >= inner_sq);
                 self.pixels[py * self.width + px] = if outline { border } else { bg };
             }
         }
@@ -1942,13 +1942,6 @@ fn draw_copy_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.stroke_rect(x, y + 3, 8, 9, 1, color);
 }
 
-fn draw_refresh_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.dot(x + 6, y + 6, 5, color);
-    canvas.dot(x + 6, y + 6, 3, 0x0b_12_19);
-    canvas.fill_rect(x + 6, y + 1, 4, 2, color);
-    canvas.fill_rect(x + 2, y + 9, 4, 2, color);
-}
-
 fn draw_eye_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.h_line(x + 2, y + 2, 8, color);
     canvas.h_line(x + 2, y + 8, 8, color);
@@ -2012,26 +2005,6 @@ fn draw_infinity_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.stroke_rect(x + 6, y + 3, 6, 6, 1, color);
 }
 
-fn draw_windows_logo(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.fill_rect(x, y, 5, 5, color);
-    canvas.fill_rect(x + 7, y, 5, 5, color);
-    canvas.fill_rect(x, y + 7, 5, 5, color);
-    canvas.fill_rect(x + 7, y + 7, 5, 5, color);
-}
-
-fn draw_ubuntu_logo(canvas: &mut Canvas<'_>, x: usize, y: usize) {
-    canvas.dot(x + 6, y + 6, 6, 0xe9_54_20);
-    canvas.dot(x + 6, y + 6, 3, 0x14_17_24);
-    canvas.dot(x + 2, y + 4, 2, 0xff_ff_ff);
-}
-
-fn draw_crown_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.fill_rect(x + 1, y + 7, 10, 2, color);
-    canvas.fill_rect(x, y + 3, 2, 5, color);
-    canvas.fill_rect(x + 5, y + 1, 2, 7, color);
-    canvas.fill_rect(x + 10, y + 3, 2, 5, color);
-}
-
 fn draw_award_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.dot(x + 6, y + 5, 5, color);
     canvas.dot(x + 6, y + 5, 3, 0x14_17_24);
@@ -2086,19 +2059,6 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
     canvas.fill_rect(x + 1, y + 8, 7, 4, color);
     canvas.v_line(x + 11, y + 4, 5, color);
     canvas.h_line(x + 9, y + 6, 5, color);
-}
-
-fn draw_signal_bars(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.fill_rect(x, y + 8, 2, 4, color);
-    canvas.fill_rect(x + 3, y + 5, 2, 7, color);
-    canvas.fill_rect(x + 6, y + 2, 2, 10, color);
-    canvas.fill_rect(x + 9, y, 2, 12, color);
-}
-
-fn draw_cloud_check(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.dot(x + 6, y + 5, 4, color);
-    canvas.fill_rect(x + 2, y + 6, 10, 3, color);
-    canvas.h_line(x + 4, y + 7, 4, 0x14_17_24);
 }
 
 #[allow(
