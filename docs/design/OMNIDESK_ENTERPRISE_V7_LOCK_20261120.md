@@ -12,7 +12,7 @@
 - Owner-uploaded **locked logo** sample: `image(20261120-083345).png`, SHA-256 `a6efa6a45dac967b1a1ab0f7c821a664edfa37489580b69fe4a2882b2e6bcfad`.
 - Existing repo canonical icon asset: `assets/brand/kmj-mark.svg`. Reuse this exact mark; brand lockup displays **KMJ TECHNO** and **INNOVATE | BUILD | SCALE**.
 - **Exactly one full KMJ TECHNO brand lockup per primary application window, in the top-left header.** No duplicate company logos in sidebar or hero or cards. OmniDesk wordmark adjacent, separate from KMJ lockup.
-- The master image is an AI-generated design reference. Until the PNG is actually committed, its SHA here alone is **not** a claim that the binary is present in Git.
+- The master image is an AI-generated design reference, **committed byte-for-byte** to `docs/design/references/omnidesk-v7-approved-master.png` (SHA-256 verified). The locked logo screenshot is committed as `docs/design/references/kmj-locked-logo-reference.png`; the native mark continues to use `assets/brand/kmj-mark.svg`.
 
 ## Visual language (normative)
 
@@ -57,7 +57,7 @@
 - New product background: `assets/ui/omnidesk-premium-network.svg` (decorative only; no real endpoints/metrics).
 - New lockup reference: `assets/ui/kmj-premium-header-lockup.svg` (brand composition embedding the repo's existing mark, not a new mark).
 - Static implementation reference: `docs/design/omnidesk-enterprise-v7-reference.html` (design-only; no live transport).
-- Source screenshot: hash-pinned master as identified above; **binary must be added to the repo before claiming the screenshot is stored in Git**.
+- Source screenshot: checked-in binary `docs/design/references/omnidesk-v7-approved-master.png`, used at runtime only for the decorative hero/sidebar crops.
 
 ## Native acceptance gates
 
