@@ -238,7 +238,12 @@ impl Canvas<'_> {
                 } else if distance <= -0.5 {
                     self.pixels[py * self.width + px] = border;
                 } else if distance < 0.5 {
-                    self.blend_coverage(px as i32, py as i32, border, 0.5 - distance);
+                    self.blend_coverage(
+                        i32::try_from(px).unwrap_or(i32::MAX),
+                        i32::try_from(py).unwrap_or(i32::MAX),
+                        border,
+                        0.5 - distance,
+                    );
                 }
             }
         }
@@ -267,7 +272,12 @@ impl Canvas<'_> {
                 let rad2 = dx.mul_add(dx, dy * dy);
                 if rad2 < 1.0 {
                     let falloff = (1.0 - rad2).powi(3);
-                    self.blend_coverage(x as i32, y as i32, color, falloff * alpha);
+                    self.blend_coverage(
+                        i32::try_from(x).unwrap_or(i32::MAX),
+                        i32::try_from(y).unwrap_or(i32::MAX),
+                        color,
+                        falloff * alpha,
+                    );
                 }
             }
         }
@@ -1932,12 +1942,6 @@ fn draw_id_card_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.h_line(x + 8, y + 7, 4, color);
 }
 
-fn draw_lock_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.stroke_rect(x + 2, y, 8, 6, 1, color);
-    canvas.fill_rect(x, y + 5, 12, 8, color);
-    canvas.fill_rect(x + 5, y + 7, 2, 3, 0x0009_0d16);
-}
-
 fn draw_key_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.stroke_rect(x, y + 1, 6, 6, 1, color);
     canvas.h_line(x + 5, y + 4, 7, color);
@@ -2079,12 +2083,19 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
     canvas.h_line(x + 9, y + 6, 5, color);
 }
 
+// The orbital step count is bounded at 240 and all coordinates are
+// checked nonnegative before conversion; the canvas clips any overflow.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 fn premium_orbit(canvas: &mut Canvas<'_>, cx: usize, cy: usize, rx: usize, ry: usize, color: u32) {
     const STEPS: usize = 240;
     for step in 0..STEPS {
         let angle = step as f32 * std::f32::consts::TAU / STEPS as f32;
-        let fx = cx as f32 + rx as f32 * angle.cos();
-        let fy = cy as f32 + ry as f32 * angle.sin();
+        let fx = (rx as f32).mul_add(angle.cos(), cx as f32);
+        let fy = (ry as f32).mul_add(angle.sin(), cy as f32);
         if fx >= 0.0 && fy >= 0.0 {
             canvas.fill_rect(fx.round() as usize, fy.round() as usize, 2, 2, color);
         }
@@ -2275,10 +2286,10 @@ fn draw_premium_dashboard(
         0.49,
     );
     premium_orbit(canvas, globe_x, globe_y, 153, 72, 0xc1_2e_63);
-    premium_orbit(canvas, globe_x, globe_y, 102, 72, 0x6a_31_64);
+    premium_orbit(canvas, globe_x, globe_y, 102, 72, 0x6a3164);
     premium_orbit(canvas, globe_x, globe_y, 39, 72, 0x57_3b_65);
     premium_orbit(canvas, globe_x, globe_y, 153, 30, 0xd9_2e_5a);
-    premium_orbit(canvas, globe_x, globe_y, 193, 52, 0xfd_31_64);
+    premium_orbit(canvas, globe_x, globe_y, 193, 52, 0xfd3164);
     for (dx, dy) in [
         (-134_i32, -40_i32),
         (-68, -55),
@@ -2783,7 +2794,7 @@ fn draw_premium_dashboard(
         license.width.saturating_sub(36),
         8,
         4,
-        0x1b_22_32,
+        0x1b2232,
         0x2a_36_4c,
     );
     canvas.text(
@@ -2882,7 +2893,7 @@ fn draw_premium_dashboard(
     // No fabricated relay health, encryption algorithm, latency or service
     // status. These values may become green only after measured verification.
     let footer = layout.footer;
-    canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x09_0d_16);
+    canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x090d16);
     canvas.h_line(footer.x, footer.y, footer.width, 0x22_27_38);
     canvas.dot(footer.x + 22, footer.y + 22, 4, 0x9a_a2_b2);
     canvas.text(
