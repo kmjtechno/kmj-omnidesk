@@ -741,8 +741,12 @@ fn draw_locked_header(
             &mark.rgba,
         );
     }
-    canvas.text(70, 19, "KMJ OmniDesk", 2, p.foreground);
-    canvas.text(70, 45, "INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
+    // One approved KMJ mark and one company wordmark per window. OmniDesk
+    // is the product label, not an additional copy of the brand logo.
+    canvas.text(70, 19, "KMJ TECHNO", 2, p.foreground);
+    canvas.text(70, 45, "INNOVATE | BUILD | SCALE", 1, p.muted);
+    locked_label(canvas, 295, 20, 155, "OmniDesk", p.foreground);
+    locked_label(canvas, 295, 44, 155, "Remote Access", p.muted);
 
     let search_x = canvas.width / 3;
     let search_w = canvas.width / 3;
@@ -848,9 +852,11 @@ fn draw_locked_navigation(
         let rect = layout.nav_tab_rect(index);
         let active = nav_tabs[index] == presentation.nav_tab;
         if active {
-            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, 0x6a_14_1d);
+            // The premium lock uses a red selection marker, not a glowing
+            // destructive-looking border around every selected nav row.
+            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, 0x52_13_27);
+            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.border);
             canvas.fill_rect(rect.x, rect.y, 3, rect.height, p.accent);
-            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.danger);
         }
         let item_color = if active { p.foreground } else { p.muted };
         draw_locked_nav_icon(canvas, index, rect.x + 7, rect.y + 10, item_color);
@@ -1114,7 +1120,7 @@ fn draw_locked_your_id_card(
     );
 
     let id_str = if presentation.local_device_id.is_empty() {
-        "KMJ-..."
+        "NOT INITIALIZED"
     } else {
         &presentation.local_device_id
     };
@@ -1244,7 +1250,7 @@ fn draw_locked_remote_id_card(
         remote_id_card.x + 16,
         remote_id_card.y + 14,
         remote_id_card.width.saturating_sub(32),
-        "REMOTE DESK  ·  ENTER REMOTE ID",
+        "CONNECT TO REMOTE DEVICE",
         p.muted,
     );
 
@@ -1296,7 +1302,7 @@ fn draw_locked_dual_role_cards(
         screen.x + 22,
         screen.y + 248,
         screen.width.saturating_sub(44),
-        "Direct E2E encrypted · Ed25519 identity · LAN & Relay ready",
+        "Remote access requires verified peer identity and explicit permission",
         p.muted,
     );
 }
