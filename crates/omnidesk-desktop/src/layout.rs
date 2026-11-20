@@ -357,7 +357,12 @@ impl PremiumDashboardLayout {
             navigation: rect(0, 70, navigation_width, height - 115),
             hero: rect(main_x, 81, main_width, 162),
             share: rect(main_x, 255, main_half, 267),
-            connect: rect(main_x + main_half + 16, 255, main_width - main_half - 16, 267),
+            connect: rect(
+                main_x + main_half + 16,
+                255,
+                main_width - main_half - 16,
+                267,
+            ),
             features: rect(main_x, 535, main_width, 101),
             devices: rect(main_x, 649, main_half, lower_height),
             sessions: rect(
@@ -368,12 +373,7 @@ impl PremiumDashboardLayout {
             ),
             license: rect(right_x, 91, right_width, 223),
             health: rect(right_x, 330, right_width, 196),
-            quick_actions: rect(
-                right_x,
-                539,
-                right_width,
-                height.saturating_sub(539 + 55),
-            ),
+            quick_actions: rect(right_x, 539, right_width, height.saturating_sub(539 + 55)),
             footer: rect(navigation_width, height - 45, width - navigation_width, 45),
         })
     }
