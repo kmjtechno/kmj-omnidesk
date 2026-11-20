@@ -2112,24 +2112,6 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
 }
 
 #[allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::suboptimal_flops
-)]
-fn premium_orbit(canvas: &mut Canvas<'_>, cx: usize, cy: usize, rx: usize, ry: usize, color: u32) {
-    const STEPS: usize = 240;
-    for step in 0..STEPS {
-        let angle = step as f32 * std::f32::consts::TAU / STEPS as f32;
-        let fx = cx as f32 + rx as f32 * angle.cos();
-        let fy = cy as f32 + ry as f32 * angle.sin();
-        if fx >= 0.0 && fy >= 0.0 {
-            canvas.fill_rect(fx.round() as usize, fy.round() as usize, 2, 2, color);
-        }
-    }
-}
-
-#[allow(
     clippy::too_many_lines,
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
