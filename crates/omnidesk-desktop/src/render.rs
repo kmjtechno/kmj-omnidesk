@@ -1653,7 +1653,13 @@ fn premium_panel(
         if accent { 0x80_24_43 } else { p.border },
     );
     if accent {
-        canvas.fill_rect(rect.x + 1, rect.y + 1, rect.width.saturating_sub(2), 2, 0x73_1b_37);
+        canvas.fill_rect(
+            rect.x + 1,
+            rect.y + 1,
+            rect.width.saturating_sub(2),
+            2,
+            0x73_1b_37,
+        );
     }
 }
 
@@ -1662,14 +1668,7 @@ fn premium_panel(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
-fn premium_orbit(
-    canvas: &mut Canvas<'_>,
-    cx: usize,
-    cy: usize,
-    rx: usize,
-    ry: usize,
-    color: u32,
-) {
+fn premium_orbit(canvas: &mut Canvas<'_>, cx: usize, cy: usize, rx: usize, ry: usize, color: u32) {
     const STEPS: usize = 240;
     for step in 0..STEPS {
         let angle = step as f32 * std::f32::consts::TAU / STEPS as f32;
@@ -1812,8 +1811,12 @@ fn draw_premium_dashboard(
     premium_orbit(canvas, globe_x, globe_y, 141, 29, 0xcb_1b_4c);
     premium_orbit(canvas, globe_x, globe_y, 169, 37, p.accent);
     for (dx, dy) in [(-80_i32, -36_i32), (36, -51), (104, -12), (-30, 48)] {
-        let px = i32::try_from(globe_x).unwrap_or(i32::MAX).saturating_add(dx);
-        let py = i32::try_from(globe_y).unwrap_or(i32::MAX).saturating_add(dy);
+        let px = i32::try_from(globe_x)
+            .unwrap_or(i32::MAX)
+            .saturating_add(dx);
+        let py = i32::try_from(globe_y)
+            .unwrap_or(i32::MAX)
+            .saturating_add(dy);
         if let (Ok(x), Ok(y)) = (usize::try_from(px), usize::try_from(py)) {
             canvas.dot(x, y, 3, p.accent);
         }
@@ -1848,8 +1851,21 @@ fn draw_premium_dashboard(
         "YOUR DEVICE ID",
         0xdd_e0_e8,
     );
-    canvas.fill_rect(share.x + 19, share.y + 91, share.width.saturating_sub(38), 38, 0x19_20_2e);
-    canvas.stroke_rect(share.x + 19, share.y + 91, share.width.saturating_sub(38), 38, 1, 0x58_5d_6b);
+    canvas.fill_rect(
+        share.x + 19,
+        share.y + 91,
+        share.width.saturating_sub(38),
+        38,
+        0x19_20_2e,
+    );
+    canvas.stroke_rect(
+        share.x + 19,
+        share.y + 91,
+        share.width.saturating_sub(38),
+        38,
+        1,
+        0x58_5d_6b,
+    );
     locked_label(
         canvas,
         share.x + 31,
@@ -1888,8 +1904,21 @@ fn draw_premium_dashboard(
         "TEMPORARY SESSION PASSWORD",
         0xdd_e0_e8,
     );
-    canvas.fill_rect(share.x + 19, share.y + 166, share.width.saturating_sub(38), 37, 0x15_19_26);
-    canvas.stroke_rect(share.x + 19, share.y + 166, share.width.saturating_sub(38), 37, 1, p.border);
+    canvas.fill_rect(
+        share.x + 19,
+        share.y + 166,
+        share.width.saturating_sub(38),
+        37,
+        0x15_19_26,
+    );
+    canvas.stroke_rect(
+        share.x + 19,
+        share.y + 166,
+        share.width.saturating_sub(38),
+        37,
+        1,
+        p.border,
+    );
     locked_label(
         canvas,
         share.x + 33,
@@ -2002,8 +2031,21 @@ fn draw_premium_dashboard(
         "SESSION PASSWORD",
         0xdd_e0_e8,
     );
-    canvas.fill_rect(connect.x + 19, connect.y + 166, connect.width.saturating_sub(38), 37, 0x15_19_26);
-    canvas.stroke_rect(connect.x + 19, connect.y + 166, connect.width.saturating_sub(38), 37, 1, p.border);
+    canvas.fill_rect(
+        connect.x + 19,
+        connect.y + 166,
+        connect.width.saturating_sub(38),
+        37,
+        0x15_19_26,
+    );
+    canvas.stroke_rect(
+        connect.x + 19,
+        connect.y + 166,
+        connect.width.saturating_sub(38),
+        37,
+        1,
+        p.border,
+    );
     locked_label(
         canvas,
         connect.x + 33,
@@ -2021,7 +2063,14 @@ fn draw_premium_dashboard(
         button.height,
         if ready { p.accent } else { 0x60_20_33 },
     );
-    canvas.stroke_rect(button.x, button.y, button.width, button.height, 1, 0xe0_29_4b);
+    canvas.stroke_rect(
+        button.x,
+        button.y,
+        button.width,
+        button.height,
+        1,
+        0xe0_29_4b,
+    );
     locked_label(
         canvas,
         button.x + 15,
@@ -2046,7 +2095,12 @@ fn draw_premium_dashboard(
     if presentation.primary_view == PrimaryView::Session {
         for (i, control) in presentation.controls.iter().enumerate() {
             let rect = layout.session_button(i, presentation.controls.len());
-            premium_panel(canvas, rect, p, i == presentation.controls.len().saturating_sub(1));
+            premium_panel(
+                canvas,
+                rect,
+                p,
+                i == presentation.controls.len().saturating_sub(1),
+            );
             locked_label(
                 canvas,
                 rect.x + 8,
@@ -2066,7 +2120,14 @@ fn draw_premium_dashboard(
                 height: feature.height,
             };
             premium_panel(canvas, rect, p, i == 0);
-            canvas.stroke_rect(rect.x + rect.width / 2 - 10, rect.y + 14, 20, 16, 1, p.muted);
+            canvas.stroke_rect(
+                rect.x + rect.width / 2 - 10,
+                rect.y + 14,
+                20,
+                16,
+                1,
+                p.muted,
+            );
             locked_label(
                 canvas,
                 rect.x + 9,
@@ -2099,7 +2160,8 @@ fn draw_premium_dashboard(
         "RECENT SESSIONS",
         p.foreground,
     );
-    if presentation.nav_tab == NavTab::Devices && presentation.primary_view == PrimaryView::Devices {
+    if presentation.nav_tab == NavTab::Devices && presentation.primary_view == PrimaryView::Devices
+    {
         let mut rendered = 0;
         for (i, control) in presentation.controls.iter().take(3).enumerate() {
             if !control.enabled {
@@ -2107,12 +2169,7 @@ fn draw_premium_dashboard(
             }
             let rect = layout.device_row(i);
             canvas.h_line(rect.x, rect.y + rect.height, rect.width, p.border);
-            canvas.dot(
-                rect.x + 12,
-                rect.y + 15,
-                4,
-                VERIFIED_GREEN,
-            );
+            canvas.dot(rect.x + 12, rect.y + 15, 4, VERIFIED_GREEN);
             locked_label(
                 canvas,
                 rect.x + 27,
@@ -2159,19 +2216,63 @@ fn draw_premium_dashboard(
     for rect in [license, health, quick] {
         premium_panel(canvas, rect, p, false);
     }
-    locked_label(canvas, license.x + 18, license.y + 23, license.width - 36, "ENTERPRISE LICENSE", p.foreground);
-    locked_label(canvas, license.x + 18, license.y + 56, license.width - 36, "Not verified by KMJ Main Platform", p.muted);
-    locked_label(canvas, license.x + 18, license.y + 101, license.width - 36, "Seats                     Unavailable", p.muted);
-    canvas.fill_rect(license.x + 18, license.y + 139, license.width - 36, 7, p.border);
-    locked_label(canvas, license.x + 18, license.y + 171, license.width - 36, "Valid until                            --", p.muted);
+    locked_label(
+        canvas,
+        license.x + 18,
+        license.y + 23,
+        license.width - 36,
+        "ENTERPRISE LICENSE",
+        p.foreground,
+    );
+    locked_label(
+        canvas,
+        license.x + 18,
+        license.y + 56,
+        license.width - 36,
+        "Not verified by KMJ Main Platform",
+        p.muted,
+    );
+    locked_label(
+        canvas,
+        license.x + 18,
+        license.y + 101,
+        license.width - 36,
+        "Seats                     Unavailable",
+        p.muted,
+    );
+    canvas.fill_rect(
+        license.x + 18,
+        license.y + 139,
+        license.width - 36,
+        7,
+        p.border,
+    );
+    locked_label(
+        canvas,
+        license.x + 18,
+        license.y + 171,
+        license.width - 36,
+        "Valid until                            --",
+        p.muted,
+    );
 
-    locked_label(canvas, health.x + 18, health.y + 21, health.width - 36, "SYSTEM STATUS", p.foreground);
+    locked_label(
+        canvas,
+        health.x + 18,
+        health.y + 21,
+        health.width - 36,
+        "SYSTEM STATUS",
+        p.foreground,
+    );
     for (i, status) in [
         "App shell           Pre-alpha",
         "Transport           Not verified",
         "Relay path          Not established",
         "Encryption          No active session",
-    ].iter().enumerate() {
+    ]
+    .iter()
+    .enumerate()
+    {
         canvas.dot(health.x + 23, health.y + 61 + i * 31, 3, p.muted);
         locked_label(
             canvas,
@@ -2182,7 +2283,14 @@ fn draw_premium_dashboard(
             p.muted,
         );
     }
-    locked_label(canvas, quick.x + 18, quick.y + 21, quick.width - 36, "QUICK ACTIONS", p.foreground);
+    locked_label(
+        canvas,
+        quick.x + 18,
+        quick.y + 21,
+        quick.width - 36,
+        "QUICK ACTIONS",
+        p.foreground,
+    );
     let quick_actions = [
         "New Session",
         "Wake on LAN",
