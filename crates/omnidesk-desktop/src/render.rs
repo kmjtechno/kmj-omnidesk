@@ -167,8 +167,7 @@ impl Canvas<'_> {
                 } else {
                     ly.saturating_sub(h.saturating_sub(radius))
                 };
-                let corner = (lx < radius || lx >= w - radius)
-                    && (ly < radius || ly >= h - radius);
+                let corner = (lx < radius || lx >= w - radius) && (ly < radius || ly >= h - radius);
                 let outside = corner && ((dx * dx + dy * dy) as i64 > outer_sq);
                 if outside {
                     continue;
@@ -1817,8 +1816,8 @@ fn draw_premium_sidebar_wave(canvas: &mut Canvas<'_>, nav: crate::layout::Dashbo
         for x in 0..width {
             let progress = x as f32 / width as f32;
             let swell = (progress * 3.7 + trail as f32 * 0.16).sin();
-            let y_local = 90.0 - 58.0 * progress + swell * (17.0 + trail_offset * 0.2)
-                + trail_offset;
+            let y_local =
+                90.0 - 58.0 * progress + swell * (17.0 + trail_offset * 0.2) + trail_offset;
             if y_local.is_sign_negative() {
                 continue;
             }
@@ -2652,7 +2651,13 @@ fn draw_premium_dashboard(
     // Device list is always derived from the real product shell and must
     // match the shared clickable row geometry. Never fabricate enrolled PCs.
     draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, p.accent);
-    canvas.text(devices.x + 44, devices.y + 18, "My Devices", 1, p.foreground);
+    canvas.text(
+        devices.x + 44,
+        devices.y + 18,
+        "My Devices",
+        1,
+        p.foreground,
+    );
     let show_devices = presentation.nav_tab == NavTab::Devices
         && presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices;
     let mut visible_devices = 0;
@@ -2691,7 +2696,13 @@ fn draw_premium_dashboard(
     // session IDs, durations, and fabricated Completed badges.
     canvas.dot(sessions.x + 26, sessions.y + 26, 6, p.accent);
     canvas.dot(sessions.x + 26, sessions.y + 26, 4, 0x14_17_24);
-    canvas.text(sessions.x + 44, sessions.y + 18, "Recent Sessions", 1, p.foreground);
+    canvas.text(
+        sessions.x + 44,
+        sessions.y + 18,
+        "Recent Sessions",
+        1,
+        p.foreground,
+    );
     canvas.text(
         sessions.x + 25,
         sessions.y + 87,
@@ -2711,7 +2722,13 @@ fn draw_premium_dashboard(
     // Enterprise license: never render the approved screenshot's sample
     // seat counts, entitlement dates, or activation status as live values.
     draw_award_icon(canvas, license.x + 18, license.y + 20, 0xf5_a6_23);
-    canvas.text(license.x + 42, license.y + 18, "Enterprise License", 1, p.foreground);
+    canvas.text(
+        license.x + 42,
+        license.y + 18,
+        "Enterprise License",
+        1,
+        p.foreground,
+    );
     canvas.rounded_panel(
         license.x + license.width.saturating_sub(96),
         license.y + 18,
@@ -2753,7 +2770,13 @@ fn draw_premium_dashboard(
         p.border,
         p.border,
     );
-    canvas.text(license.x + 18, license.y + 132, "Valid until", 1, p.foreground);
+    canvas.text(
+        license.x + 18,
+        license.y + 132,
+        "Valid until",
+        1,
+        p.foreground,
+    );
     canvas.text_right(
         license.x + license.width - 18,
         license.y + 132,
@@ -2780,7 +2803,13 @@ fn draw_premium_dashboard(
 
     // Runtime values are not inferred from a static design screenshot.
     draw_heartbeat_icon(canvas, health.x + 18, health.y + 20, p.accent);
-    canvas.text(health.x + 40, health.y + 18, "System Status", 1, p.foreground);
+    canvas.text(
+        health.x + 40,
+        health.y + 18,
+        "System Status",
+        1,
+        p.foreground,
+    );
     let status_items = [
         ("OmniDesk Service", "Unknown"),
         ("Relay Network", "Not connected"),
@@ -2798,13 +2827,7 @@ fn draw_premium_dashboard(
             health.width.saturating_sub(136),
             0xc9_cf_dc,
         );
-        canvas.text_right(
-            health.x + health.width - 14,
-            y,
-            value,
-            1,
-            p.muted,
-        );
+        canvas.text_right(health.x + health.width - 14, y, value, 1, p.muted);
     }
 
     // Quick Actions
