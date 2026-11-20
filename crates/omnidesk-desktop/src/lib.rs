@@ -474,48 +474,47 @@ fn premium_action_at_point(
     y: usize,
     premium: &PremiumDashboardLayout,
 ) -> Option<DesktopAction> {
-        // Only tabs backed by a real view are clickable. All other premium
-        // navigation entries are visibly unavailable rather than fake links.
-        const TABS: [Option<NavTab>; 12] = [
-            Some(NavTab::Devices),
-            Some(NavTab::Devices),
-            Some(NavTab::Devices),
-            Some(NavTab::Connections),
-            Some(NavTab::FileTransfer),
-            None,
-            None,
-            Some(NavTab::Security),
-            None,
-            None,
-            None,
-            Some(NavTab::Settings),
-        ];
-        for (index, tab) in TABS.iter().enumerate() {
-            if premium.nav_row(index).contains(x, y) {
-                return tab.map(DesktopAction::SelectNav);
-            }
+    // Only tabs backed by a real view are clickable. All other premium
+    // navigation entries are visibly unavailable rather than fake links.
+    const TABS: [Option<NavTab>; 12] = [
+        Some(NavTab::Devices),
+        Some(NavTab::Devices),
+        Some(NavTab::Devices),
+        Some(NavTab::Connections),
+        Some(NavTab::FileTransfer),
+        None,
+        None,
+        Some(NavTab::Security),
+        None,
+        None,
+        None,
+        Some(NavTab::Settings),
+    ];
+    for (index, tab) in TABS.iter().enumerate() {
+        if premium.nav_row(index).contains(x, y) {
+            return tab.map(DesktopAction::SelectNav);
         }
-        if shell.nav_tab() == NavTab::Devices && shell.primary_view() == PrimaryView::Devices {
-            if !shell.local_device_id().is_empty() && premium.local_id_copy().contains(x, y) {
-                return Some(DesktopAction::CopyYourId);
-            }
-            if premium.remote_id_input().contains(x, y) {
-                return Some(DesktopAction::FocusRemoteIdInput);
-            }
-            // The V7 form never advertises password authentication. The
-            // existing transport only supports known/trusted peer handshake.
-            if premium.remote_connect_button().contains(x, y) && !shell.remote_id_input().is_empty()
-            {
-                return Some(DesktopAction::ConnectRemoteId);
-            }
+    }
+    if shell.nav_tab() == NavTab::Devices && shell.primary_view() == PrimaryView::Devices {
+        if !shell.local_device_id().is_empty() && premium.local_id_copy().contains(x, y) {
+            return Some(DesktopAction::CopyYourId);
         }
-        let presentation = presentation_for(shell);
-        return presentation
-            .controls
-            .iter()
-            .zip(control_rects_for(&presentation, width, height))
-            .find(|(control, rect)| control.enabled && rect.contains(x, y))
-            .map(|(control, _)| control.action);
+        if premium.remote_id_input().contains(x, y) {
+            return Some(DesktopAction::FocusRemoteIdInput);
+        }
+        // The V7 form never advertises password authentication. The
+        // existing transport only supports known/trusted peer handshake.
+        if premium.remote_connect_button().contains(x, y) && !shell.remote_id_input().is_empty() {
+            return Some(DesktopAction::ConnectRemoteId);
+        }
+    }
+    let presentation = presentation_for(shell);
+    return presentation
+        .controls
+        .iter()
+        .zip(control_rects_for(&presentation, width, height))
+        .find(|(control, rect)| control.enabled && rect.contains(x, y))
+        .map(|(control, _)| control.action);
 }
 
 #[must_use]
@@ -865,7 +864,13 @@ mod tests {
 
         let remote_input = layout.remote_id_input();
         assert_eq!(
-            action_at_point(&shell, width, height, remote_input.x + 12, remote_input.y + 12),
+            action_at_point(
+                &shell,
+                width,
+                height,
+                remote_input.x + 12,
+                remote_input.y + 12
+            ),
             Some(DesktopAction::FocusRemoteIdInput)
         );
         let connect = layout.remote_connect_button();
