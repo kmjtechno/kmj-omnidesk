@@ -2262,25 +2262,19 @@ fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
     // Keep red beveled card outlines without copying the source's example
     // input contents. Only a 3px safe frame survives from each card.
     for (x1, x2) in [(280, 776), (795, 1260)] {
-        if in_rect(x1, 249, x2, 516)
-            && (x < x1 + 3 || x >= x2 - 3 || !(252..513).contains(&y))
-        {
+        if in_rect(x1, 249, x2, 516) && (x < x1 + 3 || x >= x2 - 3 || !(252..513).contains(&y)) {
             return true;
         }
     }
     for (x1, x2) in [(280, 780), (797, 1269)] {
-        if in_rect(x1, 648, x2, 844)
-            && (x < x1 + 3 || x >= x2 - 3 || !(651..841).contains(&y))
-        {
+        if in_rect(x1, 648, x2, 844) && (x < x1 + 3 || x >= x2 - 3 || !(651..841).contains(&y)) {
             return true;
         }
     }
     // Never import the right-edge green strips of the source's fake
     // Active/All Healthy status badges, even through a border falloff.
     for (y1, y2) in [(101, 305), (321, 515)] {
-        if in_rect(1284, y1, 1632, y2)
-            && (x < 1288 || y < y1 + 3 || y >= y2 - 4)
-        {
+        if in_rect(1284, y1, 1632, y2) && (x < 1288 || y < y1 + 3 || y >= y2 - 4) {
             return true;
         }
     }
