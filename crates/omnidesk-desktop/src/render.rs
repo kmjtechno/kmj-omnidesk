@@ -2332,7 +2332,10 @@ fn draw_premium_dashboard(
             .min(hero.height.saturating_sub(4));
         canvas.image_rgba(
             (
-                hero.x + hero.width.saturating_sub(art_width),
+                // Approved master crop begins at source x=770 on the
+                // canonical artboard. Keep its native 470px size and
+                // anchor it at x=771 instead of drifting with card widths.
+                hero.x + hero.width.saturating_sub(art_width + 50),
                 hero.y + 1,
                 art_width,
                 art_height,
