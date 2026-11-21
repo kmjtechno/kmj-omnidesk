@@ -9,7 +9,7 @@ use omnidesk_core::{
     product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell},
     transport::HostTransport,
     transport_adapter::{TransportSessionAdapter, host_negotiate_and_authenticate_session},
-    trusted_device_store::TrustedDeviceStore,
+    trusted_device_store::{TrustedDeviceRecord, TrustedDeviceStore},
 };
 use softbuffer::{Context, Surface};
 use winit::{
@@ -135,6 +135,20 @@ fn consent_matches_peer(shell: &ProductShell, authenticated_device_id: Option<&s
     shell.primary_view() == PrimaryView::PermissionPrompt
         && shell.selected_device().is_some()
         && shell.selected_device() == authenticated_device_id
+}
+
+// A visible consent click does not override the locally verified
+// enrollment record. Only a non-revoked, unexpired record whose pinned
+// Ed25519 key matches THIS authenticated transport can receive approval.
+fn trusted_peer_permission_valid(
+    record: Option<&TrustedDeviceRecord>,
+    authenticated_key: Option<&[u8; 32]>,
+    now_epoch_secs: u64,
+) -> bool {
+    record.is_some_and(|record| {
+        record.is_trusted_at(now_epoch_secs)
+            && authenticated_key == Some(&record.public_key)
+    })
 }
 
 #[cfg(test)]
@@ -598,16 +612,15 @@ impl DesktopHost {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs());
                 let store = TrustedDeviceStore::load_or_create(&self.store_path);
-                let valid = store.as_ref().is_ok_and(|store| {
-                    peer_id.and_then(|id| store.get(id)).is_some_and(|record| {
-                        !record.revoked
-                            && now <= record.trust_expires_at_epoch_secs
-                            && self.session_adapter.as_ref().is_some_and(|adapter| {
-                                adapter.session().authenticated_public_key()
-                                    == Some(&record.public_key)
-                            })
-                    })
-                }) || (peer_id.is_some() && self.session_adapter.is_some());
+                let authenticated_key = self
+                    .session_adapter
+                    .as_ref()
+                    .and_then(|adapter| adapter.session().authenticated_public_key());
+                let record = store
+                    .as_ref()
+                    .ok()
+                    .and_then(|trusted| peer_id.and_then(|id| trusted.get(id)));
+                let valid = trusted_peer_permission_valid(record, authenticated_key, now);
                 if !valid {
                     if let Some(mut adapter) = self.session_adapter.take() {
                         adapter.close();
@@ -899,8 +912,9 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, consent_matches_peer,
-        premium_caption_action, refuse_unverified_session_action, to_pixel,
+        MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, TrustedDeviceRecord,
+        consent_matches_peer, premium_caption_action, refuse_unverified_session_action,
+        to_pixel, trusted_peer_permission_valid,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
@@ -996,6 +1010,38 @@ mod tests {
         assert!(!consent_matches_peer(&shell, None));
         shell.disconnect();
         assert!(!consent_matches_peer(&shell, Some("verified-peer")));
+    }
+
+    #[test]
+    fn revoked_expired_or_key_mismatched_peer_cannot_gain_control_from_consent() {
+        let now = 1_000_u64;
+        let mut record = TrustedDeviceRecord {
+            device_id: "verified-peer".to_owned(),
+            display_name: "Verified peer".to_owned(),
+            public_key: [7_u8; 32],
+            enrolled_at_epoch_secs: now - 10,
+            trust_expires_at_epoch_secs: now + 10,
+            managed: false,
+            revoked: false,
+            status: omnidesk_core::trusted_device_store::PersistedDeviceStatus::Online,
+        };
+        let key = record.public_key;
+        assert!(trusted_peer_permission_valid(Some(&record), Some(&key), now));
+        assert!(!trusted_peer_permission_valid(None, Some(&key), now));
+        assert!(!trusted_peer_permission_valid(Some(&record), None, now));
+        assert!(!trusted_peer_permission_valid(
+            Some(&record),
+            Some(&[8_u8; 32]),
+            now
+        ));
+        record.revoked = true;
+        assert!(!trusted_peer_permission_valid(Some(&record), Some(&key), now));
+        record.revoked = false;
+        assert!(!trusted_peer_permission_valid(
+            Some(&record),
+            Some(&key),
+            record.trust_expires_at_epoch_secs
+        ));
     }
 
     #[test]
