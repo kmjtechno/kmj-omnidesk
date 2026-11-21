@@ -1910,8 +1910,8 @@ fn premium_panel(
         rect.y,
         rect.width,
         rect.height,
-        0x20_1a_2b,
-        0x0d_12_20,
+        0x12_0f_1b,
+        0x09_0d_18,
         if accent { 0xb9_25_4b } else { p.border },
     );
     canvas.h_line(
@@ -2648,8 +2648,8 @@ fn draw_premium_dashboard(
         id_box_w,
         42,
         8,
-        0x0b_12_19,
-        0x28_38_4a,
+        0x17_1b_2b,
+        0x47_4d_69,
     );
     let local_id_formatted = if presentation.local_device_id.is_empty() {
         "Not initialized"
@@ -2680,8 +2680,8 @@ fn draw_premium_dashboard(
         id_box_w,
         42,
         8,
-        0x0b_12_19,
-        0x28_38_4a,
+        0x17_1b_2b,
+        0x47_4d_69,
     );
     // This release does NOT have a temporary-password lifecycle.
     // Never render a fake masked password or an enabled sharing switch.
@@ -2799,11 +2799,11 @@ fn draw_premium_dashboard(
         connect_box_w,
         42,
         8,
-        0x0b_12_19,
+        0x17_1b_2b,
         if presentation.remote_id_focused {
             p.accent
         } else {
-            0x28_38_4a
+            0x47_4d_69
         },
     );
     let input_text = if presentation.remote_id_input.is_empty() {
@@ -2843,8 +2843,8 @@ fn draw_premium_dashboard(
         connect_box_w,
         42,
         8,
-        0x0b_12_19,
-        0x28_38_4a,
+        0x17_1b_2b,
+        0x47_4d_69,
     );
     canvas.text_clipped(
         connect.x + 32,
@@ -2871,8 +2871,8 @@ fn draw_premium_dashboard(
         button.y,
         button.width,
         button.height,
-        0xa9_1a_3d,
-        0x6f_12_2f,
+        0xe3_11_38,
+        0x9d_0a_2c,
         0xdb_28_4f,
     );
     canvas.text_clipped(
@@ -3322,8 +3322,8 @@ fn draw_premium_dashboard(
         footer.y,
         footer.width,
         footer.height,
-        0x15_19_28,
-        0x08_0c_17,
+        0x0e_12_21,
+        0x06_09_13,
         0x38_3d_58,
     );
     let top = footer.y + 19;
