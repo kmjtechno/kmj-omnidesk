@@ -899,8 +899,8 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_PIXEL_OFFSET, PremiumCaptionAction, consent_matches_peer, premium_caption_action,
-        refuse_unverified_session_action, to_pixel,
+        MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, consent_matches_peer,
+        premium_caption_action, refuse_unverified_session_action, to_pixel,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
