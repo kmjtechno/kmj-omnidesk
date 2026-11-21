@@ -2263,14 +2263,14 @@ fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
     // input contents. Only a 3px safe frame survives from each card.
     for (x1, x2) in [(280, 776), (795, 1260)] {
         if in_rect(x1, 249, x2, 516)
-            && (x < x1 + 3 || x >= x2 - 3 || y < 252 || y >= 513)
+            && (x < x1 + 3 || x >= x2 - 3 || !(252..513).contains(&y))
         {
             return true;
         }
     }
     for (x1, x2) in [(280, 780), (797, 1269)] {
         if in_rect(x1, 648, x2, 844)
-            && (x < x1 + 3 || x >= x2 - 3 || y < 651 || y >= 841)
+            && (x < x1 + 3 || x >= x2 - 3 || !(651..841).contains(&y))
         {
             return true;
         }
@@ -2285,8 +2285,7 @@ fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
         }
     }
     // Source footer fake relay/latency/All Operational are always masked.
-    in_rect(280, 860, 1633, 920)
-        && (x < 284 || y < 864 || y >= 916)
+    in_rect(280, 860, 1633, 920) && (x < 284 || !(864..916).contains(&y))
 }
 
 // Copy *only bright glyph/illustration pixels* from the reference in static
