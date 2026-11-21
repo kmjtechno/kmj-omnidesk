@@ -1927,7 +1927,7 @@ fn premium_panel(
             rect.width / 2,
             53,
             0xf7_19_4a,
-            0.47,
+            0.62,
         );
         canvas.h_line(
             rect.x + 22,
@@ -2590,16 +2590,18 @@ fn draw_premium_dashboard(
             );
         }
     } else {
+        // Keep the approved red-accented toggle geometry without claiming
+        // that password-protected inbound control is currently enabled.
         canvas.rounded_panel(
             share.x + 20,
-            share.y + 218,
-            38,
-            20,
-            10,
-            0x41_46_54,
-            0x56_5c_6d,
+            share.y + 215,
+            49,
+            26,
+            13,
+            0x3b_1b_2c,
+            0xaf_23_44,
         );
-        canvas.dot(share.x + 30, share.y + 228, 7, 0xb1_b8_c5);
+        canvas.dot(share.x + 34, share.y + 228, 9, 0xec_e8_f1);
         canvas.text(
             share.x + 68,
             share.y + 216,
@@ -2724,14 +2726,16 @@ fn draw_premium_dashboard(
     // Password-based Connect Securely remains disabled until an audited
     // password proof and matching host verifier are integrated end-to-end.
     let button = layout.remote_connect_button();
-    canvas.rounded_panel(
+    // The owner-locked red CTA remains visible but is explicitly
+    // UNAVAILABLE until authenticated password-proof is implemented.
+    canvas.rounded_gradient_panel(
         button.x,
         button.y,
         button.width,
         button.height,
-        8,
-        0x5e_20_35,
-        0x72_31_4a,
+        0xa9_1a_3d,
+        0x6f_12_2f,
+        0xdb_28_4f,
     );
     canvas.text_clipped(
         button.x + 18,
@@ -2893,13 +2897,45 @@ fn draw_premium_dashboard(
         );
     }
     if !any_device {
-        canvas.text(
-            devices.x + 24,
-            devices.y + 92,
-            "No registered or verified online devices",
-            1,
-            p.muted,
-        );
+        // Three empty-state rows preserve the approved list rhythm without
+        // inventing any peer/device identity or advertising availability.
+        for i in 0..3 {
+            let item = layout.device_row(i);
+            canvas.h_line(
+                item.x,
+                item.y + item.height,
+                item.width,
+                0x2a_2d_41,
+            );
+            draw_monitor_icon(
+                canvas,
+                item.x + 10,
+                item.y + 12,
+                18,
+                12,
+                0x6c_7389,
+            );
+            if i == 0 {
+                canvas.text_clipped(
+                    item.x + 43,
+                    item.y + 11,
+                    "No registered or verified online devices",
+                    1,
+                    item.width.saturating_sub(55),
+                    p.muted,
+                );
+            } else {
+                canvas.rounded_panel(
+                    item.x + 43,
+                    item.y + 16,
+                    item.width.saturating_sub(148),
+                    7,
+                    3,
+                    0x23_2737,
+                    0x23_2737,
+                );
+            }
+        }
     }
     canvas.dot(sessions.x + 26, sessions.y + 26, 5, 0xf7_19_3b);
     canvas.text_bold(
@@ -2909,14 +2945,36 @@ fn draw_premium_dashboard(
         4,
         p.foreground,
     );
-    canvas.text_clipped(
-        sessions.x + 24,
-        sessions.y + 92,
-        "No verified session history available",
-        1,
-        sessions.width.saturating_sub(48),
-        p.muted,
-    );
+    for i in 0..3 {
+        let y = sessions.y + 56 + i * 47;
+        canvas.h_line(
+            sessions.x + 16,
+            y + 40,
+            sessions.width.saturating_sub(32),
+            0x2a_2d_41,
+        );
+        draw_monitor_icon(canvas, sessions.x + 22, y + 10, 18, 12, 0x6c_7389);
+        if i == 0 {
+            canvas.text_clipped(
+                sessions.x + 54,
+                y + 10,
+                "No verified session history available",
+                1,
+                sessions.width.saturating_sub(72),
+                p.muted,
+            );
+        } else {
+            canvas.rounded_panel(
+                sessions.x + 54,
+                y + 15,
+                sessions.width.saturating_sub(176),
+                7,
+                3,
+                0x23_2737,
+                0x23_2737,
+            );
+        }
+    }
 
     // 7. Right Column: License, System Status, Quick Actions
     let license = layout.license;
