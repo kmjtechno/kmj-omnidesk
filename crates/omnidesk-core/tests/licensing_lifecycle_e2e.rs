@@ -195,9 +195,8 @@ fn e2e_activation_and_renewal_lifecycle() {
     let status_resp = ActivationStatusResponse {
         activation_id: activation_id.to_owned(),
         state: "ACTIVE".to_owned(),
-        sequence: 1,
-        reason_code: None,
-        revoked_at: None,
+        current_sequence: 1,
+        reason_codes: vec![],
         server_time: now + 500,
     };
     let status_bytes = serde_json::to_vec(&status_resp).unwrap();
@@ -537,9 +536,8 @@ fn e2e_revocation_overrides_grace_permanently() {
     let status_resp = ActivationStatusResponse {
         activation_id: "act-revoked-001".to_owned(),
         state: "REVOKED".to_owned(),
-        sequence: 1,
-        reason_code: Some("DEVICE_TRANSFERRED".to_owned()),
-        revoked_at: Some(now + 50),
+        current_sequence: 1,
+        reason_codes: vec!["DEVICE_TRANSFERRED".to_owned()],
         server_time: now + 50,
     };
     let status_bytes = serde_json::to_vec(&status_resp).unwrap();
