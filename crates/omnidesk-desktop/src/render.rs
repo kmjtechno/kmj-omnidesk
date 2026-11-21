@@ -139,12 +139,12 @@ fn approved_v7_panel_edges() -> Option<&'static Vec<crate::brand::BrandImage>> {
             let master = source.into_raw();
             let crops = [
                 (280_usize, 249_usize, 495_usize, 266_usize), // share
-                (796, 249, 462, 266), // connect
-                (280, 649, 500, 194), // devices
-                (796, 649, 472, 194), // sessions
-                (1284, 101, 348, 204), // license
-                (1284, 321, 348, 194), // system
-                (1284, 532, 348, 310), // quick actions
+                (796, 249, 462, 266),                         // connect
+                (280, 649, 500, 194),                         // devices
+                (796, 649, 472, 194),                         // sessions
+                (1284, 101, 348, 204),                        // license
+                (1284, 321, 348, 194),                        // system
+                (1284, 532, 348, 310),                        // quick actions
             ];
             let mut panels = Vec::with_capacity(crops.len());
             for (left, top, width, height) in crops {
