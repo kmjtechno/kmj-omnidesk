@@ -343,7 +343,7 @@ impl PremiumViewportFit {
     /// stays unscaled; all other practical desktop sizes letterbox rather
     /// than stretching the owner's locked typography or UI coordinates.
     #[must_use]
-    pub fn for_window(width: usize, height: usize) -> Option<Self> {
+    pub const fn for_window(width: usize, height: usize) -> Option<Self> {
         if width < 1280 || height < 720 || (width == V7_ART_WIDTH && height == V7_ART_HEIGHT) {
             return None;
         }
