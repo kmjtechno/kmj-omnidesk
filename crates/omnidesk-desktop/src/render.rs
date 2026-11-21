@@ -120,6 +120,90 @@ fn approved_v7_hero_art() -> Option<&'static crate::brand::BrandImage> {
     .as_ref()
 }
 
+// Edge-only lighting copied from the exact owner-approved PNG. We do not
+// display the original screenshot as a dashboard: everything more than 14px
+// inside a card is transparent, so sample IDs, license badges, device names,
+// and session results can never be reproduced by this decoration.
+fn approved_v7_panel_edges() -> Option<&'static Vec<crate::brand::BrandImage>> {
+    static PANELS: OnceLock<Option<Vec<crate::brand::BrandImage>>> = OnceLock::new();
+    PANELS
+        .get_or_init(|| {
+            let source = image::load_from_memory(include_bytes!(
+                "../../../docs/design/OMNIDESK_ENTERPRISE_V7_APPROVED_MASTER.png"
+            ))
+            .ok()?
+            .into_rgba8();
+            if source.dimensions() != (1672, 941) {
+                return None;
+            }
+            let master = source.into_raw();
+            let crops = [
+                (280_usize, 249_usize, 495_usize, 266_usize), // share
+                (796, 249, 462, 266), // connect
+                (280, 649, 500, 194), // devices
+                (796, 649, 472, 194), // sessions
+                (1284, 101, 348, 204), // license
+                (1284, 321, 348, 194), // system
+                (1284, 532, 348, 310), // quick actions
+            ];
+            let mut panels = Vec::with_capacity(crops.len());
+            for (left, top, width, height) in crops {
+                let mut rgba = vec![0_u8; width * height * 4];
+                for y in 0..height {
+                    for x in 0..width {
+                        let edge = x
+                            .min(width.saturating_sub(x + 1))
+                            .min(y)
+                            .min(height.saturating_sub(y + 1));
+                        // The 5px true edge and next 10px smooth falloff are
+                        // decorative only; no content pixels are exposed.
+                        if edge < 15 {
+                            let alpha = if edge <= 5 {
+                                255
+                            } else {
+                                (15 - edge) * 255 / 10
+                            };
+                            let src = ((top + y) * 1672 + left + x) * 4;
+                            let dst = (y * width + x) * 4;
+                            rgba[dst..dst + 3].copy_from_slice(&master[src..src + 3]);
+                            rgba[dst + 3] = u8::try_from(alpha).unwrap_or(u8::MAX);
+                        }
+                    }
+                }
+                panels.push(crate::brand::BrandImage {
+                    width: u32::try_from(width).ok()?,
+                    height: u32::try_from(height).ok()?,
+                    rgba,
+                });
+            }
+            Some(panels)
+        })
+        .as_ref()
+}
+
+// This is intentionally restricted to the exact approved artboard. Smaller
+// responsive windows retain native procedural panel rendering and hitboxes.
+fn draw_approved_v7_panel_edge(
+    canvas: &mut Canvas<'_>,
+    rect: crate::layout::DashboardRect,
+    index: usize,
+) {
+    if canvas.width != 1672 || canvas.height != 941 {
+        return;
+    }
+    let Some(panel) = approved_v7_panel_edges().and_then(|panels| panels.get(index)) else {
+        return;
+    };
+    canvas.image_rgba(
+        (rect.x, rect.y, rect.width, rect.height),
+        (
+            usize::try_from(panel.width).unwrap_or(0),
+            usize::try_from(panel.height).unwrap_or(0),
+        ),
+        &panel.rgba,
+    );
+}
+
 const fn native_text_size(scale: usize) -> f32 {
     match scale {
         3 => 50.0, // approved editorial hero
@@ -2393,9 +2477,10 @@ fn draw_premium_dashboard(
     // 4. Two Primary Cards: "This Device" and "Connect to Remote Device"
     let share = layout.share;
     let connect = layout.connect;
-    for rect in [share, connect] {
-        premium_panel(canvas, rect, p, true);
-    }
+    premium_panel(canvas, share, p, true);
+    draw_approved_v7_panel_edge(canvas, share, 0);
+    premium_panel(canvas, connect, p, true);
+    draw_approved_v7_panel_edge(canvas, connect, 1);
 
     // Card 1: This Device (Share Access)
     canvas.rounded_panel(
@@ -2778,7 +2863,9 @@ fn draw_premium_dashboard(
     let devices = layout.devices;
     let sessions = layout.sessions;
     premium_panel(canvas, devices, p, false);
+    draw_approved_v7_panel_edge(canvas, devices, 2);
     premium_panel(canvas, sessions, p, false);
+    draw_approved_v7_panel_edge(canvas, sessions, 3);
 
     // Directory is populated only by actual product-shell state; no sample
     // Windows/Linux devices and no fabricated online badges or history.
@@ -2845,9 +2932,12 @@ fn draw_premium_dashboard(
     let license = layout.license;
     let health = layout.health;
     let quick = layout.quick_actions;
-    for rect in [license, health, quick] {
-        premium_panel(canvas, rect, p, false);
-    }
+    premium_panel(canvas, license, p, false);
+    draw_approved_v7_panel_edge(canvas, license, 4);
+    premium_panel(canvas, health, p, false);
+    draw_approved_v7_panel_edge(canvas, health, 5);
+    premium_panel(canvas, quick, p, false);
+    draw_approved_v7_panel_edge(canvas, quick, 6);
 
     // Entitlement and health are not provided by this renderer. Until
     // authenticated runtime probes exist all badges must remain neutral.
@@ -3098,6 +3188,25 @@ mod tests {
 
     use super::*;
     use crate::{VisualSystem, presentation_for};
+
+    #[test]
+    fn owner_frame_decoration_never_contains_dashboard_data() {
+        let panels = approved_v7_panel_edges().expect("approved master must decode");
+        assert_eq!(panels.len(), 7);
+        for panel in panels {
+            let width = usize::try_from(panel.width).expect("bounded width");
+            let height = usize::try_from(panel.height).expect("bounded height");
+            for y in 15..height.saturating_sub(15) {
+                for x in 15..width.saturating_sub(15) {
+                    assert_eq!(
+                        panel.rgba[(y * width + x) * 4 + 3],
+                        0,
+                        "owner screenshot content must never be painted as UI"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn locked_design_preserves_lowercase_typography() {
