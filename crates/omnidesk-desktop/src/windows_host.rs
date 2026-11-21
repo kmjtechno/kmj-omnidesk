@@ -25,7 +25,7 @@ use crate::{
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
     controls_for_shell,
-    layout::{initial_window_inner_size, initial_window_origin},
+    layout::{PremiumViewportFit, V7_ART_WIDTH, initial_window_inner_size, initial_window_origin},
     presentation_for,
     render::render_shell,
 };
@@ -44,20 +44,34 @@ enum PremiumCaptionAction {
 
 fn premium_caption_action(
     width: usize,
+    height: usize,
     x: usize,
     y: usize,
     frameless: bool,
 ) -> Option<PremiumCaptionAction> {
-    if !frameless || y >= 70 || width < 600 {
+    if !frameless {
         return None;
     }
-    if (width.saturating_sub(80)..width.saturating_sub(20)).contains(&x) {
+    // The rendered titlebar moves when the locked artboard is fitted into
+    // a non-16:9 window. Use the same inverse transform as remote-control
+    // hit testing so OS actions never drift into credentials or badges.
+    let (art_width, art_x, art_y) =
+        if let Some(fit) = PremiumViewportFit::for_window(width, height) {
+            let (source_x, source_y) = fit.artboard_point(x, y)?;
+            (V7_ART_WIDTH, source_x, source_y)
+        } else {
+            (width, x, y)
+        };
+    if art_y >= 70 || art_width < 600 {
+        return None;
+    }
+    if (art_width.saturating_sub(80)..art_width.saturating_sub(20)).contains(&art_x) {
         Some(PremiumCaptionAction::Close)
-    } else if (width.saturating_sub(136)..width.saturating_sub(80)).contains(&x) {
+    } else if (art_width.saturating_sub(136)..art_width.saturating_sub(80)).contains(&art_x) {
         Some(PremiumCaptionAction::Maximize)
-    } else if (width.saturating_sub(192)..width.saturating_sub(136)).contains(&x) {
+    } else if (art_width.saturating_sub(192)..art_width.saturating_sub(136)).contains(&art_x) {
         Some(PremiumCaptionAction::Minimize)
-    } else if x < width.saturating_sub(450) {
+    } else if art_x < art_width.saturating_sub(450) {
         Some(PremiumCaptionAction::Drag)
     } else {
         None
@@ -693,7 +707,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 (size.width, size.height, monitor.scale_factor())
             });
             let (inner_width, inner_height) = initial_window_inner_size(initial_size);
-            let frameless_premium = inner_width >= 1672.0 && inner_height >= 941.0;
+            let frameless_premium = inner_width >= 1280.0 && inner_height >= 720.0;
             self.frameless_premium = frameless_premium;
             let attributes = WindowAttributes::default()
                 .with_title(title)
@@ -701,8 +715,8 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 .with_window_icon(window_icon)
                 .with_decorations(!frameless_premium)
                 .with_min_inner_size(winit::dpi::LogicalSize::new(
-                    if frameless_premium { 1420.0 } else { 640.0 },
-                    if frameless_premium { 850.0 } else { 480.0 },
+                    if frameless_premium { 1280.0 } else { 640.0 },
+                    if frameless_premium { 720.0 } else { 480.0 },
                 ))
                 // A maximized launch overrides the fitted 1672x941 V7 size
                 // and stretches the locked hierarchy across the monitor.
@@ -773,6 +787,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                     let size = window.inner_size();
                     if let Some(command) = premium_caption_action(
                         usize::try_from(size.width).unwrap_or(usize::MAX),
+                        usize::try_from(size.height).unwrap_or(usize::MAX),
                         x,
                         y,
                         self.frameless_premium,
@@ -893,24 +908,36 @@ mod tests {
     #[test]
     fn owner_locked_v7_caption_has_real_os_actions_and_compact_fallback() {
         assert_eq!(
-            premium_caption_action(1672, 1618, 29, true),
+            premium_caption_action(1672, 941, 1618, 29, true),
             Some(PremiumCaptionAction::Close)
         );
         assert_eq!(
-            premium_caption_action(1672, 1570, 29, true),
+            premium_caption_action(1672, 941, 1570, 29, true),
             Some(PremiumCaptionAction::Maximize)
         );
         assert_eq!(
-            premium_caption_action(1672, 1515, 29, true),
+            premium_caption_action(1672, 941, 1515, 29, true),
             Some(PremiumCaptionAction::Minimize)
         );
         assert_eq!(
-            premium_caption_action(1672, 650, 32, true),
+            premium_caption_action(1672, 941, 650, 32, true),
             Some(PremiumCaptionAction::Drag)
         );
-        assert!(premium_caption_action(1672, 1320, 30, true).is_none());
-        assert!(premium_caption_action(1672, 1621, 78, true).is_none());
-        assert!(premium_caption_action(1024, 910, 20, false).is_none());
+        assert!(premium_caption_action(1672, 941, 1320, 30, true).is_none());
+        assert!(premium_caption_action(1672, 941, 1621, 78, true).is_none());
+        assert!(premium_caption_action(1024, 768, 910, 20, false).is_none());
+        let fitted = PremiumViewportFit::for_window(1440, 900).expect("fitted V7");
+        let title_x = fitted.x + 1618 * fitted.width / 1672;
+        let title_y = fitted.y + 29 * fitted.height / 941;
+        assert_eq!(
+            premium_caption_action(1440, 900, title_x, title_y, true),
+            Some(PremiumCaptionAction::Close)
+        );
+        assert_eq!(
+            premium_caption_action(1440, 900, title_x, 0, true),
+            None,
+            "letterboxed pixels must never trigger OS controls"
+        );
     }
 
     #[test]
