@@ -693,8 +693,7 @@ impl LicensingManager {
                 LicenseError::ReplayOrStaleSequence,
             ));
         }
-        if now < lease.last_trusted_server_time
-            || resp.server_time < lease.last_trusted_server_time
+        if now < lease.last_trusted_server_time || resp.server_time < lease.last_trusted_server_time
         {
             return Err(LicensingClientError::ClockRollback {
                 now: now.min(resp.server_time),
@@ -715,9 +714,17 @@ impl LicensingManager {
         };
         lease.last_trusted_server_time = resp.server_time;
         if server_state == Some(LicenseState::Revoked) {
-            lease.known_revocation = if resp.reason_codes.iter().any(|code| code == "LICENSE_REVOKED") {
+            lease.known_revocation = if resp
+                .reason_codes
+                .iter()
+                .any(|code| code == "LICENSE_REVOKED")
+            {
                 RevocationState::LicenseRevoked
-            } else if resp.reason_codes.iter().any(|code| code == "ENTITLEMENT_REVOKED") {
+            } else if resp
+                .reason_codes
+                .iter()
+                .any(|code| code == "ENTITLEMENT_REVOKED")
+            {
                 RevocationState::EntitlementRevoked
             } else {
                 RevocationState::ActivationRevoked
