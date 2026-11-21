@@ -2218,6 +2218,144 @@ fn draw_premium_symbol(
     }
 }
 
+// Pixel-exact *static chrome* from the owner's approved 1672x941 V7
+// artboard. The original PNG is a design-source texture, NOT the UI.
+// All device IDs, credentials, session rows, entitlements and live statuses
+// are drawn from PresentationModel by draw_premium_dashboard. They are never
+// imported from the reference screenshot (which contains demonstration data).
+fn approved_v7_static_chrome() -> Option<&'static crate::brand::BrandImage> {
+    static SKIN: OnceLock<Option<crate::brand::BrandImage>> = OnceLock::new();
+    SKIN.get_or_init(|| {
+        let art = image::load_from_memory(include_bytes!(
+            "../../../docs/design/OMNIDESK_ENTERPRISE_V7_APPROVED_MASTER.png"
+        ))
+        .ok()?
+        .into_rgba8();
+        let (width, height) = art.dimensions();
+        if (width, height) != (1672, 941) {
+            return None;
+        }
+        Some(crate::brand::BrandImage {
+            width,
+            height,
+            rgba: art.into_raw(),
+        })
+    })
+    .as_ref()
+}
+
+fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
+    let in_rect = |x1: usize, y1: usize, x2: usize, y2: usize| {
+        x >= x1 && x < x2 && y >= y1 && y < y2
+    };
+    // Static KMJ branding, headings and artwork, never a runtime status.
+    if y < 70 {
+        return true;
+    }
+    if x < 260 && (70..870).contains(&y) {
+        return true;
+    }
+    if in_rect(258, 70, 1268, 249) {
+        return true;
+    }
+    // The primary cards' approved headers, bevels and neon outer outlines.
+    for (x1, x2) in [(280, 776), (795, 1260)] {
+        if in_rect(x1, 249, x2, 516)
+            && (x < x1 + 5
+                || x >= x2 - 5
+                || y < 251
+                || y >= 510
+                || (251..305).contains(&y))
+        {
+            return true;
+        }
+    }
+    // The capability tiles are presentation chrome, not fake session state.
+    if in_rect(280, 532, 1269, 635) {
+        return true;
+    }
+    // Lower cards: approved borders and safe, static section titles only.
+    for (x1, x2, safe_title_end) in [(280, 780, 425), (797, 1269, 1055)] {
+        if in_rect(x1, 648, x2, 844)
+            && (x < x1 + 5
+                || x >= x2 - 5
+                || y < 651
+                || y >= 839
+                || (y < 697 && x < safe_title_end))
+        {
+            return true;
+        }
+    }
+    // Right inspector frame bevels, safe title and decorative icons.
+    for (y1, y2, safe_title_end) in [
+        (101, 305, 1492),
+        (321, 515, 1492),
+        (532, 843, 1632),
+    ] {
+        if in_rect(1284, y1, 1632, y2)
+            && (x < 1289
+                || x >= 1628
+                || y < y1 + 4
+                || y >= y2 - 5
+                || (y < y1 + 51 && x < safe_title_end))
+        {
+            return true;
+        }
+    }
+    // Static six quick-action tiles are shown as design affordances; their
+    // operations still require actual wired controls and authorization.
+    if in_rect(1297, 582, 1625, 791) {
+        return true;
+    }
+    // Footer: only the reference's rounded outer glass frame; its demo
+    // green Cloud/Connected/42ms labels are forbidden to the runtime.
+    in_rect(280, 860, 1633, 920)
+        && (x < 285 || x >= 1628 || y < 865 || y >= 915)
+}
+
+fn draw_approved_v7_static_chrome(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+) {
+    use omnidesk_core::product_shell::{NavTab, PrimaryView};
+    if (canvas.width, canvas.height) != (1672, 941)
+        || presentation.primary_view != PrimaryView::Devices
+        || presentation.nav_tab != NavTab::Devices
+    {
+        return;
+    }
+    let Some(art) = approved_v7_static_chrome() else {
+        return;
+    };
+    for y in 0..canvas.height {
+        let row_offset = y * canvas.width;
+        for x in 0..canvas.width {
+            if !approved_v7_skin_allow(x, y) {
+                continue;
+            }
+            let pixel_index = row_offset + x;
+            let source_index = pixel_index * 4;
+            let alpha = art.rgba[source_index + 3];
+            if alpha == 0 {
+                continue;
+            }
+            let rgb = (u32::from(art.rgba[source_index]) << 16)
+                | (u32::from(art.rgba[source_index + 1]) << 8)
+                | u32::from(art.rgba[source_index + 2]);
+            if alpha == u8::MAX {
+                canvas.pixels[pixel_index] = rgb;
+            } else {
+                canvas.blend_coverage(
+                    i32::try_from(x).unwrap_or(i32::MAX),
+                    i32::try_from(y).unwrap_or(i32::MAX),
+                    rgb,
+                    f32::from(alpha) / 255.0,
+                );
+            }
+        }
+    }
+}
+
 // V7's large native dashboard is maintained as a single legacy render path;
 // a future extraction into individual cards must preserve shared hit geometry.
 #[allow(clippy::too_many_lines)]
@@ -3266,6 +3404,9 @@ pub fn render_shell(
     };
     if let Some(premium) = crate::PremiumDashboardLayout::for_window(width, height) {
         draw_premium_dashboard(&mut canvas, presentation, &premium, palette);
+        // Layer the exact owner-approved static art over the genuine native
+        // data-driven controls, with every demo value explicitly excluded.
+        draw_approved_v7_static_chrome(&mut canvas, presentation);
         return;
     }
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
@@ -3286,6 +3427,36 @@ mod tests {
 
     use super::*;
     use crate::{VisualSystem, presentation_for};
+
+    #[test]
+    fn approved_static_chrome_excludes_all_demo_values() {
+        let art = approved_v7_static_chrome().expect("owner approved PNG must decode");
+        assert_eq!((art.width, art.height), (1672, 941));
+        for (x, y) in [
+            (360, 357),  // demo local device ID
+            (361, 428),  // demo session password
+            (937, 357),  // remote device input
+            (939, 427),  // remote password input
+            (1030, 483), // active remote CTA label
+            (380, 713),  // demo device list
+            (1002, 713), // demo session history
+            (1554, 130), // false Active entitlement
+            (1557, 189), // fake seat count
+            (1551, 244), // fake expiry
+            (1565, 393), // false service health
+            (1553, 482), // false peer-to-peer readiness
+            (330, 890),  // false connected relay
+            (1495, 891), // false all-operational claim
+        ] {
+            assert!(
+                !approved_v7_skin_allow(x, y),
+                "demo status/data pixel must never be copied at ({x}, {y})"
+            );
+        }
+        assert!(approved_v7_skin_allow(42, 30));
+        assert!(approved_v7_skin_allow(932, 127));
+        assert!(approved_v7_skin_allow(55, 803));
+    }
 
     #[test]
     fn locked_design_preserves_lowercase_typography() {
