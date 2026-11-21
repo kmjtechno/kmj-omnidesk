@@ -155,15 +155,22 @@ fn approved_v7_panel_edges() -> Option<&'static Vec<crate::brand::BrandImage>> {
                             .min(width.saturating_sub(x + 1))
                             .min(y)
                             .min(height.saturating_sub(y + 1));
-                        // The 5px true edge and next 10px smooth falloff are
-                        // decorative only; no content pixels are exposed.
-                        if edge < 15 {
-                            let alpha = if edge <= 5 {
+                        // Only copy the bright RED border emission, never
+                        // the source's text, green badges, white icons or
+                        // device rows. Narrow 10px edge avoids bottom labels.
+                        let src = ((top + y) * 1672 + left + x) * 4;
+                        let red = u16::from(master[src]);
+                        let green = u16::from(master[src + 1]);
+                        let blue = u16::from(master[src + 2]);
+                        let decorative_red = red >= 90
+                            && red > green.saturating_mul(13) / 10
+                            && red > blue.saturating_mul(9) / 10;
+                        if edge < 10 && decorative_red {
+                            let alpha = if edge <= 3 {
                                 255
                             } else {
-                                (15 - edge) * 255 / 10
+                                (10 - edge) * 255 / 7
                             };
-                            let src = ((top + y) * 1672 + left + x) * 4;
                             let dst = (y * width + x) * 4;
                             rgba[dst..dst + 3].copy_from_slice(&master[src..src + 3]);
                             rgba[dst + 3] = u8::try_from(alpha).unwrap_or(u8::MAX);
@@ -3196,13 +3203,31 @@ mod tests {
         for panel in panels {
             let width = usize::try_from(panel.width).expect("bounded width");
             let height = usize::try_from(panel.height).expect("bounded height");
-            for y in 15..height.saturating_sub(15) {
-                for x in 15..width.saturating_sub(15) {
-                    assert_eq!(
-                        panel.rgba[(y * width + x) * 4 + 3],
-                        0,
-                        "owner screenshot content must never be painted as UI"
-                    );
+            for y in 0..height {
+                for x in 0..width {
+                    let edge = x
+                        .min(width.saturating_sub(x + 1))
+                        .min(y)
+                        .min(height.saturating_sub(y + 1));
+                    let offset = (y * width + x) * 4;
+                    let alpha = panel.rgba[offset + 3];
+                    if edge >= 10 {
+                        assert_eq!(
+                            alpha, 0,
+                            "owner screenshot interior must never be painted"
+                        );
+                    }
+                    if alpha > 0 {
+                        let red = u16::from(panel.rgba[offset]);
+                        let green = u16::from(panel.rgba[offset + 1]);
+                        let blue = u16::from(panel.rgba[offset + 2]);
+                        assert!(
+                            red >= 90
+                                && red > green.saturating_mul(13) / 10
+                                && red > blue.saturating_mul(9) / 10,
+                            "only decorative red light may be copied"
+                        );
+                    }
                 }
             }
         }
