@@ -64,6 +64,21 @@ fn premium_caption_action(
     }
 }
 
+fn perform_premium_caption(
+    window: &Window,
+    event_loop: &ActiveEventLoop,
+    action: PremiumCaptionAction,
+) {
+    match action {
+        PremiumCaptionAction::Drag => {
+            let _ = window.drag_window();
+        }
+        PremiumCaptionAction::Minimize => window.set_minimized(true),
+        PremiumCaptionAction::Maximize => window.set_maximized(!window.is_maximized()),
+        PremiumCaptionAction::Close => event_loop.exit(),
+    }
+}
+
 /// Converts a window-logical coordinate to whole pixels.
 ///
 /// Winit can report sub-pixel or out-of-range cursor positions (negative
@@ -762,16 +777,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         y,
                         self.frameless_premium,
                     ) {
-                        match command {
-                            PremiumCaptionAction::Drag => {
-                                let _ = window.drag_window();
-                            }
-                            PremiumCaptionAction::Minimize => window.set_minimized(true),
-                            PremiumCaptionAction::Maximize => {
-                                window.set_maximized(!window.is_maximized());
-                            }
-                            PremiumCaptionAction::Close => event_loop.exit(),
-                        }
+                        perform_premium_caption(window, event_loop, command);
                         return;
                     }
                     if let Some(action) = action_at_point(
