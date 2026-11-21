@@ -167,6 +167,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn approved_v7_artboard_scales_without_hitbox_drift() {
+        assert!(PremiumViewportFit::for_window(1672, 941).is_none());
+        assert!(PremiumViewportFit::for_window(1024, 768).is_none());
+        assert!(PremiumViewportFit::for_window(1200, 800).is_none());
+        let fitted = PremiumViewportFit::for_window(1440, 900).expect("laptop fit");
+        assert_eq!(
+            (fitted.x, fitted.y, fitted.width, fitted.height),
+            (0, 45, 1440, 810)
+        );
+        assert_eq!(fitted.artboard_point(0, 45), Some((0, 0)));
+        assert_eq!(fitted.artboard_point(1439, 854), Some((1670, 939)));
+        assert_eq!(fitted.artboard_point(200, 0), None);
+        assert_eq!(fitted.artboard_point(200, 899), None);
+        let wide = PremiumViewportFit::for_window(1920, 1080).expect("wide fit");
+        assert_eq!(
+            (wide.x, wide.y, wide.width, wide.height),
+            (1, 0, 1918, 1080)
+        );
+        assert!(wide.artboard_point(100, 10).is_some());
+    }
+
+    #[test]
     fn native_window_placement_keeps_its_monitor_origin() {
         assert_eq!(initial_window_origin(0, 0), (8, 8));
         assert_eq!(initial_window_origin(-1920, 0), (-1912, 8));
@@ -298,6 +320,63 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+/// Fixed design-space width for the immutable owner-approved V7 artboard.
+pub const V7_ART_WIDTH: usize = 1672;
+/// Fixed design-space height for the immutable owner-approved V7 artboard.
+pub const V7_ART_HEIGHT: usize = 941;
+
+/// One proportional transform shared by renderer, pointer handling and the
+/// Windows caption controls. This avoids P520 high-DPI/resized-window drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PremiumViewportFit {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl PremiumViewportFit {
+    /// Keep readable native fallback under 1280x720. Exact reference size
+    /// stays unscaled; all other practical desktop sizes letterbox rather
+    /// than stretching the owner's locked typography or UI coordinates.
+    #[must_use]
+    pub const fn for_window(width: usize, height: usize) -> Option<Self> {
+        if width < 1280 || height < 720 || (width == V7_ART_WIDTH && height == V7_ART_HEIGHT) {
+            return None;
+        }
+        let (draw_width, draw_height) =
+            if width.saturating_mul(V7_ART_HEIGHT) <= height.saturating_mul(V7_ART_WIDTH) {
+                (width, width.saturating_mul(V7_ART_HEIGHT) / V7_ART_WIDTH)
+            } else {
+                (height.saturating_mul(V7_ART_WIDTH) / V7_ART_HEIGHT, height)
+            };
+        if draw_width == 0 || draw_height == 0 {
+            return None;
+        }
+        Some(Self {
+            x: width.saturating_sub(draw_width) / 2,
+            y: height.saturating_sub(draw_height) / 2,
+            width: draw_width,
+            height: draw_height,
+        })
+    }
+
+    /// Map a physical client-area click into the exact V7 design coordinate.
+    /// All letterboxed margins reject input, including remote-connect.
+    #[must_use]
+    pub fn artboard_point(self, x: usize, y: usize) -> Option<(usize, usize)> {
+        let local_x = x.checked_sub(self.x)?;
+        let local_y = y.checked_sub(self.y)?;
+        if local_x >= self.width || local_y >= self.height {
+            return None;
+        }
+        Some((
+            local_x.saturating_mul(V7_ART_WIDTH) / self.width,
+            local_y.saturating_mul(V7_ART_HEIGHT) / self.height,
+        ))
     }
 }
 
