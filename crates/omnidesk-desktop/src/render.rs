@@ -2260,7 +2260,7 @@ fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
     // The primary cards' approved headers, bevels and neon outer outlines.
     for (x1, x2) in [(280, 776), (795, 1260)] {
         if in_rect(x1, 249, x2, 516)
-            && (x < x1 + 5 || x >= x2 - 5 || y < 251 || y >= 510 || (251..305).contains(&y))
+            && (x < x1 + 5 || x >= x2 - 5 || !(251..510).contains(&y) || (251..305).contains(&y))
         {
             return true;
         }
@@ -2272,7 +2272,7 @@ fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
     // Lower cards: approved borders and safe, static section titles only.
     for (x1, x2, safe_title_end) in [(280, 780, 425), (797, 1269, 1055)] {
         if in_rect(x1, 648, x2, 844)
-            && (x < x1 + 5 || x >= x2 - 5 || y < 651 || y >= 839 || (y < 697 && x < safe_title_end))
+            && (x < x1 + 5 || x >= x2 - 5 || !(651..839).contains(&y) || (y < 697 && x < safe_title_end))
         {
             return true;
         }
@@ -2280,8 +2280,7 @@ fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
     // Right inspector frame bevels, safe title and decorative icons.
     for (y1, y2, safe_title_end) in [(101, 305, 1492), (321, 515, 1492), (532, 843, 1632)] {
         if in_rect(1284, y1, 1632, y2)
-            && (x < 1289
-                || x >= 1628
+            && (!(1289..1628).contains(&x)
                 || y < y1 + 4
                 || y >= y2 - 5
                 || (y < y1 + 51 && x < safe_title_end))
@@ -2296,7 +2295,7 @@ fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
     }
     // Footer: only the reference's rounded outer glass frame; its demo
     // green Cloud/Connected/42ms labels are forbidden to the runtime.
-    in_rect(280, 860, 1633, 920) && (x < 285 || x >= 1628 || y < 865 || y >= 915)
+    in_rect(280, 860, 1633, 920) && (!(285..1628).contains(&x) || !(865..915).contains(&y))
 }
 
 fn draw_approved_v7_static_chrome(canvas: &mut Canvas<'_>, presentation: &PresentationModel) {
