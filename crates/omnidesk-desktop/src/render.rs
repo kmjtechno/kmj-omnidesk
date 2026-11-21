@@ -3526,9 +3526,9 @@ mod tests {
 
     #[test]
     fn scaled_premium_v7_reuses_exact_native_artboard_pixels() {
-        let presentation = presentation_for(&ProductShell::new());
         const ART_W: usize = crate::layout::V7_ART_WIDTH;
         const ART_H: usize = crate::layout::V7_ART_HEIGHT;
+        let presentation = presentation_for(&ProductShell::new());
         let mut original = vec![0_u32; ART_W * ART_H];
         render_shell(&mut original, ART_W, ART_H, &presentation);
         let width = 1440;
