@@ -483,7 +483,9 @@ mod premium_v7_tests {
         assert_eq!(premium.share.width, 494);
         assert_eq!(premium.connect.x, 796);
         assert_eq!(premium.connect.width, 462);
-        assert!(premium.navigation.width < premium.hero.x);
+        // The decorative hero underlaps the 260px sidebar edge by 2px.
+        // Active card controls remain entirely outside the nav column.
+        assert_eq!(premium.hero.x + 2, premium.navigation.width);
         assert_eq!(premium.share.y, premium.connect.y);
         assert!(premium.share.x + premium.share.width < premium.connect.x);
         assert!(premium.connect.x + premium.connect.width < premium.license.x);
