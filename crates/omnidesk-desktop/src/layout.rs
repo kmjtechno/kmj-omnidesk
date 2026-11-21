@@ -172,13 +172,19 @@ mod tests {
         assert!(PremiumViewportFit::for_window(1024, 768).is_none());
         assert!(PremiumViewportFit::for_window(1200, 800).is_none());
         let fitted = PremiumViewportFit::for_window(1440, 900).expect("laptop fit");
-        assert_eq!((fitted.x, fitted.y, fitted.width, fitted.height), (0, 45, 1440, 810));
+        assert_eq!(
+            (fitted.x, fitted.y, fitted.width, fitted.height),
+            (0, 45, 1440, 810)
+        );
         assert_eq!(fitted.artboard_point(0, 45), Some((0, 0)));
         assert_eq!(fitted.artboard_point(1439, 854), Some((1670, 939)));
         assert_eq!(fitted.artboard_point(200, 0), None);
         assert_eq!(fitted.artboard_point(200, 899), None);
         let wide = PremiumViewportFit::for_window(1920, 1080).expect("wide fit");
-        assert_eq!((wide.x, wide.y, wide.width, wide.height), (1, 0, 1918, 1080));
+        assert_eq!(
+            (wide.x, wide.y, wide.width, wide.height),
+            (1, 0, 1918, 1080)
+        );
         assert!(wide.artboard_point(100, 10).is_some());
     }
 
@@ -341,13 +347,12 @@ impl PremiumViewportFit {
         if width < 1280 || height < 720 || (width == V7_ART_WIDTH && height == V7_ART_HEIGHT) {
             return None;
         }
-        let (draw_width, draw_height) = if width.saturating_mul(V7_ART_HEIGHT)
-            <= height.saturating_mul(V7_ART_WIDTH)
-        {
-            (width, width.saturating_mul(V7_ART_HEIGHT) / V7_ART_WIDTH)
-        } else {
-            (height.saturating_mul(V7_ART_WIDTH) / V7_ART_HEIGHT, height)
-        };
+        let (draw_width, draw_height) =
+            if width.saturating_mul(V7_ART_HEIGHT) <= height.saturating_mul(V7_ART_WIDTH) {
+                (width, width.saturating_mul(V7_ART_HEIGHT) / V7_ART_WIDTH)
+            } else {
+                (height.saturating_mul(V7_ART_WIDTH) / V7_ART_HEIGHT, height)
+            };
         if draw_width == 0 || draw_height == 0 {
             return None;
         }
