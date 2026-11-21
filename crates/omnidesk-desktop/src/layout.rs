@@ -350,19 +350,21 @@ impl PremiumDashboardLayout {
         if width < 1500 || height < 860 {
             return None;
         }
-        // Canonical 1672x941: 246px sidebar, 264px main start and
-        // 326px right rail beginning at x=1307. Keep all interactive
-        // hitboxes in the same geometry used by the native renderer.
-        let navigation_width = (width * 15 / 100).clamp(240, 246);
-        let right_width = (width * 20 / 100).clamp(315, 326);
+        // At 1672x941 the owner reference has a 260px navigation rail,
+        // a 348px right inspector and workflow cards beginning at x=280.
+        // Pointer hitboxes and renderer share these exact rectangles.
+        let navigation_width = (width * 16 / 100).clamp(240, 260);
+        let right_width = (width * 21 / 100).clamp(315, 348);
         let right_margin = (width / 42).clamp(28, 40);
-        let main_x = navigation_width + 18;
+        let main_x = navigation_width + 20;
         let right_x = width.saturating_sub(right_width + right_margin);
         let main_width = right_x.saturating_sub(main_x + 16);
         if main_width < 840 {
             return None;
         }
-        let main_half = main_width.saturating_sub(16) / 2;
+        let main_half = main_width / 2;
+        let second_x = main_x + main_half + 22;
+        let second_width = main_width.saturating_sub(main_half + 32);
         let footer_y = height.saturating_sub(79);
         let lower_height = footer_y.saturating_sub(649 + 17);
         let rect = |x, y, width, height| DashboardRect {
@@ -374,22 +376,12 @@ impl PremiumDashboardLayout {
         Some(Self {
             header_height: 70,
             navigation: rect(0, 70, navigation_width, height.saturating_sub(70)),
-            hero: rect(main_x, 76, main_width, 168),
+            hero: rect(navigation_width.saturating_sub(2), 76, main_width + 22, 168),
             share: rect(main_x, 249, main_half, 266),
-            connect: rect(
-                main_x + main_half + 16,
-                249,
-                main_width.saturating_sub(main_half + 16),
-                266,
-            ),
+            connect: rect(second_x, 249, second_width, 266),
             features: rect(main_x, 533, main_width, 98),
             devices: rect(main_x, 649, main_half, lower_height),
-            sessions: rect(
-                main_x + main_half + 16,
-                649,
-                main_width.saturating_sub(main_half + 16),
-                lower_height,
-            ),
+            sessions: rect(second_x, 649, second_width, lower_height),
             license: rect(right_x, 101, right_width, 204),
             health: rect(right_x, 321, right_width, 194),
             quick_actions: rect(right_x, 533, right_width, footer_y.saturating_sub(533 + 18)),
@@ -405,10 +397,10 @@ impl PremiumDashboardLayout {
     #[must_use]
     pub const fn nav_row(&self, index: usize) -> DashboardRect {
         DashboardRect {
-            x: self.navigation.x + 10,
-            y: self.navigation.y + 27 + index.saturating_mul(44),
-            width: self.navigation.width.saturating_sub(20),
-            height: 38,
+            x: self.navigation.x + 8,
+            y: self.navigation.y + 37 + index.saturating_mul(48),
+            width: self.navigation.width.saturating_sub(12),
+            height: 45,
         }
     }
 
@@ -484,10 +476,13 @@ mod premium_v7_tests {
         let premium = PremiumDashboardLayout::for_window(1672, 941).expect("V7 desktop");
         assert_eq!(premium.header_height, 70);
         assert_eq!(premium.hero.y, 76);
-        assert_eq!(premium.navigation.width, 246);
-        assert_eq!(premium.hero.x, 264);
-        assert_eq!(premium.license.x, 1307);
-        assert_eq!(premium.share.width, 505);
+        assert_eq!(premium.navigation.width, 260);
+        assert_eq!(premium.hero.x, 258);
+        assert_eq!(premium.share.x, 280);
+        assert_eq!(premium.license.x, 1284);
+        assert_eq!(premium.share.width, 494);
+        assert_eq!(premium.connect.x, 796);
+        assert_eq!(premium.connect.width, 462);
         assert!(premium.navigation.width < premium.hero.x);
         assert_eq!(premium.share.y, premium.connect.y);
         assert!(premium.share.x + premium.share.width < premium.connect.x);
