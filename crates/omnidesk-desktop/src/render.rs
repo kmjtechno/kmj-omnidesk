@@ -2901,20 +2901,8 @@ fn draw_premium_dashboard(
         // inventing any peer/device identity or advertising availability.
         for i in 0..3 {
             let item = layout.device_row(i);
-            canvas.h_line(
-                item.x,
-                item.y + item.height,
-                item.width,
-                0x2a_2d_41,
-            );
-            draw_monitor_icon(
-                canvas,
-                item.x + 10,
-                item.y + 12,
-                18,
-                12,
-                0x6c_7389,
-            );
+            canvas.h_line(item.x, item.y + item.height, item.width, 0x2a_2d_41);
+            draw_monitor_icon(canvas, item.x + 10, item.y + 12, 18, 12, 0x6c_7389);
             if i == 0 {
                 canvas.text_clipped(
                     item.x + 43,
