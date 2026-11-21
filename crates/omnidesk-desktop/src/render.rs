@@ -2247,58 +2247,61 @@ fn approved_v7_static_chrome() -> Option<&'static crate::brand::BrandImage> {
 fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
     let in_rect =
         |x1: usize, y1: usize, x2: usize, y2: usize| x >= x1 && x < x2 && y >= y1 && y < y2;
-    // Static KMJ branding, headings and artwork, never a runtime status.
-    if y < 70 {
+    // Opaque, *fully safe* regions; never contain runtime sample identities.
+    if y < 70 || (x < 260 && (70..870).contains(&y)) {
         return true;
     }
-    if x < 260 && (70..870).contains(&y) {
+    if in_rect(258, 70, 1268, 249) || in_rect(280, 532, 1269, 635) {
         return true;
     }
-    if in_rect(258, 70, 1268, 249) {
+    // Full quick-action artwork is safe: no online state, sample peer or
+    // credential is present anywhere on this panel.
+    if in_rect(1284, 532, 1632, 843) {
         return true;
     }
-    // The primary cards' approved headers, bevels and neon outer outlines.
+    // Keep red beveled card outlines without copying the source's example
+    // input contents. Only a 3px safe frame survives from each card.
     for (x1, x2) in [(280, 776), (795, 1260)] {
         if in_rect(x1, 249, x2, 516)
-            && (x < x1 + 5 || x >= x2 - 5 || !(251..510).contains(&y) || (251..305).contains(&y))
+            && (x < x1 + 3 || x >= x2 - 3 || y < 252 || y >= 513)
         {
             return true;
         }
     }
-    // The capability tiles are presentation chrome, not fake session state.
-    if in_rect(280, 532, 1269, 635) {
-        return true;
-    }
-    // Lower cards: approved borders and safe, static section titles only.
-    for (x1, x2, safe_title_end) in [(280, 780, 425), (797, 1269, 1055)] {
+    for (x1, x2) in [(280, 780), (797, 1269)] {
         if in_rect(x1, 648, x2, 844)
-            && (x < x1 + 5
-                || x >= x2 - 5
-                || !(651..839).contains(&y)
-                || (y < 697 && x < safe_title_end))
+            && (x < x1 + 3 || x >= x2 - 3 || y < 651 || y >= 841)
         {
             return true;
         }
     }
-    // Right inspector frame bevels, safe title and decorative icons.
-    for (y1, y2, safe_title_end) in [(101, 305, 1492), (321, 515, 1492), (532, 843, 1632)] {
+    // Never import the right-edge green strips of the source's fake
+    // Active/All Healthy status badges, even through a border falloff.
+    for (y1, y2) in [(101, 305), (321, 515)] {
         if in_rect(1284, y1, 1632, y2)
-            && (!(1289..1628).contains(&x)
-                || y < y1 + 4
-                || y >= y2 - 5
-                || (y < y1 + 51 && x < safe_title_end))
+            && (x < 1288 || y < y1 + 3 || y >= y2 - 4)
         {
             return true;
         }
     }
-    // Static six quick-action tiles are shown as design affordances; their
-    // operations still require actual wired controls and authorization.
-    if in_rect(1297, 582, 1625, 791) {
-        return true;
-    }
-    // Footer: only the reference's rounded outer glass frame; its demo
-    // green Cloud/Connected/42ms labels are forbidden to the runtime.
-    in_rect(280, 860, 1633, 920) && (!(285..1628).contains(&x) || !(865..915).contains(&y))
+    // Source footer fake relay/latency/All Operational are always masked.
+    in_rect(280, 860, 1633, 920)
+        && (x < 284 || y < 864 || y >= 916)
+}
+
+// Copy *only bright glyph/illustration pixels* from the reference in static
+// section-title zones, not the differently-colored card background. This
+// prevents sharp rectangular bands while preserving pixel-exact owner font
+// artwork. Lower title regions stop before fake (12) device count/View All.
+fn approved_v7_skin_title_only(x: usize, y: usize) -> bool {
+    let inside =
+        |x1: usize, y1: usize, x2: usize, y2: usize| x >= x1 && x < x2 && y >= y1 && y < y2;
+    inside(282, 253, 751, 306)
+        || inside(799, 253, 1224, 306)
+        || inside(283, 651, 421, 693)
+        || inside(800, 651, 1045, 693)
+        || inside(1290, 109, 1484, 153)
+        || inside(1290, 325, 1490, 369)
 }
 
 fn draw_approved_v7_static_chrome(canvas: &mut Canvas<'_>, presentation: &PresentationModel) {
@@ -2315,11 +2318,23 @@ fn draw_approved_v7_static_chrome(canvas: &mut Canvas<'_>, presentation: &Presen
     for y in 0..canvas.height {
         let row_offset = y * canvas.width;
         for x in 0..canvas.width {
-            if !approved_v7_skin_allow(x, y) {
+            let full_chrome = approved_v7_skin_allow(x, y);
+            let glyph_chrome = approved_v7_skin_title_only(x, y);
+            if !full_chrome && !glyph_chrome {
                 continue;
             }
             let pixel_index = row_offset + x;
             let source_index = pixel_index * 4;
+            // Foreground-only atlas: background pixels never create
+            // rectangular seams over the actual native cards.
+            if glyph_chrome && !full_chrome {
+                let red = art.rgba[source_index];
+                let green = art.rgba[source_index + 1];
+                let blue = art.rgba[source_index + 2];
+                if red.max(green).max(blue) < 105 {
+                    continue;
+                }
+            }
             let alpha = art.rgba[source_index + 3];
             if alpha == 0 {
                 continue;
@@ -3441,6 +3456,11 @@ mod tests {
         assert!(approved_v7_skin_allow(42, 30));
         assert!(approved_v7_skin_allow(932, 127));
         assert!(approved_v7_skin_allow(55, 803));
+        assert!(approved_v7_skin_title_only(345, 269));
+        assert!(!approved_v7_skin_title_only(1555, 133));
+        assert!(!approved_v7_skin_allow(1629, 130));
+        assert!(!approved_v7_skin_allow(1629, 390));
+        assert!(!approved_v7_skin_allow(1629, 902));
     }
 
     #[test]
