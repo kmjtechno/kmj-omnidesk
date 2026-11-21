@@ -1902,29 +1902,38 @@ fn premium_panel(
     p: Palette,
     accent: bool,
 ) {
+    // Rounded native panel and its restrained edge lighting. The master
+    // image is not used as a fake clickable background; these remain real
+    // per-control native surfaces with shared pointer geometry.
     canvas.rounded_gradient_panel(
         rect.x,
         rect.y,
         rect.width,
         rect.height,
-        0x1c_19_2a,
-        0x10_13_20,
-        if accent { 0x9e_24_46 } else { p.border },
+        0x20_1a_2b,
+        0x0d_12_20,
+        if accent { 0xb9_25_4b } else { 0x42_45_60 },
+    );
+    canvas.h_line(
+        rect.x + 16,
+        rect.y + 1,
+        rect.width.saturating_sub(32),
+        0x43_34_4f,
     );
     if accent {
         canvas.soft_glow(
             rect.x + rect.width / 2,
-            rect.y + rect.height.saturating_sub(9),
+            rect.y + rect.height.saturating_sub(5),
             rect.width / 2,
-            40,
+            53,
             0xf7_19_4a,
-            0.24,
+            0.47,
         );
         canvas.h_line(
             rect.x + 22,
             rect.y + rect.height.saturating_sub(2),
             rect.width.saturating_sub(44),
-            0xc7_23_4b,
+            0xee_27_57,
         );
     }
 }
@@ -2326,6 +2335,14 @@ fn draw_premium_dashboard(
         0x0c_0d_17,
         0x52_21_3b,
     );
+    canvas.soft_glow(
+        hero.x + hero.width / 2,
+        hero.y + hero.height.saturating_sub(8),
+        hero.width / 2,
+        34,
+        0xe9_17_45,
+        0.32,
+    );
     if let Some(art) = approved_v7_hero_art() {
         let art_width = usize::try_from(art.width).unwrap_or(0).min(hero.width);
         let art_height = usize::try_from(art.height)
@@ -2713,11 +2730,21 @@ fn draw_premium_dashboard(
                     0xed_18_3b,
                 );
             }
-            let icon_x = rect.x + rect.width / 2 - 7;
-            let icon_y = rect.y + 12;
-            let icon_col = if is_active { 0xff_30_55 } else { 0xa0_ab_bc };
+            if is_active {
+                canvas.soft_glow(
+                    rect.x + rect.width / 2,
+                    rect.y + 30,
+                    rect.width / 2,
+                    39,
+                    0xf7_19_3b,
+                    0.26,
+                );
+            }
+            let icon_x = rect.x + rect.width / 2 - 8;
+            let icon_y = rect.y + 14;
+            let icon_col = if is_active { 0xff_30_55 } else { 0xc4_ca_d9 };
             match i {
-                0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, icon_col),
+                0 => draw_monitor_icon(canvas, icon_x - 5, icon_y, 26, 17, icon_col),
                 1 => draw_folder_icon(canvas, icon_x, icon_y, icon_col),
                 2 => draw_dual_monitors_icon(canvas, icon_x, icon_y, icon_col),
                 3 => draw_waveform_icon(canvas, icon_x, icon_y, icon_col),
@@ -2725,20 +2752,24 @@ fn draw_premium_dashboard(
                 5 => draw_record_icon(canvas, icon_x, icon_y, icon_col),
                 _ => draw_infinity_icon(canvas, icon_x, icon_y, icon_col),
             }
-            canvas.text(
-                rect.x + 8,
-                rect.y + 44,
+            // Center captions under their visual icons like the locked
+            // enterprise design, without fabricating enabled controls.
+            let title_width = Canvas::text_width(title, 5);
+            canvas.text_bold(
+                rect.x + rect.width.saturating_sub(title_width) / 2,
+                rect.y + 49,
                 title,
-                1,
-                if is_active { p.foreground } else { 0xd5_db_e6 },
+                5,
+                if is_active { p.foreground } else { 0xe5_e8_f0 },
             );
+            let subtitle_width = Canvas::text_width(subtitle, 5);
             canvas.text_clipped(
-                rect.x + 8,
-                rect.y + 64,
+                rect.x + rect.width.saturating_sub(subtitle_width) / 2,
+                rect.y + 72,
                 subtitle,
-                1,
-                rect.width.saturating_sub(16),
-                0x85_8f_a1,
+                5,
+                rect.width.saturating_sub(6),
+                0x97_a0_b2,
             );
         }
     }
