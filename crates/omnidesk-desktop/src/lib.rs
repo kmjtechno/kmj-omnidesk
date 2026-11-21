@@ -560,6 +560,26 @@ pub fn action_at_point(
     x: usize,
     y: usize,
 ) -> Option<DesktopAction> {
+    // A V7 panel drawn at 1440x900 or on a 125%-DPI monitor is not
+    // interactive at its unscaled coordinates. Share the renderer's exact
+    // artboard transform; dark letterbox margins have no active hitboxes.
+    if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() == NavTab::Devices {
+        if let Some(fit) = crate::layout::PremiumViewportFit::for_window(width, height) {
+            let (owner_x, owner_y) = fit.artboard_point(x, y)?;
+            let premium = PremiumDashboardLayout::for_window(
+                crate::layout::V7_ART_WIDTH,
+                crate::layout::V7_ART_HEIGHT,
+            )?;
+            return premium_action_at_point(
+                shell,
+                crate::layout::V7_ART_WIDTH,
+                crate::layout::V7_ART_HEIGHT,
+                owner_x,
+                owner_y,
+                &premium,
+            );
+        }
+    }
     if let Some(premium) = PremiumDashboardLayout::for_window(width, height) {
         return premium_action_at_point(shell, width, height, x, y, &premium);
     }
@@ -971,6 +991,33 @@ mod tests {
         assert_eq!(
             action_at_point(&shell, width, height, 1435, 35),
             Some(DesktopAction::OpenSettings)
+        );
+    }
+
+    #[test]
+    fn responsive_locked_v7_pointer_targets_are_transformed_and_fail_closed() {
+        let shell = ProductShell::new();
+        let width = 1440;
+        let height = 900;
+        let fit = crate::layout::PremiumViewportFit::for_window(width, height).unwrap();
+        let art = PremiumDashboardLayout::for_window(1672, 941).unwrap();
+        let input = art.remote_id_input();
+        let source_x = input.x + input.width / 2;
+        let source_y = input.y + input.height / 2;
+        let dest_x = fit.x + source_x * fit.width / 1672;
+        let dest_y = fit.y + source_y * fit.height / 941;
+        assert_eq!(
+            action_at_point(&shell, width, height, dest_x, dest_y),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
+        assert_eq!(action_at_point(&shell, width, height, dest_x, 0), None);
+        let connect = art.remote_connect_button();
+        let button_x = fit.x + (connect.x + 12) * fit.width / 1672;
+        let button_y = fit.y + (connect.y + 12) * fit.height / 941;
+        assert_eq!(
+            action_at_point(&shell, width, height, button_x, button_y),
+            None,
+            "scaled click must never bypass password authentication"
         );
     }
 
