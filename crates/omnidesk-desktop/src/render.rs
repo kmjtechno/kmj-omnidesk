@@ -2148,9 +2148,6 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
     canvas.h_line(x + 9, y + 6, 5, color);
 }
 
-// V7's large native dashboard is maintained as a single legacy render path;
-// a future extraction into individual cards must preserve shared hit geometry.
-#[allow(clippy::too_many_lines)]
 // Scale hand-drawn native symbols to the visual weight of the locked V7
 // icons. The glyphs remain real renderer primitives, not image hotspots.
 #[derive(Clone, Copy)]
@@ -2181,8 +2178,7 @@ fn draw_premium_symbol(
         match (set, index) {
             (PremiumIconSet::Navigation, 0) => draw_home_icon(&mut glyph, 3, 3, color),
             (PremiumIconSet::Navigation, 1)
-            | (PremiumIconSet::Feature, 0)
-            | (PremiumIconSet::QuickAction, 0) => {
+            | (PremiumIconSet::Feature | PremiumIconSet::QuickAction, 0) => {
                 draw_monitor_icon(&mut glyph, 2, 4, 16, 11, color);
             }
             (PremiumIconSet::Navigation, 2) => draw_devices_icon(&mut glyph, 3, 3, color),
@@ -2222,6 +2218,9 @@ fn draw_premium_symbol(
     }
 }
 
+// V7's large native dashboard is maintained as a single legacy render path;
+// a future extraction into individual cards must preserve shared hit geometry.
+#[allow(clippy::too_many_lines)]
 fn draw_premium_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
