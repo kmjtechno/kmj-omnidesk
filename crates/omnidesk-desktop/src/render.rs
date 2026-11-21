@@ -2151,6 +2151,77 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
 // V7's large native dashboard is maintained as a single legacy render path;
 // a future extraction into individual cards must preserve shared hit geometry.
 #[allow(clippy::too_many_lines)]
+// Scale hand-drawn native symbols to the visual weight of the locked V7
+// icons. The glyphs remain real renderer primitives, not image hotspots.
+#[derive(Clone, Copy)]
+enum PremiumIconSet {
+    Navigation,
+    Feature,
+    QuickAction,
+}
+
+fn draw_premium_symbol(
+    canvas: &mut Canvas<'_>,
+    set: PremiumIconSet,
+    index: usize,
+    x: usize,
+    y: usize,
+    color: u32,
+) {
+    const SIZE: usize = 20;
+    const OUTPUT: usize = 30;
+    const TRANSPARENT: u32 = 0x01_00_00_00;
+    let mut glyph_pixels = [TRANSPARENT; SIZE * SIZE];
+    {
+        let mut glyph = Canvas {
+            pixels: &mut glyph_pixels,
+            width: SIZE,
+            height: SIZE,
+        };
+        match (set, index) {
+            (PremiumIconSet::Navigation, 0) => draw_home_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 1)
+            | (PremiumIconSet::Feature, 0)
+            | (PremiumIconSet::QuickAction, 0) => {
+                draw_monitor_icon(&mut glyph, 2, 4, 16, 11, color);
+            }
+            (PremiumIconSet::Navigation, 2) => draw_devices_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 3) => draw_layers_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 4) | (PremiumIconSet::Feature, 1) => {
+                draw_folder_icon(&mut glyph, 3, 3, color);
+            }
+            (PremiumIconSet::Navigation, 5) | (PremiumIconSet::Feature, 2) => {
+                draw_dual_monitors_icon(&mut glyph, 1, 3, color);
+            }
+            (PremiumIconSet::Navigation, 6) => draw_users_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 7) => draw_shield_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 8) => draw_id_card_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 9) => draw_key_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 10) => draw_chart_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, _) => draw_gear_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Feature, 3) => draw_waveform_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Feature, 4) => draw_clipboard_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Feature, 5) => draw_record_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Feature, _) => draw_infinity_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::QuickAction, 1) => draw_power_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::QuickAction, 2) => draw_terminal_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::QuickAction, 3) => draw_upload_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::QuickAction, 4) => draw_document_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::QuickAction, _) => draw_user_plus_icon(&mut glyph, 3, 3, color),
+        }
+    }
+    for dy in 0..OUTPUT {
+        for dx in 0..OUTPUT {
+            let sy = dy * SIZE / OUTPUT;
+            let sx = dx * SIZE / OUTPUT;
+            let pixel = glyph_pixels[sy * SIZE + sx];
+            if pixel != TRANSPARENT {
+                canvas.fill_rect(x + dx, y + dy, 1, 1, pixel);
+            }
+        }
+    }
+}
+
 fn draw_premium_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -2271,22 +2342,14 @@ fn draw_premium_dashboard(
         }
 
         let icon_color = if selected { p.foreground } else { p.muted };
-        let icon_x = rect.x + 34;
-        let icon_y = rect.y + 14;
-        match i {
-            0 => draw_home_icon(canvas, icon_x, icon_y, icon_color),
-            1 => draw_monitor_icon(canvas, icon_x, icon_y, 13, 9, icon_color),
-            2 => draw_devices_icon(canvas, icon_x, icon_y, icon_color),
-            3 => draw_layers_icon(canvas, icon_x, icon_y, icon_color),
-            4 => draw_folder_icon(canvas, icon_x, icon_y, icon_color),
-            5 => draw_dual_monitors_icon(canvas, icon_x, icon_y, icon_color),
-            6 => draw_users_icon(canvas, icon_x, icon_y, icon_color),
-            7 => draw_shield_icon(canvas, icon_x, icon_y, icon_color),
-            8 => draw_id_card_icon(canvas, icon_x, icon_y, icon_color),
-            9 => draw_key_icon(canvas, icon_x, icon_y, icon_color),
-            10 => draw_chart_icon(canvas, icon_x, icon_y, icon_color),
-            _ => draw_gear_icon(canvas, icon_x, icon_y, icon_color),
-        }
+        draw_premium_symbol(
+            canvas,
+            PremiumIconSet::Navigation,
+            i,
+            rect.x + 25,
+            rect.y + 8,
+            icon_color,
+        );
 
         locked_label(
             canvas,
@@ -2758,18 +2821,15 @@ fn draw_premium_dashboard(
                     0.26,
                 );
             }
-            let icon_x = rect.x + rect.width / 2 - 8;
-            let icon_y = rect.y + 14;
             let icon_col = if is_active { 0xff_30_55 } else { 0xc4_ca_d9 };
-            match i {
-                0 => draw_monitor_icon(canvas, icon_x - 5, icon_y, 26, 17, icon_col),
-                1 => draw_folder_icon(canvas, icon_x, icon_y, icon_col),
-                2 => draw_dual_monitors_icon(canvas, icon_x, icon_y, icon_col),
-                3 => draw_waveform_icon(canvas, icon_x, icon_y, icon_col),
-                4 => draw_clipboard_icon(canvas, icon_x, icon_y, icon_col),
-                5 => draw_record_icon(canvas, icon_x, icon_y, icon_col),
-                _ => draw_infinity_icon(canvas, icon_x, icon_y, icon_col),
-            }
+            draw_premium_symbol(
+                canvas,
+                PremiumIconSet::Feature,
+                i,
+                rect.x + rect.width / 2 - 15,
+                rect.y + 12,
+                icon_col,
+            );
             // Center captions under their visual icons like the locked
             // enterprise design, without fabricating enabled controls.
             let label_extent = Canvas::text_width(title, 5);
@@ -3040,16 +3100,21 @@ fn draw_premium_dashboard(
             0x12_16_25,
             0x43_48_63,
         );
-        let icon_x = x + cell_w / 2 - 7;
-        let icon_y = y + 18;
-        match i {
-            0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, 0xf7_19_3b),
-            1 => draw_power_icon(canvas, icon_x, icon_y, 0xf7_19_3b),
-            2 => draw_terminal_icon(canvas, icon_x, icon_y, 0x42_99_e1),
-            3 => draw_upload_icon(canvas, icon_x, icon_y, 0x48_bb_78),
-            4 => draw_document_icon(canvas, icon_x, icon_y, 0xa0_ae_c0),
-            _ => draw_user_plus_icon(canvas, icon_x, icon_y, 0x38_b2_ac),
-        }
+        let icon_color = match i {
+            0 | 1 => 0xf7_19_3b,
+            2 => 0x7d_b4_ec,
+            3 => 0x6b_d5_99,
+            4 => 0xc5_ce_dd,
+            _ => 0x72_d8_cf,
+        };
+        draw_premium_symbol(
+            canvas,
+            PremiumIconSet::QuickAction,
+            i,
+            x + cell_w / 2 - 15,
+            y + 13,
+            icon_color,
+        );
         canvas.text_clipped(
             x + 4,
             y + 59,
