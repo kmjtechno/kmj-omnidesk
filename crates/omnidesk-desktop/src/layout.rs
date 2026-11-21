@@ -127,8 +127,8 @@ impl ShellLayout {
 /// available and the narrow shell is the explicit responsive fallback.
 #[must_use]
 pub fn initial_window_inner_size(monitor: Option<(u32, u32, f64)>) -> (f64, f64) {
-    const PREFERRED_WIDTH: f64 = 1280.0;
-    const PREFERRED_HEIGHT: f64 = 720.0;
+    const PREFERRED_WIDTH: f64 = 1672.0;
+    const PREFERRED_HEIGHT: f64 = 941.0;
     let Some((physical_width, physical_height, scale_factor)) = monitor else {
         return (PREFERRED_WIDTH, PREFERRED_HEIGHT);
     };
@@ -184,10 +184,10 @@ mod tests {
 
     #[test]
     fn initial_window_respects_dpi_and_preferred_desktop_size() {
-        assert_eq!(initial_window_inner_size(None), (1280.0, 720.0));
+        assert_eq!(initial_window_inner_size(None), (1672.0, 941.0));
         assert_eq!(
             initial_window_inner_size(Some((1920, 1080, 1.0))),
-            (1280.0, 720.0)
+            (1672.0, 941.0)
         );
         assert_eq!(
             initial_window_inner_size(Some((1024, 768, 1.25))),
@@ -204,7 +204,7 @@ mod tests {
         for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             assert_eq!(
                 initial_window_inner_size(Some((1024, 768, scale))),
-                (1280.0, 720.0)
+                (1672.0, 941.0)
             );
         }
     }
@@ -305,6 +305,282 @@ impl DashboardRect {
             && y >= self.y
             && x < self.x.saturating_add(self.width)
             && y < self.y.saturating_add(self.height)
+    }
+}
+
+/// Owner-approved V7 premium dashboard at full desktop resolution.
+///
+/// The single source of truth for render, pointer and keyboard/action geometry
+/// is this struct. Previous 1419x611 lock remains the responsive fallback
+/// until V7's laptop/compact acceptance campaign passes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PremiumDashboardLayout {
+    pub header_height: usize,
+    pub navigation: DashboardRect,
+    pub hero: DashboardRect,
+    pub share: DashboardRect,
+    pub connect: DashboardRect,
+    pub features: DashboardRect,
+    pub devices: DashboardRect,
+    pub sessions: DashboardRect,
+    pub license: DashboardRect,
+    pub health: DashboardRect,
+    pub quick_actions: DashboardRect,
+    pub footer: DashboardRect,
+}
+
+impl PremiumDashboardLayout {
+    #[must_use]
+    pub fn for_window(width: usize, height: usize) -> Option<Self> {
+        if width < 1024 || height < 750 {
+            return None;
+        }
+        let navigation_width = if width >= 1400 {
+            (width * 15 / 100).clamp(232, 260)
+        } else {
+            (width * 16 / 100).clamp(180, 230)
+        };
+        let right_width = if width >= 1400 {
+            325
+        } else {
+            (width * 22 / 100).clamp(240, 310)
+        };
+        let side_gap = if width >= 1400 { 16 } else { 12 };
+        let main_x = navigation_width + 18;
+        let right_x = width.saturating_sub(right_width + 17);
+        let main_width = right_x.saturating_sub(main_x + side_gap);
+        if main_width < 450 {
+            return None;
+        }
+        let main_half = (main_width.saturating_sub(side_gap)) / 2;
+        let lower_height = height.saturating_sub(649 + 55).max(180);
+        let rect = |x, y, width, height| DashboardRect {
+            x,
+            y,
+            width,
+            height,
+        };
+        Some(Self {
+            header_height: 70,
+            navigation: rect(0, 70, navigation_width, height.saturating_sub(115)),
+            hero: rect(main_x, 81, main_width, 162),
+            share: rect(main_x, 255, main_half, 267),
+            connect: rect(
+                main_x + main_half + side_gap,
+                255,
+                main_width.saturating_sub(main_half + side_gap),
+                267,
+            ),
+            features: rect(main_x, 535, main_width, 101),
+            devices: rect(main_x, 649, main_half, lower_height),
+            sessions: rect(
+                main_x + main_half + side_gap,
+                649,
+                main_width.saturating_sub(main_half + side_gap),
+                lower_height,
+            ),
+            license: rect(right_x, 91, right_width, 223),
+            health: rect(right_x, 330, right_width, 196),
+            quick_actions: rect(
+                right_x,
+                539,
+                right_width,
+                height.saturating_sub(539 + 55).max(300),
+            ),
+            footer: rect(
+                navigation_width,
+                height.saturating_sub(45),
+                width.saturating_sub(navigation_width),
+                45,
+            ),
+        })
+    }
+
+    #[must_use]
+    pub const fn nav_row(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.navigation.x + 10,
+            y: self.navigation.y + 27 + index.saturating_mul(44),
+            width: self.navigation.width.saturating_sub(20),
+            height: 38,
+        }
+    }
+
+    #[must_use]
+    pub const fn local_id_copy(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.share.x + self.share.width - 88,
+            y: self.share.y + 91,
+            width: 66,
+            height: 38,
+        }
+    }
+
+    #[must_use]
+    pub const fn host_password_eye(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.share.x + self.share.width.saturating_sub(64),
+            y: self.share.y + 160,
+            width: 24,
+            height: 42,
+        }
+    }
+
+    #[must_use]
+    pub const fn host_password_refresh(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.share.x + self.share.width.saturating_sub(38),
+            y: self.share.y + 160,
+            width: 24,
+            height: 42,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_control_toggle(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.share.x + 20,
+            y: self.share.y + 215,
+            width: 180,
+            height: 35,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_password_input(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.connect.x + 19,
+            y: self.connect.y + 160,
+            width: self.connect.width.saturating_sub(38),
+            height: 42,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_password_eye(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.connect.x + self.connect.width.saturating_sub(44),
+            y: self.connect.y + 160,
+            width: 26,
+            height: 42,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_id_input(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.connect.x + 19,
+            y: self.connect.y + 91,
+            width: self.connect.width.saturating_sub(38),
+            height: 38,
+        }
+    }
+
+    #[must_use]
+    pub const fn remote_connect_button(&self) -> DashboardRect {
+        DashboardRect {
+            x: self.connect.x + 19,
+            y: self.connect.y + 207,
+            width: self.connect.width.saturating_sub(38),
+            height: 40,
+        }
+    }
+
+    #[must_use]
+    pub const fn device_row(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.devices.x + 13,
+            y: self.devices.y + 56 + index.saturating_mul(47),
+            width: self.devices.width.saturating_sub(26),
+            height: 40,
+        }
+    }
+
+    #[must_use]
+    pub const fn permission_button(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.share.x + 19 + index.saturating_mul(136),
+            y: self.share.y + 211,
+            width: 123,
+            height: 37,
+        }
+    }
+
+    #[must_use]
+    pub fn session_button(&self, index: usize, count: usize) -> DashboardRect {
+        let count = count.max(1);
+        let width = self.features.width / count;
+        DashboardRect {
+            x: self.features.x + width.saturating_mul(index) + 4,
+            y: self.features.y + 14,
+            width: width.saturating_sub(8),
+            height: self.features.height.saturating_sub(28),
+        }
+    }
+
+    #[must_use]
+    pub const fn quick_action_button(&self, index: usize) -> DashboardRect {
+        let columns = 3;
+        let col = index % columns;
+        let row = index / columns;
+        let cell_width = (self.quick_actions.width - 32) / columns;
+        DashboardRect {
+            x: self.quick_actions.x + 16 + col * cell_width,
+            y: self.quick_actions.y + 48 + row * 82,
+            width: cell_width.saturating_sub(8),
+            height: 72,
+        }
+    }
+
+    #[must_use]
+    pub const fn feature_tile_rect(&self, index: usize) -> DashboardRect {
+        let tile_width = self.features.width / 7;
+        DashboardRect {
+            x: self.features.x + index * tile_width + 2,
+            y: self.features.y,
+            width: tile_width.saturating_sub(4),
+            height: self.features.height,
+        }
+    }
+
+    #[must_use]
+    pub const fn recent_session_row(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.sessions.x + 16,
+            y: self.sessions.y + 54 + index.saturating_mul(56),
+            width: self.sessions.width.saturating_sub(32),
+            height: 50,
+        }
+    }
+}
+
+#[cfg(test)]
+mod premium_v7_tests {
+    use super::*;
+
+    #[test]
+    fn owner_artboard_geometry_is_nonoverlapping() {
+        let premium = PremiumDashboardLayout::for_window(1672, 941).expect("V7 desktop");
+        assert_eq!(premium.header_height, 70);
+        assert_eq!(premium.hero.y, 81);
+        assert!(premium.navigation.width < premium.hero.x);
+        assert_eq!(premium.share.y, premium.connect.y);
+        assert!(premium.share.x + premium.share.width < premium.connect.x);
+        assert!(premium.connect.x + premium.connect.width < premium.license.x);
+        assert!(premium.hero.y + premium.hero.height < premium.share.y);
+        assert!(premium.share.y + premium.share.height < premium.features.y);
+        assert!(premium.features.y + premium.features.height < premium.devices.y);
+        assert!(premium.devices.y + premium.devices.height < premium.footer.y);
+        assert!(premium.local_id_copy().contains(
+            premium.local_id_copy().x + 12,
+            premium.local_id_copy().y + 12,
+        ));
+        assert!(PremiumDashboardLayout::for_window(1672, 941).is_some());
+        assert!(PremiumDashboardLayout::for_window(1440, 900).is_some());
+        assert!(PremiumDashboardLayout::for_window(1280, 800).is_some());
+        assert!(PremiumDashboardLayout::for_window(1024, 768).is_some());
+        assert!(PremiumDashboardLayout::for_window(1419, 611).is_none());
+        assert!(PremiumDashboardLayout::for_window(800, 500).is_none());
     }
 }
 

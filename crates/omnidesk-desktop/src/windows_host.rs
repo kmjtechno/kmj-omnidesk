@@ -74,6 +74,16 @@ fn consent_matches_peer(shell: &ProductShell, authenticated_device_id: Option<&s
         && shell.selected_device() == authenticated_device_id
 }
 
+// Visible local consent is necessary but does not authorize remote input unless
+// the current transport has an authenticated identity whose trust record is valid.
+fn verified_consent_for_authenticated_trust(
+    shell: &ProductShell,
+    authenticated_device_id: Option<&str>,
+    trusted_record_verified: bool,
+) -> bool {
+    consent_matches_peer(shell, authenticated_device_id) && trusted_record_verified
+}
+
 #[cfg(test)]
 fn refuse_unverified_session_action(
     shell: &mut ProductShell,
@@ -426,6 +436,14 @@ impl DesktopHost {
         }
 
         while let Ok(incoming) = self.incoming_rx.try_recv() {
+            if !self.shell.allow_remote_control() {
+                self.shell.set_error(format!(
+                    "Incoming peer {} rejected: host remote control is disabled",
+                    incoming.peer_addr
+                ));
+                self.refresh_presentation();
+                continue;
+            }
             let Ok(transport) = HostTransport::from_tcp_stream(incoming.stream) else {
                 continue;
             };
@@ -456,21 +474,27 @@ impl DesktopHost {
                     };
                 }
                 self.shell.replace_devices(summaries);
-                let _ = self
+                if let Err(err) = self
                     .shell
-                    .begin_connect_trusted(&record.device_id, &store, now);
-            } else {
-                let peer_id = incoming.peer_addr.to_string();
-                let mut summaries = store.to_device_summaries();
-                if !summaries.iter().any(|d| d.id == peer_id) {
-                    summaries.push(DeviceSummary {
-                        id: peer_id.clone(),
-                        display_name: format!("Remote Peer ({})", incoming.peer_addr),
-                        status: DeviceStatus::Online,
-                    });
+                    .begin_connect_trusted(&record.device_id, &store, now)
+                {
+                    adapter.close();
+                    self.shell.disconnect();
+                    self.shell
+                        .set_error(format!("Authenticated incoming peer rejected: {err:?}"));
+                    self.refresh_presentation();
+                    continue;
                 }
-                self.shell.replace_devices(summaries);
-                let _ = self.shell.begin_connect(&peer_id);
+            } else {
+                // Authentication failure cannot create an Online device,
+                // display a permission prompt, or retain the failed adapter.
+                adapter.close();
+                self.shell.set_error(format!(
+                    "Incoming peer {} rejected: authentication failed",
+                    incoming.peer_addr
+                ));
+                self.refresh_presentation();
+                continue;
             }
             self.session_adapter = Some(adapter);
             self.refresh_presentation();
@@ -523,57 +547,65 @@ impl DesktopHost {
             }
             self.shell.disconnect();
         } else if action == DesktopAction::AllowPermission {
-            // A signed proof alone must never enable remote input. The consent
-            // must target the exact peer authenticated on this transport.
+            // A signed handshake and a visible prompt are independent gates.
+            // The peer ID must come from the authenticated transport, never
+            // from an unverified selected device or a socket address.
             let peer_id = self
                 .session_adapter
                 .as_ref()
-                .and_then(TransportSessionAdapter::authenticated_device_id)
-                .or_else(|| self.shell.selected_device());
-            if consent_matches_peer(&self.shell, peer_id) {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs());
-                let store = TrustedDeviceStore::load_or_create(&self.store_path);
-                let valid = store.as_ref().is_ok_and(|store| {
-                    peer_id.and_then(|id| store.get(id)).is_some_and(|record| {
-                        !record.revoked
-                            && now <= record.trust_expires_at_epoch_secs
-                            && self.session_adapter.as_ref().is_some_and(|adapter| {
-                                adapter.session().authenticated_public_key()
-                                    == Some(&record.public_key)
-                            })
-                    })
-                }) || (peer_id.is_some() && self.session_adapter.is_some());
-                if !valid {
-                    if let Some(mut adapter) = self.session_adapter.take() {
+                .and_then(TransportSessionAdapter::authenticated_device_id);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let store = TrustedDeviceStore::load_or_create(&self.store_path);
+            let trust_verified = store.as_ref().is_ok_and(|store| {
+                peer_id.and_then(|id| store.get(id)).is_some_and(|record| {
+                    !record.revoked
+                        && now <= record.trust_expires_at_epoch_secs
+                        && self.session_adapter.as_ref().is_some_and(|adapter| {
+                            adapter.session().authenticated_public_key() == Some(&record.public_key)
+                        })
+                })
+            });
+            if !verified_consent_for_authenticated_trust(&self.shell, peer_id, trust_verified) {
+                if let Some(mut adapter) = self.session_adapter.take() {
+                    adapter.close();
+                }
+                self.shell.disconnect();
+                self.shell.set_error(
+                    "Session approval rejected: authenticated trusted peer or consent invalid",
+                );
+            } else if let Some(adapter) = self.session_adapter.as_mut() {
+                match adapter.authorize_session() {
+                    Ok(()) => apply_action(&mut self.shell, action),
+                    Err(err) => {
                         adapter.close();
-                    }
-                    self.shell.disconnect();
-                    self.shell.set_error("Session approval rejected: trusted peer was revoked, expired or unavailable");
-                } else if let Some(adapter) = self.session_adapter.as_mut() {
-                    match adapter.authorize_session() {
-                        Ok(()) => apply_action(&mut self.shell, action),
-                        Err(err) => {
-                            adapter.close();
-                            self.session_adapter = None;
-                            self.shell.disconnect();
-                            self.shell
-                                .set_error(format!("Session authorization failed: {err:?}"));
-                        }
+                        self.session_adapter = None;
+                        self.shell.disconnect();
+                        self.shell
+                            .set_error(format!("Session authorization failed: {err:?}"));
                     }
                 }
-            } else {
-                self.shell
-                    .set_error("Session approval rejected: peer or permission prompt mismatch");
             }
         } else if action == DesktopAction::CopyYourId {
             copy_to_clipboard(self.shell.local_device_id());
             apply_action(&mut self.shell, action);
-        } else if action == DesktopAction::ConnectRemoteId {
+        } else if action == DesktopAction::CopySessionPassword {
+            let pwd = self.shell.host_password().to_owned();
+            copy_to_clipboard(&pwd);
             apply_action(&mut self.shell, action);
-            if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
-                self.try_connect_peer();
+        } else if action == DesktopAction::ConnectRemoteId {
+            let remote_id = self.shell.remote_id_input().to_owned();
+            let remote_pwd = self.shell.remote_password_input().to_owned();
+            if remote_id.is_empty() {
+                self.shell.set_error("Please enter a Remote Device ID");
+            } else if remote_pwd.is_empty() {
+                self.shell.set_error("Please enter the session password");
+            } else {
+                apply_action(&mut self.shell, action);
+                if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
+                    self.try_connect_peer();
+                }
             }
         } else if matches!(
             action,
@@ -631,6 +663,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 .with_title(title)
                 .with_visible(false)
                 .with_window_icon(window_icon)
+                .with_maximized(true)
                 .with_inner_size(winit::dpi::LogicalSize::new(inner_width, inner_height));
             // Physical initial placement is as important as inner-size
             // fitting: hosted desktops can default to (156,156) on a
@@ -660,6 +693,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -701,8 +735,11 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         y,
                     ) {
                         self.dispatch_action(action);
-                    } else if self.shell.is_remote_id_focused() {
+                    } else if self.shell.is_remote_id_focused()
+                        || self.shell.is_remote_password_focused()
+                    {
                         self.shell.set_remote_id_focused(false);
+                        self.shell.set_remote_password_focused(false);
                         self.refresh_presentation();
                     }
                 }
@@ -730,6 +767,34 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         for c in text.chars() {
                             if !c.is_control() {
                                 self.shell.append_remote_id_char(c);
+                            }
+                        }
+                        self.refresh_presentation();
+                        return;
+                    }
+                }
+                if self.shell.is_remote_password_focused() {
+                    match &event.logical_key {
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Backspace) => {
+                            self.shell.backspace_remote_password();
+                            self.refresh_presentation();
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter) => {
+                            self.dispatch_action(DesktopAction::ConnectRemoteId);
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) => {
+                            self.shell.set_remote_password_focused(false);
+                            self.refresh_presentation();
+                            return;
+                        }
+                        _ => {}
+                    }
+                    if let Some(text) = &event.text {
+                        for c in text.chars() {
+                            if !c.is_control() {
+                                self.shell.append_remote_password_char(c);
                             }
                         }
                         self.refresh_presentation();
@@ -798,6 +863,7 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 mod tests {
     use super::{
         MAX_PIXEL_OFFSET, consent_matches_peer, refuse_unverified_session_action, to_pixel,
+        verified_consent_for_authenticated_trust,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
@@ -858,6 +924,43 @@ mod tests {
         assert!(!consent_matches_peer(&shell, None));
         shell.disconnect();
         assert!(!consent_matches_peer(&shell, Some("verified-peer")));
+    }
+
+    #[test]
+    fn transport_presence_cannot_bypass_trust_or_peer_identity() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "verified-peer".to_owned(),
+            display_name: "Verified peer".to_owned(),
+            status: DeviceStatus::Online,
+        }]);
+        shell
+            .begin_connect("verified-peer")
+            .expect("verified peer is in local directory");
+        assert!(!verified_consent_for_authenticated_trust(
+            &shell,
+            Some("verified-peer"),
+            false,
+        ));
+        assert!(!verified_consent_for_authenticated_trust(
+            &shell, None, true
+        ));
+        assert!(!verified_consent_for_authenticated_trust(
+            &shell,
+            Some("other-peer"),
+            true,
+        ));
+        assert!(verified_consent_for_authenticated_trust(
+            &shell,
+            Some("verified-peer"),
+            true,
+        ));
+        shell.disconnect();
+        assert!(!verified_consent_for_authenticated_trust(
+            &shell,
+            Some("verified-peer"),
+            true,
+        ));
     }
 
     #[test]

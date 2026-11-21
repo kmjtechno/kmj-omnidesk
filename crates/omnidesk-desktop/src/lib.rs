@@ -10,7 +10,7 @@ pub mod brand;
 pub mod layout;
 pub mod render;
 
-pub use layout::{LockedDashboardLayout, ShellLayout};
+pub use layout::{LockedDashboardLayout, PremiumDashboardLayout, ShellLayout};
 
 #[cfg(windows)]
 pub mod windows_host;
@@ -34,6 +34,12 @@ pub enum DesktopAction {
     CopyYourId,
     FocusRemoteIdInput,
     ConnectRemoteId,
+    CopySessionPassword,
+    RotateSessionPassword,
+    TogglePasswordVisibility,
+    ToggleRemoteControl,
+    FocusRemotePasswordInput,
+    ToggleRemotePasswordVisibility,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,8 +83,8 @@ pub struct VisualSystem {
 }
 
 impl VisualSystem {
-    /// The KMJ shell palette: a blue-grey ground with the brand red reserved
-    /// for actions.
+    /// The owner-approved V7 `OmniDesk` palette: deep graphite and restrained
+    /// `KMJ` red from the premium design lock (2026-11-20).
     ///
     /// The red is deliberately scarce. Carrying it on borders, rail edges, and
     /// every enabled control turned the whole surface into one hue and left
@@ -92,17 +98,19 @@ impl VisualSystem {
     #[must_use]
     pub const fn kmj_black_red() -> Self {
         Self {
-            background_rgb: [5, 6, 8],
-            surface_rgb: [15, 17, 21],
-            foreground_rgb: [244, 246, 248],
-            accent_rgb: [232, 18, 37],
-            danger_rgb: [255, 59, 48],
-            muted_rgb: [132, 139, 148],
-            border_rgb: [38, 42, 48],
+            // KMJ TECHNO OmniDesk V7 owner-locked premium theme.
+            background_rgb: [7, 9, 16],
+            surface_rgb: [17, 21, 33],
+            foreground_rgb: [247, 247, 250],
+            accent_rgb: [247, 25, 59],
+            danger_rgb: [255, 64, 81],
+            muted_rgb: [143, 149, 165],
+            border_rgb: [53, 55, 71],
         }
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresentationModel {
     pub primary_view: PrimaryView,
@@ -121,10 +129,18 @@ pub struct PresentationModel {
     pub local_device_id: String,
     pub remote_id_input: String,
     pub remote_id_focused: bool,
+    pub host_session_password: String,
+    pub host_password_visible: bool,
+    pub allow_remote_control: bool,
+    pub remote_password_input: String,
+    pub remote_password_focused: bool,
+    pub remote_password_visible: bool,
 }
 
 #[must_use]
 pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
+    let mut shell_clone = shell.clone();
+    let host_session_password = shell_clone.host_password_formatted();
     let status = match shell.primary_view() {
         PrimaryView::Devices => "Disconnected",
         PrimaryView::PermissionPrompt => "Authorization required",
@@ -166,6 +182,12 @@ pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
         local_device_id: shell.local_device_id().to_owned(),
         remote_id_input: shell.remote_id_input().to_owned(),
         remote_id_focused: shell.is_remote_id_focused(),
+        host_session_password,
+        host_password_visible: shell.is_host_password_visible(),
+        allow_remote_control: shell.allow_remote_control(),
+        remote_password_input: shell.remote_password_input().to_owned(),
+        remote_password_focused: shell.is_remote_password_focused(),
+        remote_password_visible: shell.is_remote_password_visible(),
     }
 }
 
@@ -370,9 +392,40 @@ pub fn control_rects_for(
     width: usize,
     height: usize,
 ) -> Vec<ControlRect> {
-    // The real four-column dashboard and its hit-testing share precisely
-    // the same panel and control rectangles. Never render one coordinate
-    // system and click in a different one.
+    // The full-screen V7 layout is matched by its exact hit-testing regions.
+    // No off-card or invisible action may remain interactive.
+    if let Some(premium) = PremiumDashboardLayout::for_window(width, height) {
+        let count = presentation.controls.len();
+        return presentation
+            .controls
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                let rect = match presentation.primary_view {
+                    PrimaryView::Devices
+                        if presentation.nav_tab == NavTab::Devices && index < 3 =>
+                    {
+                        premium.device_row(index)
+                    }
+                    PrimaryView::PermissionPrompt => premium.permission_button(index),
+                    PrimaryView::Session => premium.session_button(index, count),
+                    PrimaryView::Devices => layout::DashboardRect {
+                        x: 0,
+                        y: 0,
+                        width: 0,
+                        height: 0,
+                    },
+                };
+                ControlRect {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                }
+            })
+            .collect();
+    }
+    // The previous four-column lock remains available as a responsive fallback.
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
         let count = presentation.controls.len();
         return presentation
@@ -432,7 +485,77 @@ const fn locked_dual_role_action(
     None
 }
 
+/// Hit-test V7 only against controls which are rendered and enabled.
 #[must_use]
+fn premium_action_at_point(
+    shell: &ProductShell,
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+    premium: &PremiumDashboardLayout,
+) -> Option<DesktopAction> {
+    // Only tabs backed by a real view are clickable. All other premium
+    // navigation entries are visibly unavailable rather than fake links.
+    const TABS: [Option<NavTab>; 12] = [
+        Some(NavTab::Devices),
+        Some(NavTab::Devices),
+        Some(NavTab::Devices),
+        Some(NavTab::Connections),
+        Some(NavTab::FileTransfer),
+        None,
+        None,
+        Some(NavTab::Security),
+        None,
+        None,
+        None,
+        Some(NavTab::Settings),
+    ];
+    for (index, tab) in TABS.iter().enumerate() {
+        if premium.nav_row(index).contains(x, y) {
+            return tab.map(DesktopAction::SelectNav);
+        }
+    }
+    if shell.nav_tab() == NavTab::Devices && shell.primary_view() == PrimaryView::Devices {
+        if !shell.local_device_id().is_empty() && premium.local_id_copy().contains(x, y) {
+            return Some(DesktopAction::CopyYourId);
+        }
+        if premium.host_password_eye().contains(x, y) {
+            return Some(DesktopAction::TogglePasswordVisibility);
+        }
+        if premium.host_password_refresh().contains(x, y) {
+            return Some(DesktopAction::RotateSessionPassword);
+        }
+        if premium.remote_control_toggle().contains(x, y) {
+            return Some(DesktopAction::ToggleRemoteControl);
+        }
+        if premium.remote_id_input().contains(x, y) {
+            return Some(DesktopAction::FocusRemoteIdInput);
+        }
+        if premium.remote_password_eye().contains(x, y) {
+            return Some(DesktopAction::ToggleRemotePasswordVisibility);
+        }
+        if premium.remote_password_input().contains(x, y) {
+            return Some(DesktopAction::FocusRemotePasswordInput);
+        }
+        if premium.remote_connect_button().contains(x, y) {
+            if !shell.remote_id_input().is_empty() && !shell.remote_password_input().is_empty() {
+                return Some(DesktopAction::ConnectRemoteId);
+            }
+            return None;
+        }
+    }
+    let presentation = presentation_for(shell);
+    presentation
+        .controls
+        .iter()
+        .zip(control_rects_for(&presentation, width, height))
+        .find(|(control, rect)| control.enabled && rect.contains(x, y))
+        .map(|(control, _)| control.action)
+}
+
+#[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn action_at_point(
     shell: &ProductShell,
     width: usize,
@@ -440,6 +563,9 @@ pub fn action_at_point(
     x: usize,
     y: usize,
 ) -> Option<DesktopAction> {
+    if let Some(premium) = PremiumDashboardLayout::for_window(width, height) {
+        return premium_action_at_point(shell, width, height, x, y, &premium);
+    }
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
         // Navigation items (all 7 tabs respond to clicks)
         const NAV_TABS: [NavTab; 7] = [
@@ -628,16 +754,66 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             }
         }
         DesktopAction::FocusRemoteIdInput => {
+            shell.set_remote_password_focused(false);
             shell.set_remote_id_focused(true);
         }
         DesktopAction::ConnectRemoteId => {
             shell.set_remote_id_focused(false);
+            shell.set_remote_password_focused(false);
             let _ = shell.begin_connect_remote_id();
+        }
+        DesktopAction::CopySessionPassword => {
+            let pwd = shell.host_password().to_owned();
+            shell.set_error(format!("Password '{pwd}' copied to clipboard"));
+        }
+        DesktopAction::RotateSessionPassword => {
+            shell.rotate_host_password();
+            shell.set_error("New session password generated");
+        }
+        DesktopAction::TogglePasswordVisibility => {
+            shell.toggle_host_password_visibility();
+        }
+        DesktopAction::ToggleRemoteControl => {
+            shell.toggle_allow_remote_control();
+            let state = if shell.allow_remote_control() {
+                "enabled"
+            } else {
+                "disabled"
+            };
+            shell.set_error(format!("Remote control {state}"));
+        }
+        DesktopAction::FocusRemotePasswordInput => {
+            shell.set_remote_id_focused(false);
+            shell.set_remote_password_focused(true);
+        }
+        DesktopAction::ToggleRemotePasswordVisibility => {
+            shell.toggle_remote_password_visibility();
         }
     }
 }
 
 pub fn apply_key(shell: &mut ProductShell, key: char) -> bool {
+    if shell.is_remote_password_focused() {
+        match key {
+            '\x08' => {
+                shell.backspace_remote_password();
+                return true;
+            }
+            '\r' | '\n' => {
+                apply_action(shell, DesktopAction::ConnectRemoteId);
+                return true;
+            }
+            '\x1b' => {
+                shell.set_remote_password_focused(false);
+                return true;
+            }
+            c if !c.is_control() => {
+                shell.append_remote_password_char(c);
+                return true;
+            }
+            _ => return false,
+        }
+    }
     if shell.is_remote_id_focused() {
         match key {
             '\x08' => {
@@ -766,6 +942,60 @@ pub const fn controls_for(view: PrimaryView) -> &'static [AccessibleControl] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn premium_v7_pointer_targets_match_visible_geometry() {
+        let width = 1672;
+        let height = 941;
+        let mut shell = ProductShell::new();
+        let layout = PremiumDashboardLayout::for_window(width, height).expect("V7 layout");
+
+        let remote_input = layout.remote_id_input();
+        assert_eq!(
+            action_at_point(
+                &shell,
+                width,
+                height,
+                remote_input.x + 12,
+                remote_input.y + 12
+            ),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
+        let connect = layout.remote_connect_button();
+        assert_eq!(
+            action_at_point(&shell, width, height, connect.x + 12, connect.y + 12),
+            None,
+            "an empty remote ID must not yield a connect action"
+        );
+        let copy = layout.local_id_copy();
+        assert_eq!(
+            action_at_point(&shell, width, height, copy.x + 12, copy.y + 12),
+            None,
+            "no ID means no clickable copy action"
+        );
+        shell.set_local_device_id("KMJ-LOCAL-TEST");
+        assert_eq!(
+            action_at_point(&shell, width, height, copy.x + 12, copy.y + 12),
+            Some(DesktopAction::CopyYourId)
+        );
+        shell.set_remote_id_input("KMJ-PEER-TEST");
+        assert_eq!(
+            action_at_point(&shell, width, height, connect.x + 12, connect.y + 12),
+            None,
+            "password connect remains unavailable even with a remote ID"
+        );
+        assert_eq!(
+            action_at_point(
+                &shell,
+                width,
+                height,
+                layout.quick_actions.x + 25,
+                layout.quick_actions.y + 70,
+            ),
+            None,
+            "unimplemented quick actions cannot be clickable"
+        );
+    }
 
     #[test]
     fn enrollment_without_verified_peer_never_creates_a_trusted_device() {
@@ -1537,5 +1767,106 @@ mod tests {
                 .contains("Cannot connect to self")
         );
         assert_eq!(shell.selected_device(), None);
+    }
+
+    #[test]
+    fn test_password_auth_interactive_workflow_and_hitboxes() {
+        let mut shell = ProductShell::new();
+        shell.set_local_device_id("KMJ-111-222-333");
+        let layout = layout::PremiumDashboardLayout::for_window(1672, 941).unwrap();
+
+        // Host password generation and rotation
+        let initial_pwd = shell.host_password().to_owned();
+        assert_eq!(initial_pwd.len(), 8);
+        assert!(!shell.is_host_password_visible());
+
+        // Host password eye hitbox
+        let eye_rect = layout.host_password_eye();
+        let eye_action = action_at_point(&shell, 1672, 941, eye_rect.x + 2, eye_rect.y + 2);
+        assert_eq!(eye_action, Some(DesktopAction::TogglePasswordVisibility));
+        apply_action(&mut shell, eye_action.unwrap());
+        assert!(shell.is_host_password_visible());
+
+        // Host password refresh hitbox
+        let refresh_rect = layout.host_password_refresh();
+        let refresh_action =
+            action_at_point(&shell, 1672, 941, refresh_rect.x + 2, refresh_rect.y + 2);
+        assert_eq!(refresh_action, Some(DesktopAction::RotateSessionPassword));
+        apply_action(&mut shell, refresh_action.unwrap());
+        assert_ne!(shell.host_password(), initial_pwd);
+
+        // Remote control toggle hitbox
+        let toggle_rect = layout.remote_control_toggle();
+        let toggle_action =
+            action_at_point(&shell, 1672, 941, toggle_rect.x + 5, toggle_rect.y + 5);
+        assert_eq!(toggle_action, Some(DesktopAction::ToggleRemoteControl));
+        assert!(
+            !shell.allow_remote_control(),
+            "host sharing must default to disabled"
+        );
+        apply_action(&mut shell, toggle_action.unwrap());
+        assert!(
+            shell.allow_remote_control(),
+            "only explicit toggle enables sharing"
+        );
+        apply_action(&mut shell, toggle_action.unwrap());
+        assert!(!shell.allow_remote_control());
+
+        // Focus remote password input
+        let pwd_input_rect = layout.remote_password_input();
+        let pwd_focus_action = action_at_point(
+            &shell,
+            1672,
+            941,
+            pwd_input_rect.x + 10,
+            pwd_input_rect.y + 10,
+        );
+        assert_eq!(
+            pwd_focus_action,
+            Some(DesktopAction::FocusRemotePasswordInput)
+        );
+        apply_action(&mut shell, pwd_focus_action.unwrap());
+        assert!(shell.is_remote_password_focused());
+
+        // Type remote password
+        assert!(apply_key(&mut shell, 'A'));
+        assert!(apply_key(&mut shell, 'B'));
+        assert!(apply_key(&mut shell, 'C'));
+        assert!(apply_key(&mut shell, 'D'));
+        assert_eq!(shell.remote_password_input(), "ABCD");
+        assert!(apply_key(&mut shell, '\x08'));
+        assert_eq!(shell.remote_password_input(), "ABC");
+
+        // Remote password eye hitbox
+        let remote_eye_rect = layout.remote_password_eye();
+        let remote_eye_action = action_at_point(
+            &shell,
+            1672,
+            941,
+            remote_eye_rect.x + 2,
+            remote_eye_rect.y + 2,
+        );
+        assert_eq!(
+            remote_eye_action,
+            Some(DesktopAction::ToggleRemotePasswordVisibility)
+        );
+        apply_action(&mut shell, remote_eye_action.unwrap());
+        assert!(shell.is_remote_password_visible());
+
+        // Connect button requires both ID and password
+        let connect_btn = layout.remote_connect_button();
+        shell.clear_remote_id();
+        assert_eq!(
+            action_at_point(&shell, 1672, 941, connect_btn.x + 10, connect_btn.y + 10),
+            None
+        );
+
+        shell.append_remote_id_char('9');
+        shell.append_remote_id_char('9');
+        shell.append_remote_id_char('9');
+        assert_eq!(
+            action_at_point(&shell, 1672, 941, connect_btn.x + 10, connect_btn.y + 10),
+            Some(DesktopAction::ConnectRemoteId)
+        );
     }
 }
