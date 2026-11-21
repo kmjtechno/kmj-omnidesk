@@ -350,10 +350,13 @@ impl PremiumDashboardLayout {
         if width < 1500 || height < 860 {
             return None;
         }
-        let navigation_width = (width * 16 / 100).clamp(240, 260);
-        let right_width = (width * 21 / 100).clamp(315, 348);
+        // Canonical 1672x941: 246px sidebar, 264px main start and
+        // 326px right rail beginning at x=1307. Keep all interactive
+        // hitboxes in the same geometry used by the native renderer.
+        let navigation_width = (width * 15 / 100).clamp(240, 246);
+        let right_width = (width * 20 / 100).clamp(315, 326);
         let right_margin = (width / 42).clamp(28, 40);
-        let main_x = navigation_width + 20;
+        let main_x = navigation_width + 18;
         let right_x = width.saturating_sub(right_width + right_margin);
         let main_width = right_x.saturating_sub(main_x + 16);
         if main_width < 840 {
@@ -481,6 +484,10 @@ mod premium_v7_tests {
         let premium = PremiumDashboardLayout::for_window(1672, 941).expect("V7 desktop");
         assert_eq!(premium.header_height, 70);
         assert_eq!(premium.hero.y, 76);
+        assert_eq!(premium.navigation.width, 246);
+        assert_eq!(premium.hero.x, 264);
+        assert_eq!(premium.license.x, 1307);
+        assert_eq!(premium.share.width, 505);
         assert!(premium.navigation.width < premium.hero.x);
         assert_eq!(premium.share.y, premium.connect.y);
         assert!(premium.share.x + premium.share.width < premium.connect.x);
