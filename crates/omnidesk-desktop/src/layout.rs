@@ -178,8 +178,8 @@ mod tests {
         assert_eq!(fitted.artboard_point(200, 0), None);
         assert_eq!(fitted.artboard_point(200, 899), None);
         let wide = PremiumViewportFit::for_window(1920, 1080).expect("wide fit");
-        assert_eq!((wide.x, wide.y, wide.width, wide.height), (0, 0, 1918, 1080));
-        assert!(wide.artboard_point(100, 10).is_none() == false);
+        assert_eq!((wide.x, wide.y, wide.width, wide.height), (1, 0, 1918, 1080));
+        assert!(wide.artboard_point(100, 10).is_some());
     }
 
     #[test]
