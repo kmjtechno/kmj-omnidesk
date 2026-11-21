@@ -127,13 +127,19 @@ impl ShellLayout {
 /// available and the narrow shell is the explicit responsive fallback.
 #[must_use]
 pub fn initial_window_inner_size(monitor: Option<(u32, u32, f64)>) -> (f64, f64) {
-    const PREFERRED_WIDTH: f64 = 1280.0;
-    const PREFERRED_HEIGHT: f64 = 720.0;
+    // The owner-approved V7 reference is a 1672 x 941 native artboard.
+    // Prefer these proportions on a display that can fit them, rather than
+    // starting in the 1280 x 720 compact fallback on a full HD monitor.
+    const PREFERRED_WIDTH: f64 = 1672.0;
+    const PREFERRED_HEIGHT: f64 = 941.0;
+    // Without a reliable monitor geometry, keep the old safe startup size.
+    const SAFE_FALLBACK_WIDTH: f64 = 1280.0;
+    const SAFE_FALLBACK_HEIGHT: f64 = 720.0;
     let Some((physical_width, physical_height, scale_factor)) = monitor else {
-        return (PREFERRED_WIDTH, PREFERRED_HEIGHT);
+        return (SAFE_FALLBACK_WIDTH, SAFE_FALLBACK_HEIGHT);
     };
     if !scale_factor.is_finite() || scale_factor <= 0.0 {
-        return (PREFERRED_WIDTH, PREFERRED_HEIGHT);
+        return (SAFE_FALLBACK_WIDTH, SAFE_FALLBACK_HEIGHT);
     }
 
     let usable_width = f64::from(physical_width.saturating_sub(56));
@@ -187,8 +193,15 @@ mod tests {
         assert_eq!(initial_window_inner_size(None), (1280.0, 720.0));
         assert_eq!(
             initial_window_inner_size(Some((1920, 1080, 1.0))),
-            (1280.0, 720.0)
+            (1672.0, 941.0)
         );
+        assert_eq!(
+            initial_window_inner_size(Some((1920, 1200, 1.0))),
+            (1672.0, 941.0)
+        );
+        // The reference-size initial window must actually select the V7
+        // renderer; otherwise the old four-column fallback appears on launch.
+        assert!(PremiumDashboardLayout::for_window(1672, 941).is_some());
         assert_eq!(
             initial_window_inner_size(Some((1024, 768, 1.25))),
             (774.4, 547.2)
