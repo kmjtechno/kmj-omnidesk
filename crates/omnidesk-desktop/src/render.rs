@@ -122,12 +122,13 @@ fn approved_v7_hero_art() -> Option<&'static crate::brand::BrandImage> {
 
 const fn native_text_size(scale: usize) -> f32 {
     match scale {
-        3 => 38.0, // V7 editorial hero
-        4 => 21.0, // section and card headings
-        5 => 13.0, // small legal/caption labels
-        6 => 30.0, // product wordmark
-        2 => 22.0, // existing native title
-        _ => 16.0,
+        3 => 50.0, // approved editorial hero
+        4 => 24.0, // premium card headings
+        5 => 15.0, // captions
+        6 => 34.0, // header product wordmark
+        7 => 30.0, // single KMJ company name
+        2 => 22.0, // compact shell and ID values
+        _ => 18.0,
     }
 }
 
@@ -2158,7 +2159,7 @@ fn draw_premium_dashboard(
     canvas.h_line(0, layout.header_height - 1, canvas.width, 0x71_16_35);
     if let Some(mark) = official_kmj_mark() {
         canvas.image_rgba(
-            (31, 7, 56, 56),
+            (21, 1, 75, 66),
             (
                 usize::try_from(mark.width).unwrap_or(0),
                 usize::try_from(mark.height).unwrap_or(0),
@@ -2166,12 +2167,12 @@ fn draw_premium_dashboard(
             &mark.rgba,
         );
     }
-    canvas.text_bold(102, 11, "KMJ TECHNO", 2, p.foreground);
-    canvas.text(104, 44, "INNOVATE | BUILD | SCALE", 5, 0xc6_c9_d4);
-    canvas.fill_rect(301, 12, 2, 44, p.accent);
+    canvas.text_bold(99, 9, "KMJ TECHNO", 7, p.foreground);
+    canvas.text(101, 44, "INNOVATE | BUILD | SCALE", 5, 0xe0_e2_e8);
+    canvas.fill_rect(302, 11, 2, 47, p.accent);
 
-    let wordmark_x = 333;
-    canvas.text_bold(wordmark_x, 13, "OmniDesk", 6, p.foreground);
+    let wordmark_x = 336;
+    canvas.text_bold(wordmark_x, 10, "OmniDesk", 6, p.foreground);
     let wordmark_end = wordmark_x + Canvas::text_width("OmniDesk", 6);
     canvas.text(wordmark_end + 4, 15, "TM", 5, 0xc7_c6_cf);
     let license_pill = wordmark_end + 28;
@@ -2240,9 +2241,9 @@ fn draw_premium_dashboard(
         let available = matches!(i, 0 | 1 | 2 | 3 | 4 | 7 | 11);
         if selected {
             canvas.rounded_gradient_panel(
-                rect.x + 8,
+                rect.x + 6,
                 rect.y,
-                rect.width.saturating_sub(16),
+                rect.width.saturating_sub(10),
                 rect.height,
                 0xed_12_36,
                 0x94_07_20,
@@ -2251,8 +2252,8 @@ fn draw_premium_dashboard(
         }
 
         let icon_color = if selected { p.foreground } else { p.muted };
-        let icon_x = rect.x + 18;
-        let icon_y = rect.y + 11;
+        let icon_x = rect.x + 34;
+        let icon_y = rect.y + 14;
         match i {
             0 => draw_home_icon(canvas, icon_x, icon_y, icon_color),
             1 => draw_monitor_icon(canvas, icon_x, icon_y, 13, 9, icon_color),
@@ -2270,9 +2271,9 @@ fn draw_premium_dashboard(
 
         locked_label(
             canvas,
-            rect.x + 46,
-            rect.y + 12,
-            rect.width.saturating_sub(80),
+            rect.x + 82,
+            rect.y + 13,
+            rect.width.saturating_sub(86),
             label,
             if selected {
                 p.foreground
@@ -2335,7 +2336,7 @@ fn draw_premium_dashboard(
                 // Approved master crop begins at source x=770 on the
                 // canonical artboard. Keep its native 470px size and
                 // anchor it at x=771 instead of drifting with card widths.
-                hero.x + hero.width.saturating_sub(art_width + 50),
+                hero.x + hero.width.saturating_sub(art_width + 28),
                 hero.y + 1,
                 art_width,
                 art_height,
@@ -2347,20 +2348,20 @@ fn draw_premium_dashboard(
             &art.rgba,
         );
     }
-    canvas.text_bold(hero.x + 22, hero.y + 22, "KMJ", 3, 0xff_20_4e);
-    let omni_x = hero.x + 22 + Canvas::text_width("KMJ", 3) + 13;
-    canvas.text_bold(omni_x, hero.y + 22, "OmniDesk", 3, p.foreground);
+    canvas.text_bold(hero.x + 40, hero.y + 35, "KMJ", 3, 0xff_20_4e);
+    let omni_x = hero.x + 40 + Canvas::text_width("KMJ", 3) + 13;
+    canvas.text_bold(omni_x, hero.y + 35, "OmniDesk", 3, p.foreground);
     canvas.text(
         omni_x + Canvas::text_width("OmniDesk", 3) + 3,
-        hero.y + 23,
+        hero.y + 37,
         "TM",
         5,
         0xde_d4_e0,
     );
     locked_label(
         canvas,
-        hero.x + 24,
-        hero.y + 104,
+        hero.x + 40,
+        hero.y + 100,
         hero.width.saturating_sub(44),
         "Secure Remote Access  ·  Support  ·  Manage  ·  Collaborate",
         0xe2_d9_e4,
@@ -2369,7 +2370,7 @@ fn draw_premium_dashboard(
         hero.x + 1,
         hero.y + hero.height.saturating_sub(2),
         hero.width.saturating_sub(2),
-        0x9f_10_37,
+        0xd2_19_48,
     );
 
     // 4. Two Primary Cards: "This Device" and "Connect to Remote Device"
