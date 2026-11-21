@@ -646,7 +646,11 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 .with_title(title)
                 .with_visible(false)
                 .with_window_icon(window_icon)
-                .with_maximized(true)
+                // A maximized launch overrides the fitted 1672x941 V7 size
+                // and stretches the locked hierarchy across the monitor.
+                // Launch at the reference dimensions when they fit; users
+                // can still maximize the window manually.
+                .with_maximized(false)
                 .with_inner_size(winit::dpi::LogicalSize::new(inner_width, inner_height));
             // Physical initial placement is as important as inner-size
             // fitting: hosted desktops can default to (156,156) on a
