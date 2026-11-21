@@ -55,13 +55,13 @@ fn premium_caption_action(
     // The rendered titlebar moves when the locked artboard is fitted into
     // a non-16:9 window. Use the same inverse transform as remote-control
     // hit testing so OS actions never drift into credentials or badges.
-    let (art_width, art_x, art_y) =
-        if let Some(fit) = PremiumViewportFit::for_window(width, height) {
-            let (source_x, source_y) = fit.artboard_point(x, y)?;
-            (V7_ART_WIDTH, source_x, source_y)
-        } else {
-            (width, x, y)
-        };
+    let (art_width, art_x, art_y) = if let Some(fit) = PremiumViewportFit::for_window(width, height)
+    {
+        let (source_x, source_y) = fit.artboard_point(x, y)?;
+        (V7_ART_WIDTH, source_x, source_y)
+    } else {
+        (width, x, y)
+    };
     if art_y >= 70 || art_width < 600 {
         return None;
     }
