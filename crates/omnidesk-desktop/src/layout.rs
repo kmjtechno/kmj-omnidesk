@@ -378,7 +378,7 @@ impl PremiumDashboardLayout {
         Some(Self {
             header_height: 70,
             navigation: rect(0, 70, navigation_width, height.saturating_sub(70)),
-            hero: rect(navigation_width.saturating_sub(2), 76, main_width + 22, 168),
+            hero: rect(navigation_width.saturating_sub(2), 70, main_width + 40, 178),
             share: rect(main_x, 249, main_half, 266),
             connect: rect(second_x, 249, second_width, 266),
             features: rect(main_x, 533, main_width, 98),
@@ -387,11 +387,13 @@ impl PremiumDashboardLayout {
             license: rect(right_x, 101, right_width, 204),
             health: rect(right_x, 321, right_width, 194),
             quick_actions: rect(right_x, 533, right_width, footer_y.saturating_sub(533 + 18)),
+            // The approved status surface is inset from both app edges,
+            // rather than painting a full-width flat strip.
             footer: rect(
-                navigation_width,
+                navigation_width + 20,
                 footer_y,
-                width.saturating_sub(navigation_width),
-                56,
+                width.saturating_sub(navigation_width + 20 + right_margin),
+                60,
             ),
         })
     }
@@ -477,14 +479,17 @@ mod premium_v7_tests {
     fn owner_artboard_geometry_is_nonoverlapping() {
         let premium = PremiumDashboardLayout::for_window(1672, 941).expect("V7 desktop");
         assert_eq!(premium.header_height, 70);
-        assert_eq!(premium.hero.y, 76);
+        assert_eq!(premium.hero.y, 70);
         assert_eq!(premium.navigation.width, 260);
         assert_eq!(premium.hero.x, 258);
+        assert_eq!(premium.hero.height, 178);
         assert_eq!(premium.share.x, 280);
         assert_eq!(premium.license.x, 1284);
         assert_eq!(premium.share.width, 494);
         assert_eq!(premium.connect.x, 796);
         assert_eq!(premium.connect.width, 462);
+        assert_eq!(premium.footer.x, 280);
+        assert_eq!(premium.footer.width, 1352);
         // The decorative hero underlaps the 260px sidebar edge by 2px.
         // Active card controls remain entirely outside the nav column.
         assert_eq!(premium.hero.x + 2, premium.navigation.width);
