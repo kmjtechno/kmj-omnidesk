@@ -43,7 +43,7 @@ impl std::fmt::Display for PasswordVerificationError {
 impl std::error::Error for PasswordVerificationError {}
 
 /// Host-managed session password and incoming authorization control state.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HostPasswordManager {
     password: String,
     salt: [u8; 16],
@@ -54,6 +54,18 @@ pub struct HostPasswordManager {
     lockout_until_epoch_secs: u64,
     allow_remote_control: bool,
     rotation_count: u64,
+}
+
+// Redact credential values in diagnostic output.
+impl std::fmt::Debug for HostPasswordManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostPasswordManager")
+            .field("credential_present", &!self.password.is_empty())
+            .field("expires_at_epoch_secs", &self.expires_at_epoch_secs)
+            .field("failed_attempts", &self.failed_attempts)
+            .field("allow_remote_control", &self.allow_remote_control)
+            .finish_non_exhaustive()
+    }
 }
 
 impl HostPasswordManager {
@@ -68,7 +80,7 @@ impl HostPasswordManager {
             expires_at_epoch_secs: 0,
             failed_attempts: 0,
             lockout_until_epoch_secs: 0,
-            allow_remote_control: true,
+            allow_remote_control: false,
             rotation_count: 0,
         }
     }
@@ -84,7 +96,7 @@ impl HostPasswordManager {
             expires_at_epoch_secs: now_epoch_secs.saturating_add(DEFAULT_PASSWORD_LIFETIME_SECS),
             failed_attempts: 0,
             lockout_until_epoch_secs: 0,
-            allow_remote_control: true,
+            allow_remote_control: false,
             rotation_count: 0,
         };
         manager.rotate(now_epoch_secs);
@@ -138,23 +150,20 @@ impl HostPasswordManager {
     /// Rotates the temporary session password, resetting failed attempts and lockout.
     pub fn rotate(&mut self, now_epoch_secs: u64) {
         self.rotation_count = self.rotation_count.wrapping_add(1);
-        // Derive fresh pseudo-random salt and password from high-resolution timestamp
-        // and cryptographic hashing
-        let mut hasher = Sha256::new();
-        hasher.update(b"KMJ_OMNIDESK_PASS_ENTROPY");
-        hasher.update(now_epoch_secs.to_be_bytes());
-        hasher.update(std::process::id().to_be_bytes());
-        hasher.update(self.rotation_count.to_be_bytes());
-        hasher.update(self.salt);
-        let seed = hasher.finalize();
+        // OS cryptographic randomness, never clock/PID-derived entropy.
+        // Fail closed if no secure source is available.
+        debug_assert_eq!(CHARSET.len(), 32);
+        let mut entropy = [0_u8; 24];
+        getrandom::fill(&mut entropy)
+            .expect("OS cryptographic randomness unavailable: credential refused");
 
         let mut salt = [0_u8; 16];
-        salt.copy_from_slice(&seed[..16]);
+        salt.copy_from_slice(&entropy[..16]);
 
-        // Generate 8 readable characters (alphanumeric, avoiding ambiguous characters)
+        // Since the alphabet is 32 symbols, modulo 32 is unbiased.
         let mut pwd = String::with_capacity(8);
-        for i in 0..8 {
-            let idx = (seed[16 + i] as usize) % CHARSET.len();
+        for byte in &entropy[16..] {
+            let idx = usize::from(*byte) % CHARSET.len();
             pwd.push(CHARSET[idx] as char);
         }
 
@@ -316,7 +325,7 @@ mod tests {
         let formatted = mgr.formatted_password();
         assert_eq!(formatted.len(), 9);
         assert_eq!(&formatted[4..5], "-");
-        assert!(mgr.allow_remote_control());
+        assert!(!mgr.allow_remote_control());
         assert!(!mgr.is_expired(1000));
         assert!(!mgr.is_locked_out(1000));
     }
@@ -324,6 +333,7 @@ mod tests {
     #[test]
     fn candidate_verification_succeeds_with_normalized_input() {
         let mut mgr = HostPasswordManager::new(1000);
+        mgr.set_allow_remote_control(true);
         let pwd = mgr.password().to_owned();
 
         // Matches verbatim
@@ -341,6 +351,7 @@ mod tests {
     #[test]
     fn failed_verification_decrements_attempts_and_triggers_lockout() {
         let mut mgr = HostPasswordManager::new(1000);
+        mgr.set_allow_remote_control(true);
         for remaining in (1..5).rev() {
             let res = mgr.verify_candidate("WRONGPWD", 1000);
             assert_eq!(
@@ -372,6 +383,27 @@ mod tests {
             mgr.verify_candidate(&pwd, 1000 + LOCKOUT_DURATION_SECS + 1)
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn rotation_uses_fresh_os_entropy() {
+        let mut manager = HostPasswordManager::new(1000);
+        let previous_password = manager.password.clone();
+        let previous_salt = manager.salt;
+        manager.rotate(1001);
+        assert_ne!(previous_password, manager.password);
+        assert_ne!(previous_salt, manager.salt);
+        assert!(!manager.allow_remote_control());
+    }
+
+    #[test]
+    fn debugging_never_exposes_credential_material() {
+        let manager = HostPasswordManager::new(1000);
+        let report = format!("{manager:?}");
+        assert!(report.contains("credential_present"));
+        assert!(!report.contains(manager.password()));
+        assert!(!report.contains(&format!("{:?}", manager.hash)));
+        assert!(!report.contains(&format!("{:?}", manager.salt)));
     }
 
     #[test]
