@@ -701,7 +701,10 @@ impl LicensingManager {
             });
         }
         let server_state = match resp.state.as_str() {
-            "ACTIVE" | "REACTIVATED" => None,
+            // A status response is not a signed entitlement. It may
+            // report recovery, but only a NEW verified lease can clear a
+            // previously imposed server restriction.
+            "ACTIVE" | "REACTIVATED" => lease.last_server_state,
             "RENEWAL_DUE" => Some(LicenseState::RenewalDue),
             "GRACE" => Some(LicenseState::Grace),
             "RESTRICTED" => Some(LicenseState::Restricted),
@@ -1342,6 +1345,20 @@ mod tests {
             ))
         );
         assert_eq!(mgr.evaluate_state(1_000_101), Ok(LicenseState::Restricted));
+
+        let unsigned_reactivation = serde_json::to_vec(&ActivationStatusResponse {
+            activation_id: activation_id.to_owned(),
+            state: "REACTIVATED".to_owned(),
+            current_sequence: 1,
+            reason_codes: vec![],
+            server_time: 1_000_150,
+        })
+        .unwrap();
+        assert_eq!(
+            mgr.process_status_response(&unsigned_reactivation, 1_000_150),
+            Ok(LicenseState::Restricted),
+            "unsigned status alone must not reactivate a restricted signed lease"
+        );
 
         // Receive REVOKED status from server
         let status_resp = serde_json::to_vec(&ActivationStatusResponse {
