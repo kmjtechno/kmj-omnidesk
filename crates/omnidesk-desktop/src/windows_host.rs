@@ -57,7 +57,7 @@ fn premium_caption_action(
         Some(PremiumCaptionAction::Maximize)
     } else if (width.saturating_sub(192)..width.saturating_sub(136)).contains(&x) {
         Some(PremiumCaptionAction::Minimize)
-    } else if x < width.saturating_sub(340) {
+    } else if x < width.saturating_sub(450) {
         Some(PremiumCaptionAction::Drag)
     } else {
         None
