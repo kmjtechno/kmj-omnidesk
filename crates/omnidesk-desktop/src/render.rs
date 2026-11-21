@@ -2165,6 +2165,16 @@ fn draw_premium_dashboard(
     // The actual OS owns titlebar minimize/maximize/close controls.
     canvas.fill_rect(0, 0, canvas.width, layout.header_height, 0x09_0b_14);
     canvas.soft_glow(canvas.width / 2, 0, canvas.width / 2, 106, 0x47_1b_45, 0.31);
+    // The original lock's upper-right blue/purple glass reflection.
+    // Decorative only: never imply active connectivity.
+    canvas.soft_glow(
+        canvas.width.saturating_sub(400),
+        0,
+        255,
+        85,
+        0x4a_5a_9c,
+        0.36,
+    );
     canvas.h_line(0, layout.header_height - 1, canvas.width, 0x71_16_35);
     if let Some(mark) = official_kmj_mark() {
         canvas.image_rgba(
@@ -2339,9 +2349,9 @@ fn draw_premium_dashboard(
         hero.x + hero.width / 2,
         hero.y + hero.height.saturating_sub(8),
         hero.width / 2,
-        34,
-        0xe9_17_45,
-        0.32,
+        42,
+        0xf9_11_45,
+        0.47,
     );
     if let Some(art) = approved_v7_hero_art() {
         let art_width = usize::try_from(art.width).unwrap_or(0).min(hero.width);
@@ -2387,7 +2397,15 @@ fn draw_premium_dashboard(
         hero.x + 1,
         hero.y + hero.height.saturating_sub(2),
         hero.width.saturating_sub(2),
-        0xd2_19_48,
+        0xf0_1c_48,
+    );
+    canvas.soft_glow(
+        hero.x + hero.width / 2,
+        hero.y + hero.height,
+        hero.width / 2,
+        20,
+        0xf5_1d_4a,
+        0.22,
     );
 
     // 4. Two Primary Cards: "This Device" and "Connect to Remote Device"
@@ -2941,16 +2959,49 @@ fn draw_premium_dashboard(
         p.foreground,
     );
     let health_rows = [
-        ("App shell", "Pre-alpha"),
-        ("Relay Network", "Not verified"),
-        ("Session Encryption", "No session"),
-        ("NAT Traversal", "Not verified"),
+        ("OmniDesk Service", "Pre-alpha"),
+        ("Relay Network", "Unverified"),
+        ("Security (E2E)", "No session"),
+        ("NAT Traversal (P2P)", "Unverified"),
     ];
     for (i, (item, state)) in health_rows.iter().enumerate() {
-        let y = health.y + 54 + i * 32;
-        canvas.dot(health.x + 23, y + 8, 3, 0x8a_92_a2);
-        canvas.text_clipped(health.x + 35, y + 2, item, 1, 168, 0xd0_d6_e3);
-        canvas.text_right(health.x + health.width - 14, y + 2, state, 1, 0x94_9e_ae);
+        let y = health.y + 52 + i * 32;
+        if i > 0 {
+            canvas.h_line(
+                health.x + 16,
+                y.saturating_sub(4),
+                health.width.saturating_sub(32),
+                0x25_29_39,
+            );
+        }
+        // The reference's compact status chips; neutral until a signed
+        // health source provides actual availability.
+        canvas.rounded_panel(
+            health.x + health.width.saturating_sub(106),
+            y,
+            92,
+            24,
+            11,
+            0x21_27_36,
+            0x3b_42_54,
+        );
+        canvas.dot(health.x + 25, y + 12, 4, 0x93_9b_b2);
+        canvas.text_clipped(
+            health.x + 39,
+            y + 4,
+            item,
+            1,
+            health.width.saturating_sub(147),
+            0xe6_e9_f1,
+        );
+        canvas.text_clipped(
+            health.x + health.width.saturating_sub(103),
+            y + 4,
+            state,
+            5,
+            88,
+            0xbd_c5_d6,
+        );
     }
 
     // Quick Actions
@@ -2966,15 +3017,31 @@ fn draw_premium_dashboard(
     ];
     let columns = 3;
     let cell_width = (quick.width - 32) / columns;
+    canvas.soft_glow(
+        quick.x + quick.width / 2,
+        quick.y + quick.height.saturating_sub(4),
+        quick.width / 2,
+        30,
+        0xe5_1a_4b,
+        0.23,
+    );
     for (i, action) in quick_actions.iter().enumerate() {
         let col = i % columns;
         let row = i / columns;
         let x = quick.x + 16 + col * cell_width;
-        let y = quick.y + 48 + row * 82;
+        let y = quick.y + 56 + row * 110;
         let cell_w = cell_width.saturating_sub(8);
-        canvas.rounded_panel(x, y, cell_w, 72, 6, 0x18_1c_2b, 0x2e_38_4e);
+        canvas.rounded_gradient_panel(
+            x,
+            y,
+            cell_w,
+            87,
+            0x1e_20_35,
+            0x12_16_25,
+            0x43_48_63,
+        );
         let icon_x = x + cell_w / 2 - 7;
-        let icon_y = y + 14;
+        let icon_y = y + 18;
         match i {
             0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, 0xf7_19_3b),
             1 => draw_power_icon(canvas, icon_x, icon_y, 0xf7_19_3b),
@@ -2985,9 +3052,9 @@ fn draw_premium_dashboard(
         }
         canvas.text_clipped(
             x + 4,
-            y + 46,
+            y + 59,
             action,
-            1,
+            5,
             cell_w.saturating_sub(8),
             p.foreground,
         );
@@ -2996,36 +3063,76 @@ fn draw_premium_dashboard(
     // No fabricated relay health, encryption algorithm, latency or service
     // status. These values may become green only after measured verification.
     let footer = layout.footer;
-    canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x0009_0d16);
-    canvas.h_line(footer.x, footer.y, footer.width, 0x22_27_38);
-    canvas.dot(footer.x + 22, footer.y + 22, 4, 0x9a_a2_b2);
-    canvas.text(
-        footer.x + 36,
-        footer.y + 16,
-        "No verified remote session",
+    // Owner V7 uses a floating rounded glass status surface, not a
+    // full-width flat developer/debug strip.
+    canvas.rounded_gradient_panel(
+        footer.x,
+        footer.y,
+        footer.width,
+        footer.height,
+        0x15_19_28,
+        0x08_0c_17,
+        0x38_3d_58,
+    );
+    let top = footer.y + 19;
+    let separators = [320, 612, 866, 1032];
+    for offset in separators {
+        if offset < footer.width.saturating_sub(15) {
+            canvas.v_line(footer.x + offset, footer.y + 14, 31, 0x36_38_51);
+        }
+    }
+    canvas.dot(footer.x + 24, top + 9, 8, 0x91_96_a9);
+    canvas.text_clipped(
+        footer.x + 44,
+        top,
+        "Relay: no verified connection",
         1,
+        260,
+        0xe0_e2_ea,
+    );
+    draw_shield_icon(canvas, footer.x + 340, top + 5, 0xb0_b8_cb);
+    canvas.text_clipped(
+        footer.x + 371,
+        top,
+        "Encryption: no active session",
+        1,
+        225,
+        0xd0_d6_e3,
+    );
+    draw_key_icon(canvas, footer.x + 628, top + 5, 0xb0_b8_cb);
+    canvas.text_clipped(
+        footer.x + 655,
+        top,
+        "Consent required",
+        1,
+        199,
         0xd0_d6_e3,
     );
     canvas.text(
-        footer.x + 285,
-        footer.y + 16,
-        "Transport: not established",
+        footer.x + 884,
+        top,
+        "Latency: --",
         1,
-        0x9d_a7_b7,
+        0xb9_c1_cf,
     );
-    canvas.text(
-        footer.x + 528,
-        footer.y + 16,
-        "Security: unverified",
-        1,
-        0x9d_a7_b7,
+    let status_x = footer.x + footer.width.saturating_sub(282);
+    canvas.rounded_panel(
+        status_x,
+        footer.y + 12,
+        264,
+        35,
+        17,
+        0x20_27_37,
+        0x45_4b_60,
     );
-    canvas.text_right(
-        footer.x + footer.width.saturating_sub(18),
-        footer.y + 16,
-        "KMJ OmniDesk  /  PRE-ALPHA",
-        1,
-        0x9d_a7_b7,
+    canvas.dot(status_x + 19, footer.y + 29, 6, 0x9a_a3_b5);
+    canvas.text_clipped(
+        status_x + 33,
+        footer.y + 20,
+        "Service status unverified",
+        5,
+        217,
+        0xd9_dce5,
     );
 }
 fn draw_locked_dashboard(
