@@ -347,7 +347,9 @@ impl PremiumDashboardLayout {
     pub fn for_window(width: usize, height: usize) -> Option<Self> {
         // The approved source is a 1672x941 artboard. Use the legacy
         // responsive layout when there is insufficient usable space.
-        if width < 1500 || height < 860 {
+        // Retain the V7 hierarchy on standard 1440x900 laptop viewports.
+        // Truly compact windows still use the existing readable fallback.
+        if width < 1420 || height < 850 {
             return None;
         }
         // At 1672x941 the owner reference has a 260px navigation rail,
@@ -359,7 +361,7 @@ impl PremiumDashboardLayout {
         let main_x = navigation_width + 20;
         let right_x = width.saturating_sub(right_width + right_margin);
         let main_width = right_x.saturating_sub(main_x + 16);
-        if main_width < 840 {
+        if main_width < 780 {
             return None;
         }
         let main_half = main_width / 2;
@@ -498,6 +500,12 @@ mod premium_v7_tests {
             premium.local_id_copy().y + 12,
         ));
         assert!(PremiumDashboardLayout::for_window(1280, 720).is_none());
+        let laptop = PremiumDashboardLayout::for_window(1440, 900)
+            .expect("laptop must retain V7 rather than legacy four-column UI");
+        assert!(laptop.share.x + laptop.share.width < laptop.connect.x);
+        assert!(laptop.connect.x + laptop.connect.width < laptop.license.x);
+        assert!(laptop.share.y + laptop.share.height < laptop.features.y);
+        assert!(laptop.devices.y + laptop.devices.height < laptop.footer.y);
     }
 }
 
