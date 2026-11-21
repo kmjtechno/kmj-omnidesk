@@ -1912,7 +1912,7 @@ fn premium_panel(
         rect.height,
         0x20_1a_2b,
         0x0d_12_20,
-        if accent { 0xb9_25_4b } else { 0x42_45_60 },
+        if accent { 0xb9_25_4b } else { p.border },
     );
     canvas.h_line(
         rect.x + 16,
@@ -2754,17 +2754,17 @@ fn draw_premium_dashboard(
             }
             // Center captions under their visual icons like the locked
             // enterprise design, without fabricating enabled controls.
-            let title_width = Canvas::text_width(title, 5);
+            let label_extent = Canvas::text_width(title, 5);
             canvas.text_bold(
-                rect.x + rect.width.saturating_sub(title_width) / 2,
+                rect.x + rect.width.saturating_sub(label_extent) / 2,
                 rect.y + 49,
                 title,
                 5,
                 if is_active { p.foreground } else { 0xe5_e8_f0 },
             );
-            let subtitle_width = Canvas::text_width(subtitle, 5);
+            let caption_extent = Canvas::text_width(subtitle, 5);
             canvas.text_clipped(
-                rect.x + rect.width.saturating_sub(subtitle_width) / 2,
+                rect.x + rect.width.saturating_sub(caption_extent) / 2,
                 rect.y + 72,
                 subtitle,
                 5,
