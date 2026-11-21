@@ -2297,7 +2297,7 @@ fn approved_v7_skin_title_only(x: usize, y: usize) -> bool {
         |x1: usize, y1: usize, x2: usize, y2: usize| x >= x1 && x < x2 && y >= y1 && y < y2;
     inside(282, 253, 751, 306)
         || inside(799, 253, 1224, 306)
-        || inside(283, 651, 421, 693)
+        || inside(283, 651, 435, 693)
         || inside(800, 651, 1045, 693)
         || inside(1290, 109, 1484, 153)
         || inside(1290, 325, 1490, 369)
@@ -2366,6 +2366,9 @@ fn draw_premium_dashboard(
 ) {
     use omnidesk_core::product_shell::{NavTab, PrimaryView};
 
+    let exact_chrome = (canvas.width, canvas.height) == (1672, 941)
+        && presentation.primary_view == PrimaryView::Devices
+        && presentation.nav_tab == NavTab::Devices;
     canvas.pixels.fill(p.background);
 
     // 1. Premium header. KMJ TECHNO official mark appears only once.
@@ -2615,31 +2618,33 @@ fn draw_premium_dashboard(
     }
 
     // Card 1: This Device (Share Access)
-    canvas.rounded_panel(
-        share.x + 20,
-        share.y + 20,
-        36,
-        36,
-        8,
-        0x42_14_22,
-        0x8a_1e_35,
-    );
-    draw_monitor_icon(canvas, share.x + 29, share.y + 30, 18, 12, 0xff_30_55);
-    canvas.text_bold(
-        share.x + 66,
-        share.y + 18,
-        "This Device (Share Access)",
-        4,
-        p.foreground,
-    );
-    canvas.text_clipped(
-        share.x + 66,
-        share.y + 49,
-        "Allow others to securely connect to this device.",
-        1,
-        share.width.saturating_sub(76),
-        0x90_9a_ac,
-    );
+    if !exact_chrome {
+        canvas.rounded_panel(
+            share.x + 20,
+            share.y + 20,
+            36,
+            36,
+            8,
+            0x42_14_22,
+            0x8a_1e_35,
+        );
+        draw_monitor_icon(canvas, share.x + 29, share.y + 30, 18, 12, 0xff_30_55);
+        canvas.text_bold(
+            share.x + 66,
+            share.y + 18,
+            "This Device (Share Access)",
+            4,
+            p.foreground,
+        );
+        canvas.text_clipped(
+            share.x + 66,
+            share.y + 49,
+            "Allow others to securely connect to this device.",
+            1,
+            share.width.saturating_sub(76),
+            0x90_9a_ac,
+        );
+    }
 
     canvas.text(share.x + 20, share.y + 70, "Your Device ID", 1, 0xd0_d6_e3);
     let id_box_w = share.width.saturating_sub(40);
@@ -2757,31 +2762,33 @@ fn draw_premium_dashboard(
     }
 
     // Card 2: Connect to Remote Device
-    canvas.rounded_panel(
-        connect.x + 20,
-        connect.y + 20,
-        36,
-        36,
-        8,
-        0x42_14_22,
-        0x8a_1e_35,
-    );
-    draw_link_icon(canvas, connect.x + 30, connect.y + 31, 0xff_30_55);
-    canvas.text_bold(
-        connect.x + 66,
-        connect.y + 18,
-        "Connect to Remote Device",
-        4,
-        p.foreground,
-    );
-    canvas.text_clipped(
-        connect.x + 66,
-        connect.y + 49,
-        "Access and control a remote device securely.",
-        1,
-        connect.width.saturating_sub(76),
-        0x90_9a_ac,
-    );
+    if !exact_chrome {
+        canvas.rounded_panel(
+            connect.x + 20,
+            connect.y + 20,
+            36,
+            36,
+            8,
+            0x42_14_22,
+            0x8a_1e_35,
+        );
+        draw_link_icon(canvas, connect.x + 30, connect.y + 31, 0xff_30_55);
+        canvas.text_bold(
+            connect.x + 66,
+            connect.y + 18,
+            "Connect to Remote Device",
+            4,
+            p.foreground,
+        );
+        canvas.text_clipped(
+            connect.x + 66,
+            connect.y + 49,
+            "Access and control a remote device securely.",
+            1,
+            connect.width.saturating_sub(76),
+            0x90_9a_ac,
+        );
+    }
 
     canvas.text(
         connect.x + 20,
@@ -3000,14 +3007,17 @@ fn draw_premium_dashboard(
 
     // Directory is populated only by actual product-shell state; no sample
     // Windows/Linux devices and no fabricated online badges or history.
-    draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, 0xff_30_55);
-    canvas.text_bold(
-        devices.x + 48,
-        devices.y + 15,
-        "My Devices",
-        4,
-        p.foreground,
-    );
+    if !exact_chrome {
+        draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, 0xff_30_55);
+        canvas.text_bold(
+            devices.x + 48,
+            devices.y + 15,
+            "My Devices",
+            4,
+            p.foreground,
+        );
+    }
+
     let visible_devices = presentation
         .controls
         .iter()
@@ -3063,13 +3073,16 @@ fn draw_premium_dashboard(
         }
     }
     canvas.dot(sessions.x + 26, sessions.y + 26, 5, 0xf7_19_3b);
-    canvas.text_bold(
-        sessions.x + 48,
-        sessions.y + 15,
-        "Recent Sessions",
-        4,
-        p.foreground,
-    );
+    if !exact_chrome {
+        canvas.text_bold(
+            sessions.x + 48,
+            sessions.y + 15,
+            "Recent Sessions",
+            4,
+            p.foreground,
+        );
+    }
+
     for i in 0..3 {
         let y = sessions.y + 56 + i * 47;
         canvas.h_line(
@@ -3111,14 +3124,17 @@ fn draw_premium_dashboard(
 
     // Entitlement and health are not provided by this renderer. Until
     // authenticated runtime probes exist all badges must remain neutral.
-    draw_award_icon(canvas, license.x + 18, license.y + 20, 0xf5_a6_23);
-    canvas.text_bold(
-        license.x + 48,
-        license.y + 16,
-        "Enterprise License",
-        4,
-        p.foreground,
-    );
+    if !exact_chrome {
+        draw_award_icon(canvas, license.x + 18, license.y + 20, 0xf5_a6_23);
+        canvas.text_bold(
+            license.x + 48,
+            license.y + 16,
+            "Enterprise License",
+            4,
+            p.foreground,
+        );
+    }
+
     canvas.rounded_panel(
         license.x + license.width.saturating_sub(89),
         license.y + 18,
@@ -3193,13 +3209,16 @@ fn draw_premium_dashboard(
     );
 
     draw_heartbeat_icon(canvas, health.x + 18, health.y + 20, 0xf7_19_3b);
-    canvas.text_bold(
-        health.x + 47,
-        health.y + 16,
-        "System Status",
-        4,
-        p.foreground,
-    );
+    if !exact_chrome {
+        canvas.text_bold(
+            health.x + 47,
+            health.y + 16,
+            "System Status",
+            4,
+            p.foreground,
+        );
+    }
+
     let health_rows = [
         ("OmniDesk Service", "Pre-alpha"),
         ("Relay Network", "Unverified"),
