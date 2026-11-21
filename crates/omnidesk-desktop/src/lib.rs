@@ -495,7 +495,41 @@ fn premium_action_at_point(
             return tab.map(DesktopAction::SelectNav);
         }
     }
+    // The locked 1672x941 header is exact artwork with real pointer
+    // targets. Its help and settings icons are interactive; the bell is
+    // intentionally inactive until a notification source is connected.
+    if y < 70 {
+        let (help_x, settings_x) = if width == 1672 && height == 941 {
+            (1356, 1416)
+        } else {
+            (width.saturating_sub(112), width.saturating_sub(76))
+        };
+        if (help_x..help_x + 40).contains(&x) {
+            return Some(DesktopAction::ToggleHelp);
+        }
+        if (settings_x..settings_x + 42).contains(&x) {
+            return Some(DesktopAction::OpenSettings);
+        }
+    }
     if shell.nav_tab() == NavTab::Devices && shell.primary_view() == PrimaryView::Devices {
+        // The first and fourth owner-approved Quick Action tiles have
+        // actual safe app destinations. No peer is contacted from a click,
+        // and the other four unsupported operations never dispatch.
+        let quick = premium.quick_actions;
+        let tile_width = (quick.width.saturating_sub(32)) / 3;
+        let first_x = quick.x + 16;
+        let top_y = quick.y + 56;
+        let bottom_y = top_y + 110;
+        if (first_x..first_x + tile_width.saturating_sub(8)).contains(&x)
+            && (top_y..top_y + 87).contains(&y)
+        {
+            return Some(DesktopAction::FocusRemoteIdInput);
+        }
+        if (first_x..first_x + tile_width.saturating_sub(8)).contains(&x)
+            && (bottom_y..bottom_y + 87).contains(&y)
+        {
+            return Some(DesktopAction::SelectNav(NavTab::FileTransfer));
+        }
         if !shell.local_device_id().is_empty() && premium.local_id_copy().contains(x, y) {
             return Some(DesktopAction::CopyYourId);
         }
@@ -905,8 +939,38 @@ mod tests {
                 layout.quick_actions.x + 25,
                 layout.quick_actions.y + 70,
             ),
+            Some(DesktopAction::FocusRemoteIdInput),
+            "New Session must focus the secure remote-ID form"
+        );
+        assert_eq!(
+            action_at_point(
+                &shell,
+                width,
+                height,
+                layout.quick_actions.x + 25,
+                layout.quick_actions.y + 175,
+            ),
+            Some(DesktopAction::SelectNav(NavTab::FileTransfer)),
+            "Send File must open the existing file transfer view"
+        );
+        assert_eq!(
+            action_at_point(
+                &shell,
+                width,
+                height,
+                layout.quick_actions.x + 125,
+                layout.quick_actions.y + 70,
+            ),
             None,
-            "unimplemented quick actions cannot be clickable"
+            "Wake-on-LAN without backend must remain disabled"
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, 1375, 35),
+            Some(DesktopAction::ToggleHelp)
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, 1435, 35),
+            Some(DesktopAction::OpenSettings)
         );
     }
 

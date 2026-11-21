@@ -30,6 +30,55 @@ use crate::{
     render::render_shell,
 };
 
+// The owner's V7 reference has a custom 70px header and *no second*
+// Windows title bar. On screens that fit the locked artboard, the header
+// hosts real OS minimize/maximize/close and drag actions. Smaller monitors
+// retain native OS decorations so the compact UI always remains operable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PremiumCaptionAction {
+    Drag,
+    Minimize,
+    Maximize,
+    Close,
+}
+
+fn premium_caption_action(
+    width: usize,
+    x: usize,
+    y: usize,
+    frameless: bool,
+) -> Option<PremiumCaptionAction> {
+    if !frameless || y >= 70 || width < 600 {
+        return None;
+    }
+    if (width.saturating_sub(80)..width.saturating_sub(20)).contains(&x) {
+        Some(PremiumCaptionAction::Close)
+    } else if (width.saturating_sub(136)..width.saturating_sub(80)).contains(&x) {
+        Some(PremiumCaptionAction::Maximize)
+    } else if (width.saturating_sub(192)..width.saturating_sub(136)).contains(&x) {
+        Some(PremiumCaptionAction::Minimize)
+    } else if x < width.saturating_sub(450) {
+        Some(PremiumCaptionAction::Drag)
+    } else {
+        None
+    }
+}
+
+fn perform_premium_caption(
+    window: &Window,
+    event_loop: &ActiveEventLoop,
+    action: PremiumCaptionAction,
+) {
+    match action {
+        PremiumCaptionAction::Drag => {
+            let _ = window.drag_window();
+        }
+        PremiumCaptionAction::Minimize => window.set_minimized(true),
+        PremiumCaptionAction::Maximize => window.set_maximized(!window.is_maximized()),
+        PremiumCaptionAction::Close => event_loop.exit(),
+    }
+}
+
 /// Converts a window-logical coordinate to whole pixels.
 ///
 /// Winit can report sub-pixel or out-of-range cursor positions (negative
@@ -117,6 +166,7 @@ struct DesktopHost {
     accessibility: Vec<AccessibilityNode>,
     accessibility_focus: Option<NodeId>,
     cursor_position: Option<(usize, usize)>,
+    frameless_premium: bool,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
 }
 
@@ -213,6 +263,7 @@ impl DesktopHost {
             accessibility,
             accessibility_focus: None,
             cursor_position: None,
+            frameless_premium: false,
             incoming_rx,
         }
     }
@@ -642,10 +693,17 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 (size.width, size.height, monitor.scale_factor())
             });
             let (inner_width, inner_height) = initial_window_inner_size(initial_size);
+            let frameless_premium = inner_width >= 1672.0 && inner_height >= 941.0;
+            self.frameless_premium = frameless_premium;
             let attributes = WindowAttributes::default()
                 .with_title(title)
                 .with_visible(false)
                 .with_window_icon(window_icon)
+                .with_decorations(!frameless_premium)
+                .with_min_inner_size(winit::dpi::LogicalSize::new(
+                    if frameless_premium { 1420.0 } else { 640.0 },
+                    if frameless_premium { 850.0 } else { 480.0 },
+                ))
                 // A maximized launch overrides the fitted 1672x941 V7 size
                 // and stretches the locked hierarchy across the monitor.
                 // Launch at the reference dimensions when they fit; users
@@ -713,6 +771,15 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
             } => {
                 if let (Some((x, y)), Some(window)) = (self.cursor_position, self.window.as_ref()) {
                     let size = window.inner_size();
+                    if let Some(command) = premium_caption_action(
+                        usize::try_from(size.width).unwrap_or(usize::MAX),
+                        x,
+                        y,
+                        self.frameless_premium,
+                    ) {
+                        perform_premium_caption(window, event_loop, command);
+                        return;
+                    }
                     if let Some(action) = action_at_point(
                         &self.shell,
                         usize::try_from(size.width).unwrap_or(usize::MAX),
@@ -817,10 +884,34 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_PIXEL_OFFSET, consent_matches_peer, refuse_unverified_session_action, to_pixel,
+        MAX_PIXEL_OFFSET, PremiumCaptionAction, consent_matches_peer, premium_caption_action,
+        refuse_unverified_session_action, to_pixel,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn owner_locked_v7_caption_has_real_os_actions_and_compact_fallback() {
+        assert_eq!(
+            premium_caption_action(1672, 1618, 29, true),
+            Some(PremiumCaptionAction::Close)
+        );
+        assert_eq!(
+            premium_caption_action(1672, 1570, 29, true),
+            Some(PremiumCaptionAction::Maximize)
+        );
+        assert_eq!(
+            premium_caption_action(1672, 1515, 29, true),
+            Some(PremiumCaptionAction::Minimize)
+        );
+        assert_eq!(
+            premium_caption_action(1672, 650, 32, true),
+            Some(PremiumCaptionAction::Drag)
+        );
+        assert!(premium_caption_action(1672, 1320, 30, true).is_none());
+        assert!(premium_caption_action(1672, 1621, 78, true).is_none());
+        assert!(premium_caption_action(1024, 910, 20, false).is_none());
+    }
 
     #[test]
     fn unverified_online_device_cannot_enter_session_by_click_or_retry() {
