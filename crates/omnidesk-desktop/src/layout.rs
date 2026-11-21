@@ -355,7 +355,7 @@ impl PremiumDashboardLayout {
         // Pointer hitboxes and renderer share these exact rectangles.
         let navigation_width = (width * 16 / 100).clamp(240, 260);
         let right_width = (width * 21 / 100).clamp(315, 348);
-        let right_margin = ((width + 41) / 42).clamp(28, 40);
+        let right_margin = width.div_ceil(42).clamp(28, 40);
         let main_x = navigation_width + 20;
         let right_x = width.saturating_sub(right_width + right_margin);
         let main_width = right_x.saturating_sub(main_x + 16);
