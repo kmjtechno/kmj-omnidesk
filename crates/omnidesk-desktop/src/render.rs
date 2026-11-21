@@ -3402,6 +3402,33 @@ pub fn render_shell(
         return;
     }
 
+    // Render the authentic 1672x941 owner-locked V7 onto a canonical
+    // offscreen surface, then aspect-fit it into normal/high-DPI windows.
+    // Source text/interactive controls remain native. A letterbox never
+    // invents an online device, entitlement or remote authentication.
+    if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices
+        && presentation.nav_tab == omnidesk_core::product_shell::NavTab::Devices
+    {
+        if let Some(fit) = crate::layout::PremiumViewportFit::for_window(width, height) {
+            const ART_W: usize = crate::layout::V7_ART_WIDTH;
+            const ART_H: usize = crate::layout::V7_ART_HEIGHT;
+            let mut source = vec![0_u32; ART_W * ART_H];
+            render_shell(&mut source, ART_W, ART_H, presentation);
+            let background = packed_rgb(presentation.visual.background_rgb);
+            pixels[..width * height].fill(background);
+            for dest_y in 0..fit.height {
+                let source_y = dest_y.saturating_mul(ART_H) / fit.height;
+                let dest_row = (fit.y + dest_y) * width + fit.x;
+                let source_row = source_y * ART_W;
+                for dest_x in 0..fit.width {
+                    let source_x = dest_x.saturating_mul(ART_W) / fit.width;
+                    pixels[dest_row + dest_x] = source[source_row + source_x];
+                }
+            }
+            return;
+        }
+    }
+
     let palette = palette_for(presentation.visual);
 
     pixels[..width * height].fill(palette.background);
@@ -3495,6 +3522,35 @@ mod tests {
             lower_pixels, upper_pixels,
             "lowercase navigation must remain lowercase"
         );
+    }
+
+    #[test]
+    fn scaled_premium_v7_reuses_exact_native_artboard_pixels() {
+        let presentation = presentation_for(&ProductShell::new());
+        const ART_W: usize = crate::layout::V7_ART_WIDTH;
+        const ART_H: usize = crate::layout::V7_ART_HEIGHT;
+        let mut original = vec![0_u32; ART_W * ART_H];
+        render_shell(&mut original, ART_W, ART_H, &presentation);
+        let width = 1440;
+        let height = 900;
+        let fit = crate::layout::PremiumViewportFit::for_window(width, height).unwrap();
+        let mut scaled = vec![0_u32; width * height];
+        render_shell(&mut scaled, width, height, &presentation);
+        assert_eq!(
+            scaled[0],
+            packed_rgb(presentation.visual.background_rgb),
+            "letterbox must show only the locked dark background"
+        );
+        for (dest_x, dest_y) in [(42, 50), (420, 220), (1100, 480), (1380, 800)] {
+            let (source_x, source_y) = fit
+                .artboard_point(dest_x, dest_y)
+                .expect("sample inside fitted artboard");
+            assert_eq!(
+                scaled[dest_y * width + dest_x],
+                original[source_y * ART_W + source_x],
+                "source pixel must match the actual native renderer, not new art"
+            );
+        }
     }
 
     #[test]
