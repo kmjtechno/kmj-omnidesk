@@ -108,8 +108,7 @@ fn approved_v7_hero_art() -> Option<&'static crate::brand::BrandImage> {
                 let left = x.min(66) * 255 / 66;
                 let right = w.saturating_sub(x + 1).min(10) * 255 / 10;
                 let alpha = left.min(right).min(top).min(bottom);
-                rgba[(y * w + x) * 4 + 3] =
-                    u8::try_from(alpha).unwrap_or(u8::MAX);
+                rgba[(y * w + x) * 4 + 3] = u8::try_from(alpha).unwrap_or(u8::MAX);
             }
         }
         Some(crate::brand::BrandImage {
