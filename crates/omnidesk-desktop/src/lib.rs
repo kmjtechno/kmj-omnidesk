@@ -1800,7 +1800,9 @@ mod tests {
         let toggle_action =
             action_at_point(&shell, 1672, 941, toggle_rect.x + 5, toggle_rect.y + 5);
         assert_eq!(toggle_action, Some(DesktopAction::ToggleRemoteControl));
-        assert!(shell.allow_remote_control());
+        assert!(!shell.allow_remote_control(), "host sharing must default to disabled");
+        apply_action(&mut shell, toggle_action.unwrap());
+        assert!(shell.allow_remote_control(), "only explicit toggle enables sharing");
         apply_action(&mut shell, toggle_action.unwrap());
         assert!(!shell.allow_remote_control());
 
