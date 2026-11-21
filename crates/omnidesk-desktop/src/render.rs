@@ -3091,15 +3091,7 @@ fn draw_premium_dashboard(
         let x = quick.x + 16 + col * cell_width;
         let y = quick.y + 56 + row * 110;
         let cell_w = cell_width.saturating_sub(8);
-        canvas.rounded_gradient_panel(
-            x,
-            y,
-            cell_w,
-            87,
-            0x1e_20_35,
-            0x12_16_25,
-            0x43_48_63,
-        );
+        canvas.rounded_gradient_panel(x, y, cell_w, 87, 0x1e_20_35, 0x12_16_25, 0x43_48_63);
         let icon_color = match i {
             0 | 1 => 0xf7_19_3b,
             2 => 0x7d_b4_ec,
@@ -3165,31 +3157,10 @@ fn draw_premium_dashboard(
         0xd0_d6_e3,
     );
     draw_key_icon(canvas, footer.x + 628, top + 5, 0xb0_b8_cb);
-    canvas.text_clipped(
-        footer.x + 655,
-        top,
-        "Consent required",
-        1,
-        199,
-        0xd0_d6_e3,
-    );
-    canvas.text(
-        footer.x + 884,
-        top,
-        "Latency: --",
-        1,
-        0xb9_c1_cf,
-    );
+    canvas.text_clipped(footer.x + 655, top, "Consent required", 1, 199, 0xd0_d6_e3);
+    canvas.text(footer.x + 884, top, "Latency: --", 1, 0xb9_c1_cf);
     let status_x = footer.x + footer.width.saturating_sub(282);
-    canvas.rounded_panel(
-        status_x,
-        footer.y + 12,
-        264,
-        35,
-        17,
-        0x20_27_37,
-        0x45_4b_60,
-    );
+    canvas.rounded_panel(status_x, footer.y + 12, 264, 35, 17, 0x20_27_37, 0x45_4b_60);
     canvas.dot(status_x + 19, footer.y + 29, 6, 0x9a_a3_b5);
     canvas.text_clipped(
         status_x + 33,
