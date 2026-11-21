@@ -2272,7 +2272,10 @@ fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
     // Lower cards: approved borders and safe, static section titles only.
     for (x1, x2, safe_title_end) in [(280, 780, 425), (797, 1269, 1055)] {
         if in_rect(x1, 648, x2, 844)
-            && (x < x1 + 5 || x >= x2 - 5 || !(651..839).contains(&y) || (y < 697 && x < safe_title_end))
+            && (x < x1 + 5
+                || x >= x2 - 5
+                || !(651..839).contains(&y)
+                || (y < 697 && x < safe_title_end))
         {
             return true;
         }
