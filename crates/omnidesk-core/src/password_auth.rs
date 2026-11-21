@@ -148,6 +148,10 @@ impl HostPasswordManager {
     }
 
     /// Rotates the temporary session password, resetting failed attempts and lockout.
+    ///
+    /// # Panics
+    /// Panics if the OS cryptographic random source is unavailable. No new
+    /// temporary credential is issued in that case.
     pub fn rotate(&mut self, now_epoch_secs: u64) {
         self.rotation_count = self.rotation_count.wrapping_add(1);
         // OS cryptographic randomness, never clock/PID-derived entropy.
