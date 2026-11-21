@@ -3212,10 +3212,7 @@ mod tests {
                     let offset = (y * width + x) * 4;
                     let alpha = panel.rgba[offset + 3];
                     if edge >= 10 {
-                        assert_eq!(
-                            alpha, 0,
-                            "owner screenshot interior must never be painted"
-                        );
+                        assert_eq!(alpha, 0, "owner screenshot interior must never be painted");
                     }
                     if alpha > 0 {
                         let red = u16::from(panel.rgba[offset]);
