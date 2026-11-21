@@ -517,6 +517,41 @@ impl PremiumDashboardLayout {
             height: self.features.height.saturating_sub(28),
         }
     }
+
+    #[must_use]
+    pub const fn quick_action_button(&self, index: usize) -> DashboardRect {
+        let columns = 3;
+        let col = index % columns;
+        let row = index / columns;
+        let cell_width = (self.quick_actions.width - 32) / columns;
+        DashboardRect {
+            x: self.quick_actions.x + 16 + col * cell_width,
+            y: self.quick_actions.y + 48 + row * 82,
+            width: cell_width.saturating_sub(8),
+            height: 72,
+        }
+    }
+
+    #[must_use]
+    pub const fn feature_tile_rect(&self, index: usize) -> DashboardRect {
+        let tile_width = self.features.width / 7;
+        DashboardRect {
+            x: self.features.x + index * tile_width + 2,
+            y: self.features.y,
+            width: tile_width.saturating_sub(4),
+            height: self.features.height,
+        }
+    }
+
+    #[must_use]
+    pub const fn recent_session_row(&self, index: usize) -> DashboardRect {
+        DashboardRect {
+            x: self.sessions.x + 16,
+            y: self.sessions.y + 54 + index.saturating_mul(56),
+            width: self.sessions.width.saturating_sub(32),
+            height: 50,
+        }
+    }
 }
 
 #[cfg(test)]

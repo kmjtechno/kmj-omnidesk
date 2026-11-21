@@ -693,6 +693,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -734,8 +735,11 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         y,
                     ) {
                         self.dispatch_action(action);
-                    } else if self.shell.is_remote_id_focused() {
+                    } else if self.shell.is_remote_id_focused()
+                        || self.shell.is_remote_password_focused()
+                    {
                         self.shell.set_remote_id_focused(false);
+                        self.shell.set_remote_password_focused(false);
                         self.refresh_presentation();
                     }
                 }
@@ -763,6 +767,34 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                         for c in text.chars() {
                             if !c.is_control() {
                                 self.shell.append_remote_id_char(c);
+                            }
+                        }
+                        self.refresh_presentation();
+                        return;
+                    }
+                }
+                if self.shell.is_remote_password_focused() {
+                    match &event.logical_key {
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Backspace) => {
+                            self.shell.backspace_remote_password();
+                            self.refresh_presentation();
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter) => {
+                            self.dispatch_action(DesktopAction::ConnectRemoteId);
+                            return;
+                        }
+                        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) => {
+                            self.shell.set_remote_password_focused(false);
+                            self.refresh_presentation();
+                            return;
+                        }
+                        _ => {}
+                    }
+                    if let Some(text) = &event.text {
+                        for c in text.chars() {
+                            if !c.is_control() {
+                                self.shell.append_remote_password_char(c);
                             }
                         }
                         self.refresh_presentation();

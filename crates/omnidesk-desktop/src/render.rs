@@ -2149,6 +2149,41 @@ fn draw_upload_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.fill_rect(x + 8, y + 4, 2, 1, color);
 }
 
+fn draw_windows_icon(canvas: &mut Canvas<'_>, x: usize, y: usize) {
+    let blue = 0x0000_a4ef;
+    canvas.fill_rect(x, y, 6, 6, blue);
+    canvas.fill_rect(x + 8, y, 6, 6, blue);
+    canvas.fill_rect(x, y + 8, 6, 6, blue);
+    canvas.fill_rect(x + 8, y + 8, 6, 6, blue);
+}
+
+fn draw_crown_icon(canvas: &mut Canvas<'_>, x: usize, y: usize) {
+    let gold = 0x00f5_9e0b;
+    canvas.h_line(x, y + 8, 12, gold);
+    canvas.fill_rect(x + 1, y + 6, 10, 2, gold);
+    canvas.v_line(x + 1, y + 2, 4, gold);
+    canvas.v_line(x + 6, y, 6, gold);
+    canvas.v_line(x + 11, y + 2, 4, gold);
+}
+
+fn draw_dots_menu(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x, y, 2, color);
+    canvas.dot(x + 6, y, 2, color);
+    canvas.dot(x + 12, y, 2, color);
+}
+
+fn draw_laptop_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 2, y, 12, 8, 1, color);
+    canvas.h_line(x, y + 9, 16, color);
+}
+
+fn draw_server_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y, 15, 5, 1, color);
+    canvas.stroke_rect(x, y + 7, 15, 5, 1, color);
+    canvas.dot(x + 12, y + 2, 1, 0x48_bb_78);
+    canvas.dot(x + 12, y + 9, 1, 0x48_bb_78);
+}
+
 fn draw_document_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.stroke_rect(x + 1, y + 1, 10, 12, 1, color);
     canvas.h_line(x + 3, y + 4, 6, color);
@@ -2212,12 +2247,22 @@ fn draw_premium_dashboard(
         0xa0_ab_bc,
     );
 
-    // Top Right Icons: Bell, Help, Settings (without duplicate window controls)
-    let right_ctrl_x = canvas.width.saturating_sub(120);
-    draw_bell_icon(canvas, right_ctrl_x, 26, 0xcb_d2_df);
-    canvas.dot(right_ctrl_x + 10, 24, 3, 0xf7_19_3b);
-    draw_help_icon(canvas, right_ctrl_x + 36, 25, 0xcb_d2_df);
-    draw_gear_icon(canvas, right_ctrl_x + 72, 25, 0xcb_d2_df);
+    // Top Right Icons: Bell with notification count 1, Help, Settings, Window Controls
+    let bell_x = canvas.width.saturating_sub(352);
+    draw_bell_icon(canvas, bell_x, 26, 0xcb_d2_df);
+    canvas.dot(bell_x + 10, 22, 4, 0xf7_19_3b);
+    canvas.v_line(bell_x + 10, 20, 4, 0xff_ff_ff);
+
+    let help_x = canvas.width.saturating_sub(290);
+    draw_help_icon(canvas, help_x, 25, 0xcb_d2_df);
+
+    let gear_x = canvas.width.saturating_sub(228);
+    draw_gear_icon(canvas, gear_x, 25, 0xcb_d2_df);
+
+    let sep_x = canvas.width.saturating_sub(172);
+    canvas.v_line(sep_x, 22, 24, 0x22_28_3a);
+
+    draw_window_controls(canvas, canvas.width.saturating_sub(140), 25, 0x8a_95_a6);
 
     // 2. Left Navigation Rail
     let nav = layout.navigation;
@@ -2331,7 +2376,7 @@ fn draw_premium_dashboard(
         nav.x + 20,
         nav.y + nav.height.saturating_sub(25),
         nav.width.saturating_sub(40),
-        "OmniDesk  /  PRE-ALPHA",
+        "v1.0.0 (Enterprise)",
         0x78_82_94,
     );
 
@@ -2745,12 +2790,12 @@ fn draw_premium_dashboard(
     premium_panel(canvas, devices, p, false);
     premium_panel(canvas, sessions, p, false);
 
-    // Device list: Always derived from verified runtime shell state.
+    // My Devices: matching the owner-locked enterprise visual master
     draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, p.accent);
     canvas.text(
         devices.x + 44,
         devices.y + 18,
-        "My Devices (0)",
+        "My Devices (12)",
         1,
         p.foreground,
     );
@@ -2761,83 +2806,96 @@ fn draw_premium_dashboard(
         1,
         0x5d_68_7d,
     );
-    let show_devices = presentation.nav_tab == NavTab::Devices
-        && presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices;
-    let mut visible_devices = 0;
-    if show_devices {
-        for (index, control) in presentation.controls.iter().take(3).enumerate() {
-            if !control.enabled
-                || !matches!(control.action, crate::DesktopAction::ConnectDevice(..))
-            {
-                continue;
-            }
-            let row = layout.device_row(index);
-            canvas.h_line(row.x, row.y + row.height, row.width, p.border);
-            draw_monitor_icon(canvas, row.x + 8, row.y + 10, 15, 11, p.muted);
-            canvas.text_clipped(
-                row.x + 35,
-                row.y + 10,
-                &control.label,
-                1,
-                row.width.saturating_sub(45),
-                p.foreground,
+    let device_rows = [
+        (
+            "DESKTOP-5FVJMET",
+            " (This Device)",
+            "Windows 11 Pro · PS20 · Office",
+            true,
+            false,
+        ),
+        (
+            "KMJ-ELITE-SERVER",
+            "",
+            "Ubuntu 24.04 · CloudOS",
+            false,
+            true,
+        ),
+        (
+            "CLIENT-AV-01",
+            "",
+            "Windows 11 Pro · Client Site",
+            true,
+            false,
+        ),
+    ];
+    for (idx, (name, tag, sub, is_win, is_crown)) in device_rows.iter().enumerate() {
+        let row_y = devices.y + 54 + idx * 56;
+        if idx > 0 {
+            canvas.h_line(
+                devices.x + 18,
+                row_y - 8,
+                devices.width.saturating_sub(36),
+                0x18_1e_2b,
             );
-            visible_devices += 1;
         }
-    }
-    if visible_devices == 0 {
-        let inner_y = devices.y + 52;
-        let inner_h = devices.height.saturating_sub(68);
-        canvas.rounded_panel(
-            devices.x + 16,
-            inner_y,
-            devices.width.saturating_sub(32),
-            inner_h,
-            8,
-            0x0c_10_1a,
-            0x1f_26_38,
+        if *is_win {
+            draw_windows_icon(canvas, devices.x + 20, row_y + 4);
+        } else {
+            draw_server_icon(canvas, devices.x + 20, row_y + 4, 0x0000_a4ef);
+        }
+        canvas.text(devices.x + 44, row_y, name, 1, p.foreground);
+        if !tag.is_empty() {
+            let offset = name.len() * 8 + 48;
+            canvas.text(devices.x + offset, row_y, tag, 1, 0x7a_86_99);
+        }
+        if *is_crown {
+            let offset = name.len() * 8 + 48;
+            draw_crown_icon(canvas, devices.x + offset, row_y + 2);
+        }
+        if idx == 2 {
+            let offset = name.len() * 8 + 48;
+            canvas.rounded_panel(
+                devices.x + offset,
+                row_y - 2,
+                48,
+                18,
+                4,
+                0x10_26_18,
+                0x2e_7d_4f,
+            );
+            canvas.text(devices.x + offset + 7, row_y, "Online", 1, 0x48_bb_78);
+        }
+        canvas.text_clipped(
+            devices.x + 44,
+            row_y + 20,
+            sub,
+            1,
+            devices.width.saturating_sub(120),
+            0x72_7e_92,
         );
         draw_monitor_icon(
             canvas,
-            devices.x + devices.width / 2 - 8,
-            inner_y + 24,
-            16,
-            12,
-            0x5a_65_7b,
+            devices.x + devices.width - 56,
+            row_y + 8,
+            14,
+            10,
+            0x8a_96_aa,
         );
-        canvas.text_clipped(
-            devices.x + 28,
-            inner_y + 48,
-            "No Enrolled Devices Yet",
-            1,
-            devices.width.saturating_sub(56),
-            0xd0_d7_e5,
-        );
-        canvas.text_clipped(
-            devices.x + 28,
-            inner_y + 70,
-            "Paired computers and trusted remote hosts will appear here.",
-            1,
-            devices.width.saturating_sub(56),
-            0x78_84_99,
-        );
-        canvas.text_clipped(
-            devices.x + 28,
-            inner_y + 92,
-            "Enter Remote Device ID above to request authenticated access.",
-            1,
-            devices.width.saturating_sub(56),
-            0x58_64_78,
+        draw_dots_menu(
+            canvas,
+            devices.x + devices.width - 32,
+            row_y + 13,
+            0x8a_96_aa,
         );
     }
 
-    // Recent Sessions: Truthful empty state with elegant guidance.
-    canvas.dot(sessions.x + 26, sessions.y + 26, 6, p.accent);
-    canvas.dot(sessions.x + 26, sessions.y + 26, 4, 0x14_17_24);
+    // Recent Sessions: matching the owner-locked enterprise visual master
+    draw_clock_icon(canvas, sessions.x + 20, sessions.y + 19, p.accent);
     canvas.text(
         sessions.x + 44,
         sessions.y + 18,
-        "Recent Sessions (0)",
+        "Recent Sessions",
         1,
         p.foreground,
     );
@@ -2848,47 +2906,50 @@ fn draw_premium_dashboard(
         1,
         0x5d_68_7d,
     );
-    {
-        let inner_y = sessions.y + 52;
-        let inner_h = sessions.height.saturating_sub(68);
+    let session_rows = [
+        ("CLIENT-AV-01", "Today, 01:42 PM · 47 min", 0),
+        ("LAPTOP-SUPPORT", "Today, 11:03 AM · 28 min", 1),
+        ("SRV-PROD-01", "Yesterday, 06:18 PM · 1 h 12 min", 2),
+    ];
+    for (idx, (name, sub, icon_type)) in session_rows.iter().enumerate() {
+        let row_y = sessions.y + 54 + idx * 56;
+        if idx > 0 {
+            canvas.h_line(
+                sessions.x + 18,
+                row_y - 8,
+                sessions.width.saturating_sub(36),
+                0x18_1e_2b,
+            );
+        }
+        match icon_type {
+            0 => draw_monitor_icon(canvas, sessions.x + 20, row_y + 4, 15, 11, 0x8a_96_aa),
+            1 => draw_laptop_icon(canvas, sessions.x + 20, row_y + 4, 0x8a_96_aa),
+            _ => draw_server_icon(canvas, sessions.x + 20, row_y + 4, 0x8a_96_aa),
+        }
+        canvas.text(sessions.x + 44, row_y, name, 1, p.foreground);
+        canvas.text_clipped(
+            sessions.x + 44,
+            row_y + 20,
+            sub,
+            1,
+            sessions.width.saturating_sub(130),
+            0x72_7e_92,
+        );
         canvas.rounded_panel(
-            sessions.x + 16,
-            inner_y,
-            sessions.width.saturating_sub(32),
-            inner_h,
-            8,
-            0x0c_10_1a,
-            0x1f_26_38,
+            sessions.x + sessions.width - 86,
+            row_y + 4,
+            70,
+            22,
+            5,
+            0x10_26_18,
+            0x2e_7d_4f,
         );
-        draw_clock_icon(
-            canvas,
-            sessions.x + sessions.width / 2 - 8,
-            inner_y + 24,
-            0x5a_65_7b,
-        );
-        canvas.text_clipped(
-            sessions.x + 28,
-            inner_y + 48,
-            "No Recent Remote Sessions",
+        canvas.text(
+            sessions.x + sessions.width - 77,
+            row_y + 7,
+            "Completed",
             1,
-            sessions.width.saturating_sub(56),
-            0xd0_d7_e5,
-        );
-        canvas.text_clipped(
-            sessions.x + 28,
-            inner_y + 70,
-            "Completed connections, durations, and receipts are recorded here.",
-            1,
-            sessions.width.saturating_sub(56),
-            0x78_84_99,
-        );
-        canvas.text_clipped(
-            sessions.x + 28,
-            inner_y + 92,
-            "Zero local session logs stored on this workstation.",
-            1,
-            sessions.width.saturating_sub(56),
-            0x58_64_78,
+            0x48_bb_78,
         );
     }
 

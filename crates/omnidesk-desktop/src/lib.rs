@@ -538,7 +538,6 @@ fn premium_action_at_point(
         if premium.remote_password_input().contains(x, y) {
             return Some(DesktopAction::FocusRemotePasswordInput);
         }
-        // Password Connect is enabled when both remote ID and password credentials are entered
         if premium.remote_connect_button().contains(x, y) {
             if !shell.remote_id_input().is_empty() && !shell.remote_password_input().is_empty() {
                 return Some(DesktopAction::ConnectRemoteId);
