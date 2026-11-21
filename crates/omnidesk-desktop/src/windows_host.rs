@@ -146,8 +146,7 @@ fn trusted_peer_permission_valid(
     now_epoch_secs: u64,
 ) -> bool {
     record.is_some_and(|record| {
-        record.is_trusted_at(now_epoch_secs)
-            && authenticated_key == Some(&record.public_key)
+        record.is_trusted_at(now_epoch_secs) && authenticated_key == Some(&record.public_key)
     })
 }
 
@@ -913,8 +912,8 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 mod tests {
     use super::{
         MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, TrustedDeviceRecord,
-        consent_matches_peer, premium_caption_action, refuse_unverified_session_action,
-        to_pixel, trusted_peer_permission_valid,
+        consent_matches_peer, premium_caption_action, refuse_unverified_session_action, to_pixel,
+        trusted_peer_permission_valid,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
@@ -1026,7 +1025,11 @@ mod tests {
             status: omnidesk_core::trusted_device_store::PersistedDeviceStatus::Online,
         };
         let key = record.public_key;
-        assert!(trusted_peer_permission_valid(Some(&record), Some(&key), now));
+        assert!(trusted_peer_permission_valid(
+            Some(&record),
+            Some(&key),
+            now
+        ));
         assert!(!trusted_peer_permission_valid(None, Some(&key), now));
         assert!(!trusted_peer_permission_valid(Some(&record), None, now));
         assert!(!trusted_peer_permission_valid(
@@ -1035,7 +1038,11 @@ mod tests {
             now
         ));
         record.revoked = true;
-        assert!(!trusted_peer_permission_valid(Some(&record), Some(&key), now));
+        assert!(!trusted_peer_permission_valid(
+            Some(&record),
+            Some(&key),
+            now
+        ));
         record.revoked = false;
         assert!(!trusted_peer_permission_valid(
             Some(&record),
