@@ -1,10 +1,6 @@
 //! Real TCP encrypted attended proof tests. This is NOT remote-control QA.
 
-use std::{
-    net::TcpListener,
-    thread,
-    time::Duration,
-};
+use std::{net::TcpListener, thread, time::Duration};
 
 use omnidesk_core::{
     attended_proof_wire::{
