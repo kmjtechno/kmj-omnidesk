@@ -237,7 +237,8 @@ mod tests {
         let host = thread::spawn(move || {
             let (stream, _) = listener.accept().expect("accept");
             let transport = TcpLanTransport::from_stream(stream).expect("tcp transport");
-            let mut channel = UnauthenticatedNoiseChannel::accept(transport).expect("noise responder");
+            let mut channel =
+                UnauthenticatedNoiseChannel::accept(transport).expect("noise responder");
             assert_eq!(channel.path_kind(), PathKind::Lan);
             let hash = *channel.handshake_hash();
             let request = channel.receive().expect("decrypt").expect("request");
@@ -246,8 +247,8 @@ mod tests {
             channel.close();
             hash
         });
-        let transport = TcpLanTransport::connect(address, Duration::from_secs(2))
-            .expect("tcp connection");
+        let transport =
+            TcpLanTransport::connect(address, Duration::from_secs(2)).expect("tcp connection");
         let mut client = UnauthenticatedNoiseChannel::connect(transport).expect("noise initiator");
         assert_eq!(client.path_kind(), PathKind::Lan);
         let binding = *client.handshake_hash();
@@ -269,15 +270,16 @@ mod tests {
         let host = thread::spawn(move || {
             let (stream, _) = listener.accept().expect("accept");
             let transport = TcpLanTransport::from_stream(stream).expect("tcp transport");
-            let mut channel = UnauthenticatedNoiseChannel::accept(transport).expect("noise responder");
+            let mut channel =
+                UnauthenticatedNoiseChannel::accept(transport).expect("noise responder");
             assert_eq!(
                 channel.receive(),
                 Err(TransportError::Io(ErrorKind::InvalidData))
             );
             assert_eq!(channel.receive(), Err(TransportError::Closed));
         });
-        let transport = TcpLanTransport::connect(address, Duration::from_secs(2))
-            .expect("tcp connection");
+        let transport =
+            TcpLanTransport::connect(address, Duration::from_secs(2)).expect("tcp connection");
         let mut client = UnauthenticatedNoiseChannel::connect(transport).expect("noise initiator");
         let mut ciphertext = [0_u8; 64];
         let len = client
@@ -305,8 +307,8 @@ mod tests {
             let channel = UnauthenticatedNoiseChannel::accept(transport).expect("noise responder");
             assert_eq!(channel.path_kind(), PathKind::Lan);
         });
-        let transport = TcpLanTransport::connect(address, Duration::from_secs(2))
-            .expect("tcp connection");
+        let transport =
+            TcpLanTransport::connect(address, Duration::from_secs(2)).expect("tcp connection");
         let client = UnauthenticatedNoiseChannel::connect(transport).expect("noise initiator");
         assert_eq!(client.path_kind(), PathKind::Lan);
         host.join().expect("host");
