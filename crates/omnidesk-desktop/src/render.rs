@@ -2901,7 +2901,7 @@ fn draw_premium_dashboard(
     canvas.text(
         devices.x + 44,
         devices.y + 18,
-        "My Devices (12)",
+        "My Devices",
         1,
         p.foreground,
     );
@@ -2912,87 +2912,26 @@ fn draw_premium_dashboard(
         1,
         0x5d_68_7d,
     );
-    let device_rows = [
-        (
-            "DESKTOP-5FVJMET",
-            " (This Device)",
-            "Windows 11 Pro · PS20 · Office",
-            true,
-            false,
-        ),
-        (
-            "KMJ-ELITE-SERVER",
-            "",
-            "Ubuntu 24.04 · CloudOS",
-            false,
-            true,
-        ),
-        (
-            "CLIENT-AV-01",
-            "",
-            "Windows 11 Pro · Client Site",
-            true,
-            false,
-        ),
-    ];
-    for (idx, (name, tag, sub, is_win, is_crown)) in device_rows.iter().enumerate() {
-        let row_y = devices.y + 54 + idx * 56;
-        if idx > 0 {
-            canvas.h_line(
-                devices.x + 18,
-                row_y - 8,
-                devices.width.saturating_sub(36),
-                0x18_1e_2b,
-            );
-        }
-        if *is_win {
-            draw_windows_icon(canvas, devices.x + 20, row_y + 4);
-        } else {
-            draw_server_icon(canvas, devices.x + 20, row_y + 4, 0x0000_a4ef);
-        }
-        canvas.text(devices.x + 44, row_y, name, 1, p.foreground);
-        if !tag.is_empty() {
-            let offset = name.len() * 8 + 48;
-            canvas.text(devices.x + offset, row_y, tag, 1, 0x7a_86_99);
-        }
-        if *is_crown {
-            let offset = name.len() * 8 + 48;
-            draw_crown_icon(canvas, devices.x + offset, row_y + 2);
-        }
-        if idx == 2 {
-            let offset = name.len() * 8 + 48;
-            canvas.rounded_panel(
-                devices.x + offset,
-                row_y - 2,
-                48,
-                18,
-                4,
-                0x10_26_18,
-                0x2e_7d_4f,
-            );
-            canvas.text(devices.x + offset + 7, row_y, "Online", 1, 0x48_bb_78);
-        }
+    let real_device_rows = presentation
+        .controls
+        .iter()
+        .filter(|entry| matches!(entry.action, crate::DesktopAction::ConnectDevice(_, _)))
+        .take(3);
+    let mut count = 0_usize;
+    for (index, entry) in real_device_rows.enumerate() {
+        count += 1;
+        let y = devices.y + 54 + index * 56;
+        draw_monitor_icon(canvas, devices.x + 20, y + 4, 14, 10, 0x8a_96_aa);
+        let name = entry.label.split(" — ").next().unwrap_or("Device");
         canvas.text_clipped(
-            devices.x + 44,
-            row_y + 20,
-            sub,
-            1,
-            devices.width.saturating_sub(120),
-            0x72_7e_92,
+            devices.x + 44, y, name, 1, devices.width.saturating_sub(64), p.foreground,
         );
-        draw_monitor_icon(
-            canvas,
-            devices.x + devices.width - 56,
-            row_y + 8,
-            14,
-            10,
-            0x8a_96_aa,
-        );
-        draw_dots_menu(
-            canvas,
-            devices.x + devices.width - 32,
-            row_y + 13,
-            0x8a_96_aa,
+        canvas.text(devices.x + 44, y + 20, "Authentication not verified", 1, 0x8a_96_aa);
+    }
+    if count == 0 {
+        canvas.text(
+            devices.x + 28, devices.y + 90,
+            "No verified device entries to display", 1, 0x8a_96_aa,
         );
     }
 
@@ -3012,52 +2951,11 @@ fn draw_premium_dashboard(
         1,
         0x5d_68_7d,
     );
-    let session_rows = [
-        ("CLIENT-AV-01", "Today, 01:42 PM · 47 min", 0),
-        ("LAPTOP-SUPPORT", "Today, 11:03 AM · 28 min", 1),
-        ("SRV-PROD-01", "Yesterday, 06:18 PM · 1 h 12 min", 2),
-    ];
-    for (idx, (name, sub, icon_type)) in session_rows.iter().enumerate() {
-        let row_y = sessions.y + 54 + idx * 56;
-        if idx > 0 {
-            canvas.h_line(
-                sessions.x + 18,
-                row_y - 8,
-                sessions.width.saturating_sub(36),
-                0x18_1e_2b,
-            );
-        }
-        match icon_type {
-            0 => draw_monitor_icon(canvas, sessions.x + 20, row_y + 4, 15, 11, 0x8a_96_aa),
-            1 => draw_laptop_icon(canvas, sessions.x + 20, row_y + 4, 0x8a_96_aa),
-            _ => draw_server_icon(canvas, sessions.x + 20, row_y + 4, 0x8a_96_aa),
-        }
-        canvas.text(sessions.x + 44, row_y, name, 1, p.foreground);
-        canvas.text_clipped(
-            sessions.x + 44,
-            row_y + 20,
-            sub,
-            1,
-            sessions.width.saturating_sub(130),
-            0x72_7e_92,
-        );
-        canvas.rounded_panel(
-            sessions.x + sessions.width - 86,
-            row_y + 4,
-            70,
-            22,
-            5,
-            0x10_26_18,
-            0x2e_7d_4f,
-        );
-        canvas.text(
-            sessions.x + sessions.width - 77,
-            row_y + 7,
-            "Completed",
-            1,
-            0x48_bb_78,
-        );
-    }
+    // Session history is unavailable until a trusted session store exists.
+    canvas.text(
+        sessions.x + 28, sessions.y + 90,
+        "No verified session history", 1, 0x8a_96_aa,
+    );
 
     // 7. Right Column: License, System Status, Quick Actions
     let license = layout.license;
@@ -3082,20 +2980,20 @@ fn draw_premium_dashboard(
         60,
         22,
         5,
-        0x12_29_1c,
-        0x2e_7d_4f,
+        0x17_1b_29,
+        0x3d_45_57,
     );
     canvas.text(
         license.x + license.width.saturating_sub(62),
         license.y + 21,
-        "Active",
+        "Unverified",
         1,
-        0x48_bb_78,
+        0xa0_ae_c0,
     );
     canvas.text_clipped(
         license.x + 42,
         license.y + 40,
-        "KMJ OmniDesk Enterprise",
+        "No verified Licensing Hub entitlement",
         1,
         license.width.saturating_sub(54),
         0x8a_96_aa,
@@ -3104,7 +3002,7 @@ fn draw_premium_dashboard(
     canvas.text_right(
         license.x + license.width - 18,
         license.y + 83,
-        "250 / 1,000",
+        "Not verified",
         1,
         0xd0_d7_e5,
     );
@@ -3117,15 +3015,6 @@ fn draw_premium_dashboard(
         0x1b_20_2d,
         0x1b_20_2d,
     );
-    canvas.rounded_panel(
-        license.x + 18,
-        license.y + 107,
-        (license.width - 36) / 4,
-        8,
-        4,
-        0x38_a1_69,
-        0x48_bb_78,
-    );
     canvas.text(
         license.x + 18,
         license.y + 132,
@@ -3136,7 +3025,7 @@ fn draw_premium_dashboard(
     canvas.text_right(
         license.x + license.width - 18,
         license.y + 132,
-        "Dec 31, 2026",
+        "Not verified",
         1,
         0xd0_d7_e5,
     );
@@ -3173,21 +3062,21 @@ fn draw_premium_dashboard(
         78,
         22,
         5,
-        0x12_29_1c,
-        0x2e_7d_4f,
+        0x17_1b_29,
+        0x3d_45_57,
     );
     canvas.text(
         health.x + health.width.saturating_sub(84),
         health.y + 21,
-        "All Healthy",
+        "Unverified",
         1,
-        0x48_bb_78,
+        0xa0_ae_c0,
     );
     let status_items = [
-        ("OmniDesk Service", "Running", 0x48_bb_78),
-        ("Relay Network", "Connected", 0x48_bb_78),
-        ("Security (E2E Encryption)", "Active", 0x48_bb_78),
-        ("NAT Traversal (P2P)", "Ready", 0x48_bb_78),
+        ("OmniDesk Service", "Unverified", 0x8a_96_aa),
+        ("Relay Network", "Not checked", 0x8a_96_aa),
+        ("E2E Encryption", "No session", 0x8a_96_aa),
+        ("NAT Traversal (P2P)", "Not checked", 0x8a_96_aa),
     ];
     for (index, (label, value, val_color)) in status_items.iter().enumerate() {
         let y = health.y + 57 + index * 31;
@@ -3248,11 +3137,11 @@ fn draw_premium_dashboard(
     canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x0009_0d16);
     canvas.h_line(footer.x, footer.y, footer.width, 0x22_27_38);
 
-    canvas.dot(footer.x + 23, footer.y + 23, 4, 0x48_bb_78);
+    canvas.dot(footer.x + 23, footer.y + 23, 4, 0x8a_96_aa);
     canvas.text(
         footer.x + 36,
         footer.y + 17,
-        "Connected to KMJ Cloud Relay (Asia)",
+        "Relay: not authenticated",
         1,
         0xd0_d7_e5,
     );
@@ -3260,7 +3149,7 @@ fn draw_premium_dashboard(
     canvas.text(
         footer.x + 345,
         footer.y + 17,
-        "End-to-End Encrypted (AES-256)",
+        "Encryption: no active session",
         1,
         0xd0_d7_e5,
     );
@@ -3268,11 +3157,11 @@ fn draw_premium_dashboard(
     canvas.text(
         footer.x + 620,
         footer.y + 17,
-        "Zero-Trust Security",
+        "Peer authorization required",
         1,
         0xd0_d7_e5,
     );
-    canvas.text(footer.x + 790, footer.y + 17, "ıll 42 ms", 1, 0x48_bb_78);
+    canvas.text(footer.x + 790, footer.y + 17, "Latency: --", 1, 0x8a_96_aa);
 
     canvas.rounded_panel(
         footer.x + footer.width.saturating_sub(210),
@@ -3280,21 +3169,21 @@ fn draw_premium_dashboard(
         195,
         28,
         6,
-        0x10_26_18,
-        0x2e_7d_4f,
+        0x17_1b_29,
+        0x3d_45_57,
     );
     canvas.dot(
         footer.x + footer.width.saturating_sub(195),
         footer.y + 23,
         4,
-        0x48_bb_78,
+        0x8a_96_aa,
     );
     canvas.text(
         footer.x + footer.width.saturating_sub(182),
         footer.y + 17,
-        "All Services Operational",
+        "Services not verified",
         1,
-        0x48_bb_78,
+        0x8a_96_aa,
     );
 }
 fn draw_locked_dashboard(
