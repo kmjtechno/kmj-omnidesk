@@ -639,6 +639,18 @@ impl DesktopHost {
             .expect("native render buffer presentation must succeed");
     }
 
+    // A visible host-sharing switch cannot enable unaudited incoming sessions.
+    fn apply_host_sharing_toggle(&mut self) {
+        if ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+            apply_action(&mut self.shell, DesktopAction::ToggleRemoteControl);
+        } else {
+            self.shell.set_allow_remote_control(false);
+            self.shell.set_error(
+                "Remote sharing unavailable until secure password proof is verified",
+            );
+        }
+    }
+
     fn dispatch_action(&mut self, action: DesktopAction) {
         if action == DesktopAction::EnrollDevice {
             self.handle_enroll_device();
@@ -706,17 +718,7 @@ impl DesktopHost {
                 }
             }
         } else if action == DesktopAction::ToggleRemoteControl {
-            // Do not advertise an active incoming host while the only
-            // transport handshake authenticates the peer ID, not the host
-            // temporary password. Also covers keyboard/accessibility clicks.
-            if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
-                self.shell.set_allow_remote_control(false);
-                self.shell.set_error(
-                    "Remote sharing unavailable until secure password proof is verified",
-                );
-            } else {
-                apply_action(&mut self.shell, action);
-            }
+            self.apply_host_sharing_toggle();
         } else if action == DesktopAction::CopyYourId {
             copy_to_clipboard(self.shell.local_device_id());
             apply_action(&mut self.shell, action);
@@ -1037,9 +1039,10 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, consent_matches_peer,
-        premium_caption_action, premium_frameless_on_monitor, refuse_unverified_session_action,
-        to_pixel, verified_consent_for_authenticated_trust,
+        ATTENDED_PASSWORD_PROOF_TRANSPORT_READY, MAX_PIXEL_OFFSET, PremiumCaptionAction,
+        PremiumViewportFit, consent_matches_peer, premium_caption_action,
+        premium_frameless_on_monitor, refuse_unverified_session_action, to_pixel,
+        verified_attended_session_authorization, verified_consent_for_authenticated_trust,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
