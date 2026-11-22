@@ -645,9 +645,8 @@ impl DesktopHost {
             apply_action(&mut self.shell, DesktopAction::ToggleRemoteControl);
         } else {
             self.shell.set_allow_remote_control(false);
-            self.shell.set_error(
-                "Remote sharing unavailable until secure password proof is verified",
-            );
+            self.shell
+                .set_error("Remote sharing unavailable until secure password proof is verified");
         }
     }
 
