@@ -118,7 +118,10 @@ impl std::fmt::Debug for ProductShell {
             .field("security_state", &self.security_state)
             .field("nav_tab", &self.nav_tab)
             .field("remote_id_present", &!self.remote_id_input.is_empty())
-            .field("remote_password_present", &!self.remote_password_input.is_empty())
+            .field(
+                "remote_password_present",
+                &!self.remote_password_input.is_empty(),
+            )
             .field("host_password", &self.host_password)
             .finish_non_exhaustive()
     }
