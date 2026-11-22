@@ -545,6 +545,10 @@ impl DesktopHost {
             shell.set_local_device_id("");
             shell.set_error("Device identity unavailable: cannot establish trusted sessions");
         }
+        // Generate exactly ONE authoritative OS-random temporary password
+        // on the real native host. Never present a random password created
+        // on a transient shell clone: the host would reject what it displays.
+        let _ = shell.host_password();
         let accessibility = accessibility_snapshot(&shell);
 
         // Production public listening stays disabled until authenticated
