@@ -132,3 +132,81 @@ fn encrypted_tcp_wrong_attended_password_is_denied_and_counts_host_attempt() {
     session.close();
     task.join().expect("host");
 }
+
+#[test]
+fn real_encrypted_tcp_attempts_preserve_host_lockout_across_connections() {
+    // A fresh encrypted TCP connection must NOT reset the host's attempt
+    // counter. This guards against per-socket password-bruteforce bypass.
+    let now = 70_000;
+    let client = DeviceIdentity::from_seed(&[115_u8; 32]);
+    let host = DeviceIdentity::from_seed(&[116_u8; 32]);
+    let host_id = host.public_id().to_owned();
+    let client_store = pin_peer(&host, now);
+    let host_store = pin_peer(&client, now);
+    let mut manager = HostPasswordManager::new(now);
+    manager.set_allow_remote_control(true);
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let address = listener.local_addr().expect("address");
+    let host_task = thread::spawn(move || {
+        for attempt in 0..6 {
+            let (socket, _) = listener.accept().expect("accept");
+            let tcp = TcpLanTransport::from_stream(socket).expect("tcp");
+            let mut channel = UnauthenticatedNoiseChannel::accept(tcp).expect("Noise responder");
+            let result = host_verify_attended_password(
+                &mut channel,
+                &host,
+                &host_store,
+                &mut manager,
+                "kmj-tenant",
+                now,
+            );
+            if attempt < 4 {
+                assert!(
+                    matches!(
+                        result,
+                        Err(AttendedProofError::Password(
+                            PasswordVerificationError::InvalidPassword { .. }
+                        ))
+                    ),
+                    "wrong proof must increment host's shared attempt budget"
+                );
+            } else {
+                assert!(
+                    matches!(
+                        result,
+                        Err(AttendedProofError::Password(
+                            PasswordVerificationError::LockedOut { .. }
+                        ))
+                    ),
+                    "fifth and subsequent connection must be locked out"
+                );
+            }
+            channel.close();
+        }
+    });
+
+    for attempt in 0..6 {
+        let tcp = TcpLanTransport::connect(address, Duration::from_secs(2)).expect("connect");
+        let mut channel = UnauthenticatedNoiseChannel::connect(tcp).expect("Noise initiator");
+        let result = client_prove_attended_password(
+            &mut channel,
+            &client,
+            &client_store,
+            &host_id,
+            "kmj-tenant",
+            "00000000",
+            now,
+        );
+        if attempt < 5 {
+            assert_eq!(result, Err(AttendedProofError::Denied));
+        } else {
+            assert!(
+                result.is_err(),
+                "locked-out host must never issue a valid challenge"
+            );
+        }
+        channel.close();
+    }
+    host_task.join().expect("host");
+}

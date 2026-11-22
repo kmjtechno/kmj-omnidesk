@@ -5,9 +5,9 @@ use std::{num::NonZeroU32, path::PathBuf, sync::Arc};
 use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
+    attended_proof_wire::{client_prove_attended_password, host_verify_attended_password},
     device_enrollment::EnrollmentCoordinator,
     device_identity::DeviceIdentity,
-    mutual_identity::{client_mutual_identity_handshake, host_mutual_identity_handshake},
     noise_encrypted_transport::UnauthenticatedNoiseChannel,
     product_shell::{DeviceStatus, PrimaryView, ProductShell},
     transport::{HostTransport, Transport},
@@ -50,6 +50,41 @@ enum PremiumCaptionAction {
 // identity/session-bound, replay-safe encrypted proof receipt exists.
 // Never replace this guard with "password input is nonempty".
 const ATTENDED_PASSWORD_PROOF_TRANSPORT_READY: bool = false;
+
+// Compile-time refusal: an unaudited change enabling native remote control
+// fails test compilation rather than silently skipping the gate.
+#[cfg(test)]
+const _: () = assert!(!ATTENDED_PASSWORD_PROOF_TRANSPORT_READY);
+
+// Pre-release operator opt-in for authentication QA only. Unlike the future
+// remote-control listener, this accepts only explicit loopback/RFC1918/ULA
+// addresses and ALWAYS closes after verifying the password; no mouse/screen
+// or application session can be authorized by this mode.
+fn secure_proof_diagnostic_enabled() -> bool {
+    std::env::var("OMNIDESK_AUTH_PROBE_ONLY").as_deref() == Ok("1")
+}
+
+fn allowed_proof_diagnostic_bind(value: &str) -> Option<std::net::SocketAddr> {
+    use std::net::{IpAddr, SocketAddr};
+    let address: SocketAddr = value.parse().ok()?;
+    if address.port() == 0 {
+        return None;
+    }
+    let local = match address.ip() {
+        IpAddr::V4(ip) => ip.is_loopback() || ip.is_private(),
+        IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local(),
+    };
+    local.then_some(address)
+}
+
+fn secure_proof_diagnostic_bind() -> Option<std::net::SocketAddr> {
+    if !secure_proof_diagnostic_enabled() {
+        return None;
+    }
+    let value =
+        std::env::var("OMNIDESK_AUTH_PROBE_BIND").unwrap_or_else(|_| "127.0.0.1:21118".to_owned());
+    allowed_proof_diagnostic_bind(&value)
+}
 
 // Winit window attributes use logical sizes; rendering and mouse hitboxes
 // use *physical* client pixels. On a 200%-DPI P520 monitor the approved
@@ -296,33 +331,43 @@ impl DesktopHost {
         }
         let accessibility = accessibility_snapshot(&shell);
 
-        // No public listener while encrypted host-password proof is absent.
-        // A plaintext TCP port would expose an unused, unbounded attack
-        // surface even though authorization is already fail-closed.
+        // Production public listening stays disabled until authenticated
+        // encrypted control, separate visible consent and licensing all pass.
+        // A pre-release operator can opt into a PROOF-ONLY listener, strictly
+        // bound to loopback or a named private LAN address. It never grants
+        // remote desktop access and keeps the bounded incoming queue.
         let (incoming_tx, incoming_rx) = std::sync::mpsc::sync_channel::<IncomingPeer>(16);
-        if ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
-            let listen_port: u16 = std::env::var("OMNIDESK_LISTEN_PORT")
-                .ok()
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(21118);
-
-            // Never silently fall back to an unexpected ephemeral public port.
-            if let Ok(listener) = std::net::TcpListener::bind(("0.0.0.0", listen_port)) {
-                let _ = std::thread::Builder::new()
-                    .name("omnidesk-host-listener".to_owned())
-                    .spawn(move || {
-                        while let Ok((stream, peer_addr)) = listener.accept() {
-                            let deadline = Some(std::time::Duration::from_secs(3));
-                            let _ = stream.set_read_timeout(deadline);
-                            let _ = stream.set_write_timeout(deadline);
-                            let _ = stream.set_nodelay(true);
-                            match incoming_tx.try_send(IncomingPeer { stream, peer_addr }) {
-                                Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+        if let Some(listen_addr) = secure_proof_diagnostic_bind() {
+            match std::net::TcpListener::bind(listen_addr) {
+                Ok(listener) => {
+                    let result = std::thread::Builder::new()
+                        .name("omnidesk-auth-probe-listener".to_owned())
+                        .spawn(move || {
+                            while let Ok((stream, peer_addr)) = listener.accept() {
+                                let deadline = Some(std::time::Duration::from_secs(3));
+                                let _ = stream.set_read_timeout(deadline);
+                                let _ = stream.set_write_timeout(deadline);
+                                let _ = stream.set_nodelay(true);
+                                match incoming_tx.try_send(IncomingPeer { stream, peer_addr }) {
+                                    Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+                                }
                             }
-                        }
-                    });
+                        });
+                    if result.is_err() {
+                        shell.set_error("Authentication-only diagnostic listener failed to start");
+                    }
+                }
+                Err(err) => {
+                    shell.set_error(format!(
+                        "Authentication-only diagnostic listener could not bind: {err}"
+                    ));
+                }
             }
+        } else if secure_proof_diagnostic_enabled() {
+            shell.set_error(
+                "Authentication probe bind refused: use a named loopback or private LAN address",
+            );
         }
 
         Self {
@@ -476,17 +521,19 @@ impl DesktopHost {
             .map_or(0, |d| d.as_secs());
         match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
             Ok(transport) => {
-                // Require a real Noise AEAD handshake BEFORE Ed25519 identity
-                // signatures, then sign the exact handshake hash to prevent
-                // active MITM from splicing two distinct encrypted sessions.
+                // This is a diagnostic authentication path, never a
+                // control capability. First establish Noise, verify pinned
+                // Ed25519 identities on its hash, then prove the host's
+                // short-lived password on the SAME encrypted channel.
                 let result = match UnauthenticatedNoiseChannel::connect(transport) {
                     Ok(mut encrypted) => {
-                        let verified = client_mutual_identity_handshake(
+                        let verified = client_prove_attended_password(
                             &mut encrypted,
                             &identity,
                             &store,
                             &expected_host_id,
                             &tenant,
+                            self.shell.remote_password_input(),
                             now,
                         );
                         encrypted.close();
@@ -494,14 +541,17 @@ impl DesktopHost {
                     }
                     Err(err) => Err(format!("Noise handshake failed: {err:?}")),
                 };
+                // Never carry a plaintext operator password into another
+                // attempted session or leave it visible after this attempt.
+                self.shell.clear_remote_password();
                 self.shell.disconnect();
                 match result {
-                    Ok(_) => self.shell.set_error(
-                        "Encrypted mutual device identity verified; attended password proof and remote control remain unavailable",
+                    Ok(()) => self.shell.set_error(
+                        "Encrypted peer and temporary password verified (diagnostic only); no remote-control session authorized",
                     ),
                     Err(err) => self
                         .shell
-                        .set_error(format!("Encrypted peer authentication rejected: {err}")),
+                        .set_error(format!("Encrypted attended authentication rejected: {err}")),
                 }
             }
             Err(err) => {
@@ -576,10 +626,16 @@ impl DesktopHost {
                 .map_or(0, |d| d.as_secs());
             let result = match UnauthenticatedNoiseChannel::accept(transport) {
                 Ok(mut encrypted) => {
-                    let verified = host_mutual_identity_handshake(
+                    // Host-only challenge creation, lockout and expiration
+                    // are owned by the displayed local password manager.
+                    // The authenticated encrypted channel is always CLOSED
+                    // after this probe: consent and licensing are separate.
+                    let _ = self.shell.host_password();
+                    let verified = host_verify_attended_password(
                         &mut encrypted,
                         &identity,
                         &store,
+                        self.shell.host_password_mut(),
                         &tenant,
                         now,
                     );
@@ -590,12 +646,12 @@ impl DesktopHost {
             };
             self.shell.disconnect();
             match result {
-                Ok(_) => self.shell.set_error(
-                    "Incoming encrypted identity verified only; host password proof and remote control remain unavailable",
+                Ok(()) => self.shell.set_error(
+                    "Incoming encrypted peer and temporary password verified (diagnostic only); host has NOT authorized remote control",
                 ),
                 Err(err) => self
                     .shell
-                    .set_error(format!("Incoming encrypted peer authentication rejected: {err}")),
+                    .set_error(format!("Incoming encrypted attended authentication rejected: {err}")),
             }
             self.refresh_presentation();
         }
@@ -638,10 +694,19 @@ impl DesktopHost {
     fn apply_host_sharing_toggle(&mut self) {
         if ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
             apply_action(&mut self.shell, DesktopAction::ToggleRemoteControl);
+        } else if secure_proof_diagnostic_bind().is_some() {
+            // The toggle only permits host password PROOF in the explicit
+            // pre-release diagnostic. Even if enabled, peer control and
+            // session authorization remain hard-disabled.
+            apply_action(&mut self.shell, DesktopAction::ToggleRemoteControl);
+            self.shell.set_error(
+                "Authentication-only LAN probe: no desktop control, screen or files are shared",
+            );
         } else {
             self.shell.set_allow_remote_control(false);
-            self.shell
-                .set_error("Remote sharing unavailable until secure password proof is verified");
+            self.shell.set_error(
+                "Remote sharing disabled: encrypted proof alone does not authorize desktop control",
+            );
         }
     }
 
@@ -652,10 +717,20 @@ impl DesktopHost {
             self.shell.set_error("Please enter a Remote Device ID");
         } else if self.shell.remote_password_input().is_empty() {
             self.shell.set_error("Please enter the session password");
-        } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+        } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY && !secure_proof_diagnostic_enabled() {
             self.shell.disconnect();
-            self.shell
-                .set_error("Secure remote connection unavailable: host password proof pending");
+            self.shell.set_error(
+                "Remote desktop disabled: host consent, licensing and control transport not ready",
+            );
+        } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+            // Authentication QA only: validate a pinned Remote ID and probe
+            // over Noise, with no session permission or control granted.
+            if self.shell.begin_connect_remote_id().is_ok() {
+                self.try_connect_peer();
+            }
+            // Failed early trust/endpoint/identity checks must not leave the
+            // operator's password in the editable UI buffer.
+            self.shell.clear_remote_password();
         } else {
             apply_action(&mut self.shell, DesktopAction::ConnectRemoteId);
             if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
@@ -1007,8 +1082,18 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.poll_incoming();
+        if secure_proof_diagnostic_enabled() {
+            // A TCP listener runs on another thread. Without a wake event,
+            // winit's default Wait flow may sleep until the user moves the
+            // mouse, leaving an accepted peer stuck in the queue. Schedule
+            // four low-duty-cycle wakeups per second ONLY in opt-in probe
+            // mode; normal production UI retains its event-driven idle.
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+                std::time::Instant::now() + std::time::Duration::from_millis(250),
+            ));
+        }
     }
 }
 
@@ -1035,13 +1120,46 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ATTENDED_PASSWORD_PROOF_TRANSPORT_READY, MAX_PIXEL_OFFSET, PremiumCaptionAction,
-        PremiumViewportFit, consent_matches_peer, premium_caption_action,
-        premium_frameless_on_monitor, refuse_unverified_session_action, to_pixel,
-        verified_attended_session_authorization, verified_consent_for_authenticated_trust,
+        MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, allowed_proof_diagnostic_bind,
+        consent_matches_peer, premium_caption_action, premium_frameless_on_monitor,
+        refuse_unverified_session_action, to_pixel, verified_attended_session_authorization,
+        verified_consent_for_authenticated_trust,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn pre_release_proof_probe_rejects_public_and_wildcard_network_listening() {
+        for addr in [
+            "0.0.0.0:21118",
+            "[::]:21118",
+            "8.8.8.8:21118",
+            "203.0.113.11:21118",
+            "[2606:4700:4700::1111]:21118",
+            "127.0.0.1:0",
+            "not-a-socket-address",
+        ] {
+            assert_eq!(
+                allowed_proof_diagnostic_bind(addr),
+                None,
+                "probe must fail closed for {addr}"
+            );
+        }
+        for addr in [
+            "127.0.0.1:21118",
+            "[::1]:21118",
+            "10.0.0.4:21118",
+            "172.16.1.10:21118",
+            "192.168.1.15:21118",
+            "[fd00::1]:21118",
+        ] {
+            assert_eq!(
+                allowed_proof_diagnostic_bind(addr).map(|parsed| parsed.to_string()),
+                Some(addr.to_owned()),
+                "only explicitly named local/private interfaces may bind"
+            );
+        }
+    }
 
     #[test]
     fn windows_high_dpi_launch_uses_physical_artboard_and_logical_minimum() {
@@ -1204,7 +1322,7 @@ mod tests {
             &shell,
             Some("verified-peer"),
             true,
-            ATTENDED_PASSWORD_PROOF_TRANSPORT_READY,
+            super::ATTENDED_PASSWORD_PROOF_TRANSPORT_READY,
         ));
         assert!(!verified_attended_session_authorization(
             &shell,
