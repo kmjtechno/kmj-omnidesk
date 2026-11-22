@@ -1115,8 +1115,8 @@ mod tests {
                 layout.quick_actions.x + 25,
                 layout.quick_actions.y + 70,
             ),
-            None,
-            "unimplemented quick actions cannot be clickable"
+            Some(DesktopAction::FocusRemoteIdInput),
+            "New Session only focuses the existing secure ID form"
         );
     }
 
