@@ -7,6 +7,7 @@
 
 pub mod activation_proof;
 pub mod adaptive_session;
+pub mod attended_proof_wire;
 pub mod authentication;
 pub mod collaboration;
 pub mod commercial_gate;

@@ -79,6 +79,7 @@ pub struct HostProofChallenge {
     expires_at: u64,
     rotation_count: u64,
     policy_revision: u64,
+    bound_to_noise: bool,
     consumed: bool,
 }
 
@@ -108,6 +109,34 @@ impl HostProofChallenge {
     pub const fn host_public_key(&self) -> &[u8; 32] {
         &self.host_public_key
     }
+    /// Bind a fresh host challenge to the exact encrypted Noise transcript.
+    ///
+    /// Called once *after* mutual enrolled Ed25519 identity proof. The
+    /// transcript hash is mixed into the OS-random nonce before the password
+    /// proof is generated; a credential response from any other encrypted
+    /// channel cannot satisfy the pending host verifier.
+    ///
+    /// # Errors
+    /// Rejects missing/zero hashes, reuse and already-consumed challenges.
+    pub fn bind_noise_hash(
+        &mut self,
+        handshake_hash: &[u8; 32],
+    ) -> Result<(), PasswordVerificationError> {
+        if self.consumed {
+            return Err(PasswordVerificationError::ChallengeConsumed);
+        }
+        if self.bound_to_noise || *handshake_hash == [0_u8; 32] {
+            return Err(PasswordVerificationError::InvalidBinding);
+        }
+        let mut digest = Sha256::new();
+        digest.update(b"KMJ_OMNIDESK_ATTENDED_NOISE_BIND_V1");
+        digest.update(self.nonce);
+        digest.update(handshake_hash);
+        self.nonce.copy_from_slice(&digest.finalize());
+        self.bound_to_noise = true;
+        Ok(())
+    }
+
     /// Whether this host challenge has been spent.
     #[must_use]
     pub const fn is_consumed(&self) -> bool {
@@ -303,6 +332,7 @@ impl HostPasswordManager {
             expires_at: now_epoch_secs.saturating_add(60),
             rotation_count: self.rotation_count,
             policy_revision: self.policy_revision,
+            bound_to_noise: false,
             consumed: false,
         })
     }
@@ -625,6 +655,45 @@ mod tests {
             host.issue_proof_challenge("host-p520", [1_u8; 32], [1_u8; 32], now),
             Err(PasswordVerificationError::InvalidBinding)
         ));
+    }
+
+    #[test]
+    fn noise_bound_host_proof_refuses_cross_channel_and_double_binding() {
+        let now = 2_600;
+        let mut host = HostPasswordManager::new(now);
+        host.set_allow_remote_control(true);
+        let password = host.password().to_owned();
+        let mut one = host
+            .issue_proof_challenge("kmj-host", [6_u8; 32], [7_u8; 32], now)
+            .expect("challenge");
+        let initial_nonce = *one.nonce();
+        let mut another = host
+            .issue_proof_challenge("kmj-host", [6_u8; 32], [7_u8; 32], now)
+            .expect("second challenge");
+        one.bind_noise_hash(&[31_u8; 32]).expect("bind one");
+        another.bind_noise_hash(&[32_u8; 32]).expect("bind another");
+        assert_ne!(*one.nonce(), initial_nonce);
+        assert_ne!(one.nonce(), another.nonce());
+        assert_eq!(
+            one.bind_noise_hash(&[31_u8; 32]),
+            Err(PasswordVerificationError::InvalidBinding)
+        );
+        let invalid = generate_password_proof(
+            &password,
+            one.host_device_id(),
+            one.session_id(),
+            &initial_nonce,
+            one.client_public_key(),
+            one.host_public_key(),
+        );
+        assert!(matches!(
+            host.verify_proof_once(&mut one, &invalid, now),
+            Err(PasswordVerificationError::InvalidPassword { .. })
+        ));
+        assert_eq!(
+            one.bind_noise_hash(&[31_u8; 32]),
+            Err(PasswordVerificationError::ChallengeConsumed)
+        );
     }
 
     #[test]
