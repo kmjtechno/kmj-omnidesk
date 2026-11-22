@@ -83,7 +83,7 @@ pub enum DeviceFilter {
 }
 
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProductShell {
     devices: Vec<DeviceSummary>,
     // Binds queued connect actions to the exact directory snapshot.
@@ -106,6 +106,22 @@ pub struct ProductShell {
     remote_password_input: String,
     remote_password_focused: bool,
     remote_password_visible: bool,
+}
+
+// The shell stores the operator's entered remote password. An automatic
+// derived Debug dump would print that plaintext into telemetry/crash logs.
+impl std::fmt::Debug for ProductShell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProductShell")
+            .field("device_count", &self.devices.len())
+            .field("device_revision", &self.device_revision)
+            .field("security_state", &self.security_state)
+            .field("nav_tab", &self.nav_tab)
+            .field("remote_id_present", &!self.remote_id_input.is_empty())
+            .field("remote_password_present", &!self.remote_password_input.is_empty())
+            .field("host_password", &self.host_password)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProductShell {
@@ -591,6 +607,17 @@ mod tests {
             display_name: format!("Device {id}"),
             status,
         }
+    }
+
+    #[test]
+    fn shell_debug_redacts_remote_and_host_passwords() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_password_input("REMOTE-PRIVATE-KMJ-SECRET");
+        let local_password = shell.host_password().to_owned();
+        let report = format!("{shell:?}");
+        assert!(report.contains("remote_password_present: true"));
+        assert!(!report.contains("REMOTE-PRIVATE-KMJ-SECRET"));
+        assert!(!report.contains(&local_password));
     }
 
     #[test]
