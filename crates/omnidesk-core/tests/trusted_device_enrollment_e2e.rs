@@ -227,6 +227,9 @@ fn negative_session_connect_failure_cases_fail_closed() {
 
     let trusted_key = SigningKey::from_bytes(&[0x33_u8; 32]);
     let trusted_pk = trusted_key.verifying_key().to_bytes();
+    let revoked_public_key = SigningKey::from_bytes(&[0x34_u8; 32])
+        .verifying_key()
+        .to_bytes();
 
     let mut store = TrustedDeviceStore::new();
     store
@@ -246,7 +249,7 @@ fn negative_session_connect_failure_cases_fail_closed() {
         .add(TrustedDeviceRecord {
             device_id: "revoked-dev".to_owned(),
             display_name: "Revoked Device".to_owned(),
-            public_key: trusted_pk,
+            public_key: revoked_public_key,
             enrolled_at_epoch_secs: now - 100,
             trust_expires_at_epoch_secs: now + 500,
             managed: true,
