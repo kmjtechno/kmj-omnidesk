@@ -2960,16 +2960,16 @@ fn draw_premium_dashboard(
         p.foreground,
     );
     canvas.rounded_panel(
-        license.x + license.width.saturating_sub(76),
+        license.x + license.width.saturating_sub(116),
         license.y + 18,
-        60,
+        100,
         22,
         5,
         0x17_1b_29,
         0x3d_45_57,
     );
     canvas.text(
-        license.x + license.width.saturating_sub(62),
+        license.x + license.width.saturating_sub(108),
         license.y + 21,
         "Unverified",
         1,
@@ -3042,16 +3042,16 @@ fn draw_premium_dashboard(
         p.foreground,
     );
     canvas.rounded_panel(
-        health.x + health.width.saturating_sub(92),
+        health.x + health.width.saturating_sub(116),
         health.y + 18,
-        78,
+        102,
         22,
         5,
         0x17_1b_29,
         0x3d_45_57,
     );
     canvas.text(
-        health.x + health.width.saturating_sub(84),
+        health.x + health.width.saturating_sub(108),
         health.y + 21,
         "Unverified",
         1,
