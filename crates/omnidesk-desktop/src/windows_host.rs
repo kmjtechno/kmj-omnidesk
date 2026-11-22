@@ -1,6 +1,14 @@
 #![cfg(windows)]
 
-use std::{num::NonZeroU32, path::PathBuf, sync::Arc};
+use std::{
+    num::NonZeroU32,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, TryRecvError},
+    },
+};
 
 use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
@@ -253,6 +261,40 @@ struct IncomingPeer {
     peer_addr: std::net::SocketAddr,
 }
 
+/// One in-flight, password-only diagnostic. It MUST NOT carry a control
+/// capability or be used to display a remote-control permission prompt.
+struct OutboundProofJob {
+    result_rx: Receiver<Result<(), String>>,
+    cancelled: Arc<AtomicBool>,
+    operator_cancelled: bool,
+}
+
+impl OutboundProofJob {
+    fn cancel(&mut self) {
+        self.operator_cancelled = true;
+        self.cancelled.store(true, Ordering::Release);
+    }
+
+    fn completed_status(&self) -> Option<String> {
+        match self.result_rx.try_recv() {
+            Ok(result) => {
+                if self.operator_cancelled {
+                    Some("Encrypted authentication probe cancelled; no remote control".to_owned())
+                } else {
+                    Some(match result {
+                        Ok(()) => "Encrypted identity and temporary password verified (diagnostic only); remote control NOT authorized".to_owned(),
+                        Err(error) => format!("Encrypted authentication probe rejected: {error}"),
+                    })
+                }
+            }
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => {
+                Some("Authentication worker ended without a result; no session authorized".to_owned())
+            }
+        }
+    }
+}
+
 struct DesktopHost {
     // Drop platform adapters/surfaces before the window and context that provide their handles.
     surface: Option<Surface<OwnedDisplayHandle, Arc<Window>>>,
@@ -270,6 +312,7 @@ struct DesktopHost {
     cursor_position: Option<(usize, usize)>,
     frameless_premium: bool,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
+    outbound_proof: Option<OutboundProofJob>,
 }
 
 fn copy_to_clipboard(text: &str) {
@@ -386,6 +429,7 @@ impl DesktopHost {
             cursor_position: None,
             frameless_premium: false,
             incoming_rx,
+            outbound_proof: None,
         }
     }
 
