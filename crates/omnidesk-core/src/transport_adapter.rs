@@ -43,7 +43,10 @@ impl fmt::Display for TransportSessionError {
             Self::Auth(err) => write!(f, "authentication error: {err:?}"),
             Self::UntrustedPeer => write!(f, "peer public key is not enrolled in trusted store"),
             Self::PeerIdentityMismatch => {
-                write!(f, "claimed peer device ID does not match the verified trusted public key")
+                write!(
+                    f,
+                    "claimed peer device ID does not match the verified trusted public key"
+                )
             }
             Self::PeerRevoked => write!(f, "peer trust record has been revoked"),
             Self::TrustExpired => write!(f, "peer trust has expired"),
