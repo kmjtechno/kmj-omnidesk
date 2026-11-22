@@ -319,9 +319,8 @@ fn run_inbound_host_proof(
     } else {
         match HostTransport::from_tcp_stream(stream) {
             Ok(transport) => {
-                // The only extension of the default 5s I/O deadline is an
-                // operator-opted, 30s host consent window (plus 5s margin).
-                match transport.configure_attended_consent_timeout() {
+                // Reject unauthenticated/stalled peers on the original five-second deadline.
+                match transport.configure_attended_auth_timeout() {
                     Ok(()) => match UnauthenticatedNoiseChannel::accept(transport) {
                         Ok(mut encrypted) => {
                             let proof = if cancelled.load(Ordering::Acquire) {
@@ -342,6 +341,19 @@ fn run_inbound_host_proof(
                             };
                             match proof {
                                 Ok(receipt) => {
+                                    // Extend reads only after pinned peer and
+                                    // one-use host-password proof succeeded.
+                                    let consent_deadline =
+                                        encrypted.configure_attended_consent_timeout();
+                                    if let Err(err) = consent_deadline {
+                                        encrypted.close();
+                                        let _ = tx.send(InboundProofOutcome {
+                                            manager,
+                                            result: Err(format!("Consent timeout: {err:?}")),
+                                            peer_addr,
+                                        });
+                                        return;
+                                    }
                                     // Hand off one sealed receipt and the
                                     // authoritative lockout state to the UI.
                                     // Worker alone retains the AEAD channel.
@@ -461,7 +473,7 @@ impl OutboundProofJob {
                     Err("Operator cancelled before connect".to_owned())
                 } else {
                     match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
-                        Ok(transport) => match transport.configure_attended_consent_timeout() {
+                        Ok(transport) => match transport.configure_attended_auth_timeout() {
                             Ok(()) => match UnauthenticatedNoiseChannel::connect(transport) {
                                 Ok(mut encrypted) => {
                                     // Refuse to send the password proof if the
@@ -484,6 +496,9 @@ impl OutboundProofJob {
                                     // Require the host's later encrypted decision;
                                     // diagnostic mode cannot return control.
                                     let result = verified.and_then(|()| {
+                                        encrypted
+                                            .configure_attended_consent_timeout()
+                                            .map_err(|err| format!("Consent timeout: {err:?}"))?;
                                         client_await_attended_host_consent(&mut encrypted)
                                             .map_err(|err| format!("Host consent refused: {err:?}"))
                                     });
