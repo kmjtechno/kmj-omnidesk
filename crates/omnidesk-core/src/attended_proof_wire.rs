@@ -33,6 +33,7 @@ pub struct HostPasswordProofReceipt {
     host_public_key: [u8; 32],
     noise_handshake_hash: [u8; 32],
     session_id: [u8; 16],
+    password_generation: (u64, u64),
     verified_at_epoch_secs: u64,
 }
 
@@ -71,6 +72,12 @@ impl HostPasswordProofReceipt {
     #[must_use]
     pub const fn session_id(&self) -> &[u8; 16] {
         &self.session_id
+    }
+
+    /// Credential rotation and host sharing-policy generation at proof time.
+    #[must_use]
+    pub const fn password_generation(&self) -> (u64, u64) {
+        self.password_generation
     }
 
     /// When the host witnessed a successful proof.
@@ -223,6 +230,7 @@ pub fn host_verify_attended_password_with_receipt<T: Transport>(
                 host_public_key: host_key,
                 noise_handshake_hash: noise_hash,
                 session_id: *challenge.session_id(),
+                password_generation: challenge.approval_generation(),
                 verified_at_epoch_secs: now_epoch_secs,
             })
         }
