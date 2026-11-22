@@ -1145,3 +1145,53 @@ fn tcp_lan_full_handshake_expired_peer_rejected() {
 
     server_handle.join().expect("server join");
 }
+
+#[test]
+fn tcp_lan_handshake_rejects_enrolled_key_spoofing_another_device_id() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+    let address = listener.local_addr().expect("local address");
+    let now = 7_500_000_u64;
+    let valid_key = SigningKey::from_bytes(&[0x66_u8; 32]);
+    let valid_public_key = valid_key.verifying_key().to_bytes();
+
+    let mut store = TrustedDeviceStore::new();
+    store
+        .add(TrustedDeviceRecord {
+            device_id: "legitimate-enrolled-peer".to_owned(),
+            display_name: "Legitimate Peer".to_owned(),
+            public_key: valid_public_key,
+            enrolled_at_epoch_secs: now - 100,
+            trust_expires_at_epoch_secs: now + 10_000,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .expect("enroll legitimate device");
+
+    let server_handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        let transport = HostTransport::from_tcp_stream(stream).expect("transport");
+        let mut adapter = TransportSessionAdapter::new(transport, "kmj-tenant");
+
+        // Even an authentic Ed25519 signature cannot assign its enrolled key
+        // to an arbitrary device ID from an unauthenticated Hello message.
+        assert!(matches!(
+            host_negotiate_and_authenticate_session(&mut adapter, &store, now),
+            Err(TransportSessionError::PeerIdentityMismatch)
+        ));
+        assert_eq!(adapter.authenticated_device_id(), None);
+        assert!(!adapter.is_control_authorized());
+        adapter.close();
+    });
+
+    let socket = std::net::TcpStream::connect(address).expect("connect");
+    let mut client = HostTransport::from_tcp_stream(socket).expect("transport");
+    let result = peer_negotiate_and_authenticate_session(
+        &mut client,
+        &valid_key,
+        "spoofed-other-device",
+        "kmj-tenant",
+    );
+    assert!(result.is_err(), "claimed device ID must match trusted key");
+    server_handle.join().expect("server");
+}
