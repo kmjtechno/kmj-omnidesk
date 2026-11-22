@@ -113,7 +113,7 @@ fn require_pinned(
     if record.revoked {
         return Err(MutualIdentityError::Revoked);
     }
-    if now_epoch_secs > record.trust_expires_at_epoch_secs {
+    if now_epoch_secs >= record.trust_expires_at_epoch_secs {
         return Err(MutualIdentityError::Expired);
     }
     Ok(())
