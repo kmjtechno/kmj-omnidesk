@@ -462,7 +462,8 @@ impl OutboundProofJob {
                     Err("Operator cancelled before connect".to_owned())
                 } else {
                     match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
-                        Ok(transport) => match UnauthenticatedNoiseChannel::connect(transport) {
+                        Ok(transport) => match transport.configure_attended_consent_timeout() {
+                            Ok(()) => match UnauthenticatedNoiseChannel::connect(transport) {
                             Ok(mut encrypted) => {
                                 // Refuse to send the password proof if the
                                 // operator cancelled during Noise negotiation.
@@ -480,10 +481,19 @@ impl OutboundProofJob {
                                     )
                                     .map_err(|err| format!("{err:?}"))
                                 };
+                                // Password proof is not permission.
+                                // Require the host's later encrypted decision;
+                                // diagnostic mode cannot return control.
+                                let result = verified.and_then(|()| {
+                                    client_await_attended_host_consent(&mut encrypted)
+                                        .map_err(|err| format!("Host consent refused: {err:?}"))
+                                });
                                 encrypted.close();
-                                verified
+                                result
                             }
                             Err(err) => Err(format!("Noise handshake rejected: {err:?}")),
+                        },
+                            Err(err) => Err(format!("Consent timeout rejected: {err:?}")),
                         },
                         Err(err) => Err(format!("TCP connection rejected: {err:?}")),
                     }
