@@ -22,7 +22,7 @@ use winit::{
 use crate::{
     AccessibilityNode, DesktopAction, accessibility_snapshot,
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
-    action_at_point, apply_action, apply_key,
+    action_at_point, action_for_key, apply_action,
     brand::official_kmj_mark,
     controls_for_shell,
     layout::{PremiumViewportFit, V7_ART_WIDTH, initial_window_inner_size, initial_window_origin},
@@ -970,11 +970,13 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                                 control.enabled && control.keyboard_key == key.to_ascii_lowercase()
                             })
                             .map(|control| control.action);
-                        if let Some(action) = selected_action {
+                        // All keyboard actions, including legacy fallback
+                        // shortcuts, must pass the same transport/password
+                        // proof security guard as pointer and AccessKit clicks.
+                        if let Some(action) = selected_action
+                            .or_else(|| action_for_key(self.shell.primary_view(), key))
+                        {
                             self.dispatch_action(action);
-                        } else if apply_key(&mut self.shell, key) {
-                            self.accessibility_focus = None;
-                            self.refresh_presentation();
                         }
                     }
                 }
