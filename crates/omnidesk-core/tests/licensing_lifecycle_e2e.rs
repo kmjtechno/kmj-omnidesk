@@ -197,6 +197,7 @@ fn e2e_activation_and_renewal_lifecycle() {
         state: "ACTIVE".to_owned(),
         sequence: 1,
         reason_code: None,
+        reason_codes: Vec::new(),
         revoked_at: None,
         server_time: now + 500,
     };
@@ -539,6 +540,7 @@ fn e2e_revocation_overrides_grace_permanently() {
         state: "REVOKED".to_owned(),
         sequence: 1,
         reason_code: Some("DEVICE_TRANSFERRED".to_owned()),
+        reason_codes: Vec::new(),
         revoked_at: Some(now + 50),
         server_time: now + 50,
     };
