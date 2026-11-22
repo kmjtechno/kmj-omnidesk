@@ -2924,14 +2924,28 @@ fn draw_premium_dashboard(
         draw_monitor_icon(canvas, devices.x + 20, y + 4, 14, 10, 0x8a_96_aa);
         let name = entry.label.split(" — ").next().unwrap_or("Device");
         canvas.text_clipped(
-            devices.x + 44, y, name, 1, devices.width.saturating_sub(64), p.foreground,
+            devices.x + 44,
+            y,
+            name,
+            1,
+            devices.width.saturating_sub(64),
+            p.foreground,
         );
-        canvas.text(devices.x + 44, y + 20, "Authentication not verified", 1, 0x8a_96_aa);
+        canvas.text(
+            devices.x + 44,
+            y + 20,
+            "Authentication not verified",
+            1,
+            0x8a_96_aa,
+        );
     }
     if count == 0 {
         canvas.text(
-            devices.x + 28, devices.y + 90,
-            "No verified device entries to display", 1, 0x8a_96_aa,
+            devices.x + 28,
+            devices.y + 90,
+            "No verified device entries to display",
+            1,
+            0x8a_96_aa,
         );
     }
 
@@ -2953,8 +2967,11 @@ fn draw_premium_dashboard(
     );
     // Session history is unavailable until a trusted session store exists.
     canvas.text(
-        sessions.x + 28, sessions.y + 90,
-        "No verified session history", 1, 0x8a_96_aa,
+        sessions.x + 28,
+        sessions.y + 90,
+        "No verified session history",
+        1,
+        0x8a_96_aa,
     );
 
     // 7. Right Column: License, System Status, Quick Actions
