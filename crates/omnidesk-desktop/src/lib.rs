@@ -139,8 +139,14 @@ pub struct PresentationModel {
 
 #[must_use]
 pub fn presentation_for(shell: &ProductShell) -> PresentationModel {
-    let mut shell_clone = shell.clone();
-    let host_session_password = shell_clone.host_password_formatted();
+    // Read the authoritative host credential without generating a fresh
+    // secret on a disposable clone. An uninitialised headless shell must
+    // display a placeholder, never a password that the host cannot verify.
+    let host_session_password = if shell.host_password_ref().password().is_empty() {
+        "--------".to_owned()
+    } else {
+        shell.host_password_ref().formatted_password()
+    };
     let status = match shell.primary_view() {
         PrimaryView::Devices => "Disconnected",
         PrimaryView::PermissionPrompt => "Authorization required",
