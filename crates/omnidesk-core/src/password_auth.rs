@@ -137,6 +137,12 @@ impl HostProofChallenge {
         Ok(())
     }
 
+    /// Rotation and sharing-policy generation bound to this challenge.
+    #[must_use]
+    pub const fn approval_generation(&self) -> (u64, u64) {
+        (self.rotation_count, self.policy_revision)
+    }
+
     /// Whether this host challenge has been spent.
     #[must_use]
     pub const fn is_consumed(&self) -> bool {
@@ -227,6 +233,13 @@ impl HostPasswordManager {
     #[must_use]
     pub const fn expires_at_epoch_secs(&self) -> u64 {
         self.expires_at_epoch_secs
+    }
+
+    /// Generation that changes whenever the credential rotates or the host's
+    /// sharing policy changes. Pending consent must be invalidated after either.
+    #[must_use]
+    pub const fn approval_generation(&self) -> (u64, u64) {
+        (self.rotation_count, self.policy_revision)
     }
 
     #[must_use]
