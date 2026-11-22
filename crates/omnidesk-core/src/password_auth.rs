@@ -606,6 +606,29 @@ mod tests {
     }
 
     #[test]
+    fn proof_challenge_rejects_missing_identity_or_unverified_host_policy() {
+        let now = 4_000;
+        let mut host = HostPasswordManager::new(now);
+        assert!(matches!(
+            host.issue_proof_challenge("host-p520", [1_u8; 32], [2_u8; 32], now),
+            Err(PasswordVerificationError::RemoteControlDisabled)
+        ));
+        host.set_allow_remote_control(true);
+        assert!(matches!(
+            host.issue_proof_challenge("", [1_u8; 32], [2_u8; 32], now),
+            Err(PasswordVerificationError::InvalidBinding)
+        ));
+        assert!(matches!(
+            host.issue_proof_challenge("host-p520", [0_u8; 32], [2_u8; 32], now),
+            Err(PasswordVerificationError::InvalidBinding)
+        ));
+        assert!(matches!(
+            host.issue_proof_challenge("host-p520", [1_u8; 32], [1_u8; 32], now),
+            Err(PasswordVerificationError::InvalidBinding)
+        ));
+    }
+
+    #[test]
     fn host_password_generates_and_formats_cleanly() {
         let mgr = HostPasswordManager::new(1000);
         assert_eq!(mgr.password().len(), 8);
