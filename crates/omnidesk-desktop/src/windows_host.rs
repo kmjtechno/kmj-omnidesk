@@ -517,8 +517,23 @@ impl DesktopHost {
     }
 
     fn try_connect_peer(&mut self) {
-        // A local outbound connection is the CLIENT of the host's signed
-        // challenge, not a second host waiting for an inbound Hello.
+        // Serialise proof attempts: concurrent GUI clicks must not spawn
+        // overlapping password guesses or overwrite one another's result.
+        if self.outbound_proof.is_some() {
+            self.shell.set_error(
+                "Encrypted authentication already running; finish or cancel this attempt",
+            );
+            return;
+        }
+        // The diagnostic is intentionally opt-in and never a production
+        // control path, even if a user clicks an enrolled device card.
+        if !secure_proof_diagnostic_enabled() && !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+            self.shell.disconnect();
+            self.shell.set_error(
+                "Remote control disabled: encrypted consent/licensing session is not ready",
+            );
+            return;
+        }
         let Some(expected_host_id) = self.shell.selected_device().map(str::to_owned) else {
             self.shell.disconnect();
             self.shell
@@ -531,10 +546,19 @@ impl DesktopHost {
                 .set_error("Trusted peer store unavailable; connection refused");
             return;
         };
-        if store.get(&expected_host_id).is_none() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let Some(record) = store.get(&expected_host_id) else {
             self.shell.disconnect();
             self.shell
                 .set_error("Remote host ID is not enrolled; connection refused");
+            return;
+        };
+        if !record.is_trusted_at(now) {
+            self.shell.disconnect();
+            self.shell
+                .set_error("Remote host trust revoked or expired; connection refused");
             return;
         }
         let Ok(identity) = DeviceIdentity::load_from_path(&self.identity_path) else {
@@ -543,7 +567,6 @@ impl DesktopHost {
                 .set_error("Local signing identity unavailable; connection refused");
             return;
         };
-
         let target_addr = expected_host_id
             .parse::<std::net::SocketAddr>()
             .ok()
@@ -560,49 +583,78 @@ impl DesktopHost {
             return;
         };
         let tenant = std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
-            Ok(transport) => {
-                // This is a diagnostic authentication path, never a
-                // control capability. First establish Noise, verify pinned
-                // Ed25519 identities on its hash, then prove the host's
-                // short-lived password on the SAME encrypted channel.
-                let result = match UnauthenticatedNoiseChannel::connect(transport) {
-                    Ok(mut encrypted) => {
-                        let verified = client_prove_attended_password(
-                            &mut encrypted,
-                            &identity,
-                            &store,
-                            &expected_host_id,
-                            &tenant,
-                            self.shell.remote_password_input(),
-                            now,
-                        );
-                        encrypted.close();
-                        verified.map_err(|err| format!("{err:?}"))
+        let password = self.shell.remote_password_input().to_owned();
+        // Immediately remove the operator's plaintext password from the
+        // editable GUI. The one worker owns it until completion.
+        self.shell.clear_remote_password();
+        self.shell.disconnect();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let (tx, result_rx) = mpsc::sync_channel(1);
+        let thread = std::thread::Builder::new()
+            .name("omnidesk-outbound-auth-probe".to_owned())
+            .spawn(move || {
+                let result = if worker_cancelled.load(Ordering::Acquire) {
+                    Err("Operator cancelled before connect".to_owned())
+                } else {
+                    match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
+                        Ok(transport) => match UnauthenticatedNoiseChannel::connect(transport) {
+                            Ok(mut encrypted) => {
+                                // On a cancel while negotiating Noise, refuse
+                                // to send any credential proof if possible.
+                                let verified = if worker_cancelled.load(Ordering::Acquire) {
+                                    Err("Operator cancelled during Noise handshake".to_owned())
+                                } else {
+                                    client_prove_attended_password(
+                                        &mut encrypted,
+                                        &identity,
+                                        &store,
+                                        &expected_host_id,
+                                        &tenant,
+                                        &password,
+                                        now,
+                                    )
+                                    .map_err(|err| format!("{err:?}"))
+                                };
+                                encrypted.close();
+                                verified
+                            }
+                            Err(err) => Err(format!("Noise handshake rejected: {err:?}")),
+                        },
+                        Err(err) => Err(format!("TCP connection rejected: {err:?}")),
                     }
-                    Err(err) => Err(format!("Noise handshake failed: {err:?}")),
                 };
-                // Never carry a plaintext operator password into another
-                // attempted session or leave it visible after this attempt.
-                self.shell.clear_remote_password();
-                self.shell.disconnect();
-                match result {
-                    Ok(()) => self.shell.set_error(
-                        "Encrypted peer and temporary password verified (diagnostic only); no remote-control session authorized",
-                    ),
-                    Err(err) => self
-                        .shell
-                        .set_error(format!("Encrypted attended authentication rejected: {err}")),
-                }
+                // The result contains no credential. The original password
+                // remains solely inside this bounded worker until it exits.
+                let _ = tx.send(result);
+            });
+        match thread {
+            Ok(_) => {
+                self.outbound_proof = Some(OutboundProofJob {
+                    result_rx,
+                    cancelled,
+                    operator_cancelled: false,
+                });
+                self.shell
+                    .set_error("Encrypted password authentication in progress (no remote control)");
             }
             Err(err) => {
-                self.shell.disconnect();
                 self.shell
-                    .set_error(format!("Cannot reach enrolled host at {address}: {err:?}"));
+                    .set_error(format!("Authentication worker could not start: {err}"));
             }
+        }
+    }
+
+    fn poll_outbound_proof(&mut self) {
+        let status = self
+            .outbound_proof
+            .as_ref()
+            .and_then(OutboundProofJob::completed_status);
+        if let Some(status) = status {
+            self.outbound_proof = None;
+            self.shell.disconnect();
+            self.shell.set_error(status);
+            self.refresh_presentation();
         }
     }
 
