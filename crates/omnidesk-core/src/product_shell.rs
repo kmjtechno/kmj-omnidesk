@@ -349,7 +349,7 @@ impl ProductShell {
             return Err(err);
         }
 
-        if current_epoch_secs > record.trust_expires_at_epoch_secs {
+        if !record.is_trusted_at(current_epoch_secs) && !record.revoked {
             let err = ConnectError::TrustExpired(device_id.to_owned());
             self.last_error = Some(format!(
                 "Device '{device_id}' trust expired at {}",
@@ -634,6 +634,41 @@ mod tests {
 
         shell.mark_authorized();
         assert_eq!(shell.security_state(), SecurityState::Authorized);
+    }
+
+    #[test]
+    fn trusted_connect_denies_exact_expiration_second() {
+        use crate::trusted_device_store::{
+            PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
+        };
+
+        let now = 20_000_u64;
+        let mut store = TrustedDeviceStore::new();
+        let record = TrustedDeviceRecord {
+            device_id: "known-peer".to_owned(),
+            display_name: "Known Peer".to_owned(),
+            public_key: ed25519_dalek::SigningKey::from_bytes(&[0x6A_u8; 32])
+                .verifying_key()
+                .to_bytes(),
+            enrolled_at_epoch_secs: now - 100,
+            trust_expires_at_epoch_secs: now,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Online,
+        };
+        store.add(record).expect("enroll peer");
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![device("known-peer", DeviceStatus::Online)]);
+        assert_eq!(
+            shell.begin_connect_trusted("known-peer", &store, now),
+            Err(ConnectError::TrustExpired("known-peer".to_owned()))
+        );
+        assert_eq!(shell.selected_device(), None);
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
+        assert_eq!(
+            shell.begin_connect_trusted("known-peer", &store, now - 1),
+            Ok(())
+        );
     }
 
     #[test]

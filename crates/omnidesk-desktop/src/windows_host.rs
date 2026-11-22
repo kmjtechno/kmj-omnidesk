@@ -1,6 +1,14 @@
 #![cfg(windows)]
 
-use std::{num::NonZeroU32, path::PathBuf, sync::Arc};
+use std::{
+    num::NonZeroU32,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, TryRecvError},
+    },
+};
 
 use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
@@ -253,6 +261,115 @@ struct IncomingPeer {
     peer_addr: std::net::SocketAddr,
 }
 
+// Build the outbound request on the GUI thread, then move it into exactly
+// one bounded worker. Secrets are never included in Debug/status messages.
+struct OutboundProofRequest {
+    address: std::net::SocketAddr,
+    expected_host_id: String,
+    identity: DeviceIdentity,
+    store: TrustedDeviceStore,
+    tenant: String,
+    password: String,
+    now: u64,
+}
+
+/// One in-flight, password-only diagnostic. It MUST NOT carry a control
+/// capability or be used to display a remote-control permission prompt.
+struct OutboundProofJob {
+    result_rx: Receiver<Result<(), String>>,
+    cancelled: Arc<AtomicBool>,
+    operator_cancelled: bool,
+}
+
+impl Drop for OutboundProofJob {
+    fn drop(&mut self) {
+        // Closing the UI must not leave a queued future password attempt.
+        self.cancelled.store(true, Ordering::Release);
+    }
+}
+
+impl OutboundProofJob {
+    fn launch(request: OutboundProofRequest) -> std::io::Result<Self> {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let (tx, result_rx) = mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("omnidesk-outbound-auth-probe".to_owned())
+            .spawn(move || {
+                let OutboundProofRequest {
+                    address,
+                    expected_host_id,
+                    identity,
+                    store,
+                    tenant,
+                    password,
+                    now,
+                } = request;
+                let result = if worker_cancelled.load(Ordering::Acquire) {
+                    Err("Operator cancelled before connect".to_owned())
+                } else {
+                    match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
+                        Ok(transport) => match UnauthenticatedNoiseChannel::connect(transport) {
+                            Ok(mut encrypted) => {
+                                // Refuse to send the password proof if the
+                                // operator cancelled during Noise negotiation.
+                                let verified = if worker_cancelled.load(Ordering::Acquire) {
+                                    Err("Operator cancelled during Noise handshake".to_owned())
+                                } else {
+                                    client_prove_attended_password(
+                                        &mut encrypted,
+                                        &identity,
+                                        &store,
+                                        &expected_host_id,
+                                        &tenant,
+                                        &password,
+                                        now,
+                                    )
+                                    .map_err(|err| format!("{err:?}"))
+                                };
+                                encrypted.close();
+                                verified
+                            }
+                            Err(err) => Err(format!("Noise handshake rejected: {err:?}")),
+                        },
+                        Err(err) => Err(format!("TCP connection rejected: {err:?}")),
+                    }
+                };
+                // Never return the plaintext password to the UI or logs.
+                let _ = tx.send(result);
+            })?;
+        Ok(Self {
+            result_rx,
+            cancelled,
+            operator_cancelled: false,
+        })
+    }
+
+    fn cancel(&mut self) {
+        self.operator_cancelled = true;
+        self.cancelled.store(true, Ordering::Release);
+    }
+
+    fn completed_status(&self) -> Option<String> {
+        match self.result_rx.try_recv() {
+            Ok(result) => {
+                if self.operator_cancelled {
+                    Some("Encrypted authentication probe cancelled; no remote control".to_owned())
+                } else {
+                    Some(match result {
+                        Ok(()) => "Encrypted identity and temporary password verified (diagnostic only); remote control NOT authorized".to_owned(),
+                        Err(error) => format!("Encrypted authentication probe rejected: {error}"),
+                    })
+                }
+            }
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(
+                "Authentication worker ended without a result; no session authorized".to_owned(),
+            ),
+        }
+    }
+}
+
 struct DesktopHost {
     // Drop platform adapters/surfaces before the window and context that provide their handles.
     surface: Option<Surface<OwnedDisplayHandle, Arc<Window>>>,
@@ -270,6 +387,7 @@ struct DesktopHost {
     cursor_position: Option<(usize, usize)>,
     frameless_premium: bool,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
+    outbound_proof: Option<OutboundProofJob>,
 }
 
 fn copy_to_clipboard(text: &str) {
@@ -386,6 +504,7 @@ impl DesktopHost {
             cursor_position: None,
             frameless_premium: false,
             incoming_rx,
+            outbound_proof: None,
         }
     }
 
@@ -473,8 +592,25 @@ impl DesktopHost {
     }
 
     fn try_connect_peer(&mut self) {
-        // A local outbound connection is the CLIENT of the host's signed
-        // challenge, not a second host waiting for an inbound Hello.
+        // Serialise proof attempts: concurrent GUI clicks must not spawn
+        // overlapping password guesses or overwrite one another's result.
+        if self.outbound_proof.is_some() {
+            self.shell.clear_remote_password();
+            self.shell.disconnect();
+            self.shell.set_error(
+                "Encrypted authentication already running; finish or cancel this attempt",
+            );
+            return;
+        }
+        // The diagnostic is intentionally opt-in and never a production
+        // control path, even if a user clicks an enrolled device card.
+        if !secure_proof_diagnostic_enabled() && !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+            self.shell.disconnect();
+            self.shell.set_error(
+                "Remote control disabled: encrypted consent/licensing session is not ready",
+            );
+            return;
+        }
         let Some(expected_host_id) = self.shell.selected_device().map(str::to_owned) else {
             self.shell.disconnect();
             self.shell
@@ -487,10 +623,19 @@ impl DesktopHost {
                 .set_error("Trusted peer store unavailable; connection refused");
             return;
         };
-        if store.get(&expected_host_id).is_none() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let Some(record) = store.get(&expected_host_id) else {
             self.shell.disconnect();
             self.shell
                 .set_error("Remote host ID is not enrolled; connection refused");
+            return;
+        };
+        if !record.is_trusted_at(now) {
+            self.shell.disconnect();
+            self.shell
+                .set_error("Remote host trust revoked or expired; connection refused");
             return;
         }
         let Ok(identity) = DeviceIdentity::load_from_path(&self.identity_path) else {
@@ -499,7 +644,6 @@ impl DesktopHost {
                 .set_error("Local signing identity unavailable; connection refused");
             return;
         };
-
         let target_addr = expected_host_id
             .parse::<std::net::SocketAddr>()
             .ok()
@@ -516,49 +660,48 @@ impl DesktopHost {
             return;
         };
         let tenant = std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
-            Ok(transport) => {
-                // This is a diagnostic authentication path, never a
-                // control capability. First establish Noise, verify pinned
-                // Ed25519 identities on its hash, then prove the host's
-                // short-lived password on the SAME encrypted channel.
-                let result = match UnauthenticatedNoiseChannel::connect(transport) {
-                    Ok(mut encrypted) => {
-                        let verified = client_prove_attended_password(
-                            &mut encrypted,
-                            &identity,
-                            &store,
-                            &expected_host_id,
-                            &tenant,
-                            self.shell.remote_password_input(),
-                            now,
-                        );
-                        encrypted.close();
-                        verified.map_err(|err| format!("{err:?}"))
-                    }
-                    Err(err) => Err(format!("Noise handshake failed: {err:?}")),
-                };
-                // Never carry a plaintext operator password into another
-                // attempted session or leave it visible after this attempt.
-                self.shell.clear_remote_password();
-                self.shell.disconnect();
-                match result {
-                    Ok(()) => self.shell.set_error(
-                        "Encrypted peer and temporary password verified (diagnostic only); no remote-control session authorized",
-                    ),
-                    Err(err) => self
-                        .shell
-                        .set_error(format!("Encrypted attended authentication rejected: {err}")),
-                }
+        if self.shell.remote_password_input().is_empty() {
+            self.shell.disconnect();
+            self.shell
+                .set_error("Please enter the enrolled host's temporary password");
+            return;
+        }
+        let password = self.shell.remote_password_input().to_owned();
+        // Immediately remove the operator's plaintext password from the
+        // editable GUI. The one worker owns it until completion.
+        self.shell.clear_remote_password();
+        self.shell.disconnect();
+        match OutboundProofJob::launch(OutboundProofRequest {
+            address,
+            expected_host_id,
+            identity,
+            store,
+            tenant,
+            password,
+            now,
+        }) {
+            Ok(job) => {
+                self.outbound_proof = Some(job);
+                self.shell
+                    .set_error("Encrypted password authentication in progress (no remote control)");
             }
             Err(err) => {
-                self.shell.disconnect();
                 self.shell
-                    .set_error(format!("Cannot reach enrolled host at {address}: {err:?}"));
+                    .set_error(format!("Authentication worker could not start: {err}"));
             }
+        }
+    }
+
+    fn poll_outbound_proof(&mut self) {
+        let status = self
+            .outbound_proof
+            .as_ref()
+            .and_then(OutboundProofJob::completed_status);
+        if let Some(status) = status {
+            self.outbound_proof = None;
+            self.shell.disconnect();
+            self.shell.set_error(status);
+            self.refresh_presentation();
         }
     }
 
@@ -713,6 +856,11 @@ impl DesktopHost {
     // One guarded entrypoint for both mouse and keyboard Remote ID actions.
     // No password or session is sent over a TCP identity-only handshake.
     fn dispatch_remote_connect(&mut self) {
+        if self.outbound_proof.is_some() {
+            self.shell
+                .set_error("Encrypted authentication already running; retry after it finishes");
+            return;
+        }
         if self.shell.remote_id_input().is_empty() {
             self.shell.set_error("Please enter a Remote Device ID");
         } else if self.shell.remote_password_input().is_empty() {
@@ -746,6 +894,9 @@ impl DesktopHost {
             action,
             DesktopAction::Disconnect | DesktopAction::DenyPermission
         ) {
+            if let Some(job) = self.outbound_proof.as_mut() {
+                job.cancel();
+            }
             if let Some(mut adapter) = self.session_adapter.take() {
                 adapter.close();
             }
@@ -1083,6 +1234,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.poll_outbound_proof();
         self.poll_incoming();
         if secure_proof_diagnostic_enabled() {
             // A TCP listener runs on another thread. Without a wake event,
@@ -1127,6 +1279,78 @@ mod tests {
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn pending_outbound_probe_is_nonblocking_and_cancel_never_reports_authorized() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        };
+
+        let (tx, result_rx) = mpsc::sync_channel(1);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut job = super::OutboundProofJob {
+            result_rx,
+            cancelled: Arc::clone(&cancelled),
+            operator_cancelled: false,
+        };
+        assert_eq!(job.completed_status(), None, "UI polling never blocks");
+        tx.send(Ok(())).expect("worker outcome");
+        job.cancel();
+        assert_eq!(
+            job.completed_status(),
+            Some("Encrypted authentication probe cancelled; no remote control".to_owned())
+        );
+        assert!(cancelled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn dropped_window_probe_sets_cancellation_before_another_attempt() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        };
+
+        let (_tx, result_rx) = mpsc::sync_channel(1);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let job = super::OutboundProofJob {
+            result_rx,
+            cancelled: Arc::clone(&cancelled),
+            operator_cancelled: false,
+        };
+        drop(job);
+        assert!(cancelled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn disconnected_or_rejected_worker_never_reports_a_connected_desktop() {
+        use std::sync::{Arc, atomic::AtomicBool, mpsc};
+
+        let (tx, result_rx) = mpsc::sync_channel(1);
+        let job = super::OutboundProofJob {
+            result_rx,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            operator_cancelled: false,
+        };
+        tx.send(Err("invalid host proof".to_owned()))
+            .expect("worker rejection");
+        let result = job.completed_status().expect("completed");
+        assert!(result.contains("rejected"));
+        assert!(!result.contains("authorized"));
+
+        let (tx, result_rx) = mpsc::sync_channel::<Result<(), String>>(1);
+        drop(tx);
+        let lost = super::OutboundProofJob {
+            result_rx,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            operator_cancelled: false,
+        };
+        let result = lost.completed_status().expect("worker disconnected");
+        assert!(result.contains("without a result"));
+        assert!(result.contains("no session authorized"));
+    }
 
     #[test]
     fn pre_release_proof_probe_rejects_public_and_wildcard_network_listening() {
