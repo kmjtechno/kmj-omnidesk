@@ -810,14 +810,22 @@ fn tcp_lan_authenticated_session_e2e() {
             .expect("auth");
         assert_eq!(rec.device_id, "tcp-session-peer");
 
-        adapter.authorize_session().expect("authorize");
-        assert!(adapter.is_control_authorized());
+        assert!(matches!(
+            adapter.authorize_session(),
+            Err(TransportSessionError::EncryptedTransportRequired)
+        ));
+        assert!(!adapter.is_control_authorized());
 
-        // Echo server over TCP
-        let payload = adapter.receive().expect("receive").expect("payload");
-        assert_eq!(payload, b"ping tcp remote desktop");
-        adapter.send(b"pong tcp remote desktop").expect("send");
-
+        // A signed handshake over raw TCP is NOT encrypted and must never
+        // open the control/clipboard/frame payload channel.
+        assert!(matches!(
+            adapter.send(b"pong tcp remote desktop"),
+            Err(TransportSessionError::UnverifiedControlBlocked)
+        ));
+        assert!(matches!(
+            adapter.receive(),
+            Err(TransportSessionError::UnverifiedControlBlocked)
+        ));
         adapter.close();
         assert!(!adapter.is_control_authorized());
     });
@@ -826,15 +834,9 @@ fn tcp_lan_authenticated_session_e2e() {
     let client_stream = std::net::TcpStream::connect(addr).expect("connect client");
     let mut client_transport = TcpLanTransport::from_stream(client_stream).expect("from stream");
 
-    // Client sends ping payload and receives pong over TCP
-    client_transport
-        .send(b"ping tcp remote desktop")
-        .expect("client send");
-    let resp = client_transport
-        .receive()
-        .expect("client receive")
-        .expect("resp");
-    assert_eq!(resp, b"pong tcp remote desktop");
+    // No privileged response can come back across a raw TCP path.
+    let _ = client_transport.send(b"ping tcp remote desktop");
+    assert!(client_transport.receive().is_err());
 
     server_handle.join().expect("server join");
 }
@@ -939,11 +941,15 @@ fn tcp_lan_full_handshake_session_auth_success() {
             .expect("host handshake must succeed");
         assert_eq!(record.device_id, "handshake-peer");
 
-        adapter.authorize_session().expect("session must authorize");
-        assert!(adapter.is_control_authorized());
-
-        // Test sending authorized control payload
-        adapter.send(b"authorized payload").expect("send payload");
+        assert!(matches!(
+            adapter.authorize_session(),
+            Err(TransportSessionError::EncryptedTransportRequired)
+        ));
+        assert!(!adapter.is_control_authorized());
+        assert!(matches!(
+            adapter.send(b"authorized payload"),
+            Err(TransportSessionError::UnverifiedControlBlocked)
+        ));
         adapter.close();
         assert!(!adapter.is_control_authorized());
     });
@@ -960,11 +966,10 @@ fn tcp_lan_full_handshake_session_auth_success() {
     .expect("peer handshake must succeed");
     assert_eq!(device_id, "handshake-peer");
 
-    let payload = client_transport
-        .receive()
-        .expect("receive")
-        .expect("payload");
-    assert_eq!(payload, b"authorized payload");
+    assert!(
+        client_transport.receive().is_err(),
+        "raw TCP must not carry any authorized remote-control payload"
+    );
 
     server_handle.join().expect("server join");
 }
