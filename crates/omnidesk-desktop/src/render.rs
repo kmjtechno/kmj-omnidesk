@@ -2795,16 +2795,17 @@ fn draw_premium_dashboard(
         0xcb_d2_df,
     );
 
-    // Full-Width CTA Connect Button
+    // Until the authenticated encrypted password-proof exchange exists,
+    // this V7 CTA must look disabled and its hitbox must remain inert.
     let _btn_rect = layout.remote_connect_button();
     canvas.rounded_gradient_panel(
         connect.x + 20,
         connect.y + 215,
         connect_box_w,
         42,
-        0xed_18_3b,
-        0xb0_0c_27,
-        0xf5_33_55,
+        0x23_29_37,
+        0x14_18_24,
+        0x37_42_52,
     );
     canvas.h_line(
         connect.x + connect_box_w / 2 - 68,
@@ -2819,11 +2820,11 @@ fn draw_premium_dashboard(
         p.foreground,
     );
     canvas.text(
-        connect.x + connect_box_w / 2 - 46,
+        connect.x + connect_box_w / 2 - 86,
         connect.y + 229,
-        "Connect Securely",
+        "Secure Connect Pending",
         1,
-        p.foreground,
+        0xa0_ae_c0,
     );
 
     // 5. Seven Capability Action Tiles
@@ -3371,6 +3372,8 @@ mod tests {
         }
         assert!(premium.contains("No verified session history"));
         assert!(premium.contains("No verified Licensing Hub entitlement"));
+        assert!(premium.contains("Secure Connect Pending"));
+        assert!(!premium.contains(r#""Connect Securely""#));
     }
 
     #[test]
