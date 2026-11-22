@@ -729,7 +729,7 @@ fn transport_session_adapter_expired_trust_rejected() {
             display_name: "Expired Peer".to_owned(),
             public_key: pk,
             enrolled_at_epoch_secs: now - 5000,
-            trust_expires_at_epoch_secs: now - 100,
+            trust_expires_at_epoch_secs: now, // Exact expiry must reject
             managed: false,
             revoked: false,
             status: PersistedDeviceStatus::Offline,
@@ -1169,7 +1169,7 @@ fn tcp_lan_full_handshake_expired_peer_rejected() {
             display_name: "Expired Peer".to_owned(),
             public_key: peer_pk,
             enrolled_at_epoch_secs: now - 1000,
-            trust_expires_at_epoch_secs: now - 1, // Expired
+            trust_expires_at_epoch_secs: now, // Expired at boundary
             managed: false,
             revoked: false,
             status: PersistedDeviceStatus::Offline,

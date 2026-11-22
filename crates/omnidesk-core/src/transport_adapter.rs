@@ -219,7 +219,7 @@ impl<T: Transport> TransportSessionAdapter<T> {
             return Err(TransportSessionError::PeerRevoked);
         }
 
-        if now_epoch_secs > record.trust_expires_at_epoch_secs {
+        if now_epoch_secs >= record.trust_expires_at_epoch_secs {
             return Err(TransportSessionError::TrustExpired);
         }
 

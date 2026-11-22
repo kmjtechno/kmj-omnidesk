@@ -765,7 +765,7 @@ impl DesktopHost {
             let trust_verified = store.as_ref().is_ok_and(|store| {
                 peer_id.and_then(|id| store.get(id)).is_some_and(|record| {
                     !record.revoked
-                        && now <= record.trust_expires_at_epoch_secs
+                        && now < record.trust_expires_at_epoch_secs
                         && self.session_adapter.as_ref().is_some_and(|adapter| {
                             adapter.session().authenticated_public_key() == Some(&record.public_key)
                         })

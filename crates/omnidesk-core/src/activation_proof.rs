@@ -66,7 +66,16 @@ pub fn sign_activation_proof(signing_key: &SigningKey, input: ActivationProofInp
 /// Canonical SHA-256 fingerprint for the raw 32-byte Ed25519 public key.
 #[must_use]
 pub fn device_public_key_fingerprint(signing_key: &SigningKey) -> String {
-    let digest = Sha256::digest(signing_key.verifying_key().to_bytes());
+    fingerprint_public_key_bytes(&signing_key.verifying_key().to_bytes())
+}
+
+/// Canonical SHA-256 device fingerprint computed from its verified public key.
+///
+/// Used by host approval to bind a genuine Main Platform signed entitlement
+/// to the exact host device rather than a caller-supplied installation ID.
+#[must_use]
+pub fn fingerprint_public_key_bytes(public_key: &[u8; 32]) -> String {
+    let digest = Sha256::digest(public_key);
     format!("sha256:{}", hex_lower(&digest))
 }
 
