@@ -295,9 +295,9 @@ impl OutboundProofJob {
                 }
             }
             Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => {
-                Some("Authentication worker ended without a result; no session authorized".to_owned())
-            }
+            Err(TryRecvError::Disconnected) => Some(
+                "Authentication worker ended without a result; no session authorized".to_owned(),
+            ),
         }
     }
 }
@@ -594,7 +594,8 @@ impl DesktopHost {
         let tenant = std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
         if self.shell.remote_password_input().is_empty() {
             self.shell.disconnect();
-            self.shell.set_error("Please enter the enrolled host's temporary password");
+            self.shell
+                .set_error("Please enter the enrolled host's temporary password");
             return;
         }
         let password = self.shell.remote_password_input().to_owned();
@@ -824,9 +825,8 @@ impl DesktopHost {
     // No password or session is sent over a TCP identity-only handshake.
     fn dispatch_remote_connect(&mut self) {
         if self.outbound_proof.is_some() {
-            self.shell.set_error(
-                "Encrypted authentication already running; retry after it finishes",
-            );
+            self.shell
+                .set_error("Encrypted authentication already running; retry after it finishes");
             return;
         }
         if self.shell.remote_id_input().is_empty() {
