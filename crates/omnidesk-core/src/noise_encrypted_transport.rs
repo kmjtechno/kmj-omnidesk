@@ -13,7 +13,7 @@ use std::io::ErrorKind;
 
 use snow::{Builder, HandshakeState, TransportState, params::NoiseParams};
 
-use crate::transport::{PathKind, Transport, TransportError};
+use crate::transport::{HostTransport, PathKind, Transport, TransportError};
 
 const NOISE_PATTERN: &str = "Noise_NN_25519_ChaChaPoly_SHA256";
 const MAX_HANDSHAKE_BYTES: usize = 1024;
@@ -125,6 +125,21 @@ impl<T: Transport> UnauthenticatedNoiseChannel<T> {
     fn poison(&mut self) {
         self.closed = true;
         self.inner.close();
+    }
+}
+
+impl UnauthenticatedNoiseChannel<HostTransport> {
+    /// Increase the read deadline for a host decision only AFTER the native
+    /// caller has verified both pinned identities and the one-use password.
+    /// This changes I/O timing only; it never grants session authority.
+    ///
+    /// # Errors
+    /// Fails closed when the transport was closed or socket policy fails.
+    pub fn configure_attended_consent_timeout(&self) -> Result<(), TransportError> {
+        if self.closed {
+            return Err(TransportError::Closed);
+        }
+        self.inner.configure_attended_consent_timeout()
     }
 }
 
