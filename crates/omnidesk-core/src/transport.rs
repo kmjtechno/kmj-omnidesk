@@ -408,14 +408,20 @@ mod tests {
             .configure_attended_consent_timeout()
             .expect("post-proof consent deadline");
         assert_eq!(
-            transport.stream.read_timeout().expect("consent read timeout"),
+            transport
+                .stream
+                .read_timeout()
+                .expect("consent read timeout"),
             Some(TCP_CONSENT_IO_TIMEOUT)
         );
         transport
             .configure_attended_auth_timeout()
             .expect("reset to short deadline");
         assert_eq!(
-            transport.stream.read_timeout().expect("restored read timeout"),
+            transport
+                .stream
+                .read_timeout()
+                .expect("restored read timeout"),
             Some(TCP_IO_TIMEOUT)
         );
     }
