@@ -565,9 +565,9 @@ fn premium_action_at_point(
             return Some(DesktopAction::FocusRemotePasswordInput);
         }
         if premium.remote_connect_button().contains(x, y) {
-            if !shell.remote_id_input().is_empty() && !shell.remote_password_input().is_empty() {
-                return Some(DesktopAction::ConnectRemoteId);
-            }
+            // A non-empty password is not authenticated password proof.
+            // Keep the V7 CTA disabled until Issue #182's encrypted, host-
+            // verified exchange and separate consent are wired end to end.
             return None;
         }
     }
@@ -810,8 +810,9 @@ pub fn apply_action(shell: &mut ProductShell, action: DesktopAction) {
             let _ = shell.begin_connect_remote_id();
         }
         DesktopAction::CopySessionPassword => {
-            let pwd = shell.host_password().to_owned();
-            shell.set_error(format!("Password '{pwd}' copied to clipboard"));
+            // The Windows host handles the explicit user clipboard action.
+            // Never echo a live short-lived password into status/errors/logs.
+            shell.set_error("Session password copied to clipboard");
         }
         DesktopAction::RotateSessionPassword => {
             shell.rotate_host_password();
@@ -1118,6 +1119,30 @@ mod tests {
             Some(DesktopAction::FocusRemoteIdInput),
             "New Session only focuses the existing secure ID form"
         );
+    }
+
+    #[test]
+    fn populated_password_does_not_enable_unaudited_v7_remote_control() {
+        let mut shell = ProductShell::new();
+        shell.set_remote_id_input("KMJ-REMOTE-TEST");
+        shell.set_remote_password_input("PASSWORD");
+        let layout = PremiumDashboardLayout::for_window(1672, 941).expect("V7 layout");
+        let button = layout.remote_connect_button();
+        assert_eq!(
+            action_at_point(&shell, 1672, 941, button.x + 10, button.y + 10),
+            None,
+            "password input without verified host proof must not enable the native connect CTA"
+        );
+    }
+
+    #[test]
+    fn copy_session_password_never_echoes_secret_into_status() {
+        let mut shell = ProductShell::new();
+        let secret = shell.host_password().to_owned();
+        apply_action(&mut shell, DesktopAction::CopySessionPassword);
+        let status = shell.last_error().expect("neutral status");
+        assert!(!status.contains(&secret));
+        assert!(!status.contains("Password '"));
     }
 
     #[test]
