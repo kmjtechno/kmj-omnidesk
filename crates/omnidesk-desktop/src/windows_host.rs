@@ -179,8 +179,11 @@ fn verified_attended_session_authorization(
     trusted_record_verified: bool,
     password_proof_verified: bool,
 ) -> bool {
-    verified_consent_for_authenticated_trust(shell, authenticated_device_id, trusted_record_verified)
-        && password_proof_verified
+    verified_consent_for_authenticated_trust(
+        shell,
+        authenticated_device_id,
+        trusted_record_verified,
+    ) && password_proof_verified
 }
 
 #[cfg(test)]
@@ -688,9 +691,8 @@ impl DesktopHost {
                     adapter.close();
                 }
                 self.shell.disconnect();
-                self.shell.set_error(
-                    "Session approval blocked: secure host password proof not verified",
-                );
+                self.shell
+                    .set_error("Session approval blocked: secure host password proof not verified");
             } else if let Some(adapter) = self.session_adapter.as_mut() {
                 match adapter.authorize_session() {
                     Ok(()) => apply_action(&mut self.shell, action),
@@ -721,9 +723,8 @@ impl DesktopHost {
                 // Never send a password or grant remote control through the
                 // existing plaintext TCP identity-only session handshake.
                 self.shell.disconnect();
-                self.shell.set_error(
-                    "Secure remote connection unavailable: host password proof pending",
-                );
+                self.shell
+                    .set_error("Secure remote connection unavailable: host password proof pending");
             } else {
                 apply_action(&mut self.shell, action);
                 if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
@@ -1178,7 +1179,9 @@ mod tests {
             display_name: "Verified peer".to_owned(),
             status: DeviceStatus::Online,
         }]);
-        shell.begin_connect("verified-peer").expect("trusted directory peer");
+        shell
+            .begin_connect("verified-peer")
+            .expect("trusted directory peer");
         assert!(verified_consent_for_authenticated_trust(
             &shell,
             Some("verified-peer"),
