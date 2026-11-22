@@ -93,6 +93,7 @@ pub struct ProductShell {
     last_error: Option<String>,
     discovery_active: bool,
     security_state: SecurityState,
+    host_consent_pending: bool,
     quality_preset: QualityPreset,
     connection_stats: Option<ConnectionStats>,
     nav_tab: NavTab,
@@ -138,6 +139,7 @@ impl ProductShell {
             last_error: None,
             discovery_active: false,
             security_state: SecurityState::Disconnected,
+            host_consent_pending: false,
             quality_preset: QualityPreset::Balanced,
             connection_stats: None,
             nav_tab: NavTab::Devices,
@@ -196,6 +198,26 @@ impl ProductShell {
     #[must_use]
     pub const fn security_state(&self) -> SecurityState {
         self.security_state
+    }
+
+    /// True only while a locally authenticated incoming host request
+    /// awaits a visible operator decision. Never grants network authority.
+    #[must_use]
+    pub const fn host_consent_pending(&self) -> bool {
+        self.host_consent_pending
+    }
+
+    /// Display a real inbound authenticated-peer consent request.
+    ///
+    /// The Windows host must supply the peer ID from a verified, one-use
+    /// encrypted proof receipt, never from a socket or untrusted UI text.
+    /// This is a visible prompt, NOT remote-control authorization.
+    pub fn show_authenticated_host_consent(&mut self, peer_id: &str) {
+        self.disconnect();
+        self.selected_device = Some(peer_id.to_owned());
+        self.host_consent_pending = true;
+        self.security_state = SecurityState::AuthorizationRequired;
+        self.last_error = None;
     }
 
     #[must_use]
@@ -365,7 +387,11 @@ impl ProductShell {
     }
 
     pub fn decide_permission(&mut self, decision: PermissionDecision) {
-        if self.selected_device.is_none()
+        // A host-visible incoming proof prompt is NOT the legacy local
+        // "session authorized" shell transition. Only native GUI logic may
+        // consume its sealed receipt, and signed licensing is mandatory.
+        if self.host_consent_pending
+            || self.selected_device.is_none()
             || self.security_state != SecurityState::AuthorizationRequired
         {
             return;
@@ -386,6 +412,7 @@ impl ProductShell {
     pub fn disconnect(&mut self) {
         self.selected_device = None;
         self.security_state = SecurityState::Disconnected;
+        self.host_consent_pending = false;
         self.connection_stats = None;
     }
 
@@ -610,6 +637,22 @@ mod tests {
             display_name: format!("Device {id}"),
             status,
         }
+    }
+
+    #[test]
+    fn authenticated_host_consent_stays_a_prompt_and_never_a_session() {
+        let mut shell = ProductShell::new();
+        shell.show_authenticated_host_consent("enrolled-client");
+        assert!(shell.host_consent_pending());
+        assert_eq!(shell.selected_device(), Some("enrolled-client"));
+        assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+        assert_eq!(shell.security_state(), SecurityState::AuthorizationRequired);
+        shell.decide_permission(PermissionDecision::Allow);
+        assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+        assert_ne!(shell.security_state(), SecurityState::Authorized);
+        shell.disconnect();
+        assert!(!shell.host_consent_pending());
+        assert_eq!(shell.primary_view(), PrimaryView::Devices);
     }
 
     #[test]

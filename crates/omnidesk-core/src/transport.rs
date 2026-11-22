@@ -7,6 +7,9 @@ use std::{
 
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const TCP_IO_TIMEOUT: Duration = Duration::from_secs(5);
+/// Opt-in attended auth-only host decision has a strictly bounded 30-second
+/// visible consent window plus up to five seconds for wire scheduling.
+const TCP_CONSENT_IO_TIMEOUT: Duration = Duration::from_secs(35);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathKind {
@@ -125,6 +128,20 @@ impl TcpLanTransport {
         })
     }
 
+    /// Increase the read deadline for ONE explicitly enabled, diagnostic
+    /// attended-host consent exchange. The default TCP policy remains 5s.
+    ///
+    /// # Errors
+    /// Fails closed if socket timeout reconfiguration is not supported.
+    pub fn configure_attended_consent_timeout(&self) -> Result<(), TransportError> {
+        self.stream
+            .set_read_timeout(Some(TCP_CONSENT_IO_TIMEOUT))
+            .map_err(|error| io_error(&error))?;
+        self.stream
+            .set_write_timeout(Some(TCP_IO_TIMEOUT))
+            .map_err(|error| io_error(&error))
+    }
+
     const fn ensure_open(&self) -> Result<(), TransportError> {
         if self.closed {
             Err(TransportError::Closed)
@@ -219,6 +236,18 @@ impl HostTransport {
     /// Returns [`TransportError`] on socket configuration error.
     pub fn from_tcp_stream(stream: TcpStream) -> Result<Self, TransportError> {
         TcpLanTransport::from_stream(stream).map(Self::Tcp)
+    }
+
+    /// Configure a bounded 35-second read deadline only for opt-in host
+    /// consent diagnostics, never as an implicit production session grant.
+    ///
+    /// # Errors
+    /// Returns a fail-closed error if TCP socket configuration fails.
+    pub fn configure_attended_consent_timeout(&self) -> Result<(), TransportError> {
+        match self {
+            Self::Tcp(transport) => transport.configure_attended_consent_timeout(),
+            Self::Loopback(_) => Ok(()),
+        }
     }
 
     /// Creates an in-memory loopback transport.

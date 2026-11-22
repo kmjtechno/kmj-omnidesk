@@ -275,7 +275,11 @@ pub fn controls_for_shell(shell: &ProductShell) -> Vec<ShellControl> {
         PrimaryView::Devices => controls_for_devices_view(shell),
         PrimaryView::PermissionPrompt => vec![
             ShellControl {
-                label: "Allow remote session".to_owned(),
+                label: if shell.host_consent_pending() {
+                    "Request licensed host approval".to_owned()
+                } else {
+                    "Allow remote session".to_owned()
+                },
                 action: DesktopAction::AllowPermission,
                 keyboard_key: 'a',
                 role: AccessibleRole::Button,
@@ -342,13 +346,24 @@ pub fn presentation_details(shell: &ProductShell) -> Vec<String> {
             }
             list
         }
-        PrimaryView::PermissionPrompt => vec![
-            format!(
-                "Device: {}",
-                shell.selected_device().unwrap_or("unavailable")
-            ),
-            "Explicit authorization is required before control".to_owned(),
-        ],
+        PrimaryView::PermissionPrompt => {
+            if shell.host_consent_pending() {
+                vec![
+                    format!("Verified incoming device: {}", shell.selected_device().unwrap_or("unavailable")),
+                    "Password proof passed on an encrypted, pinned identity channel".to_owned(),
+                    "Local Allow alone does NOT grant control: verified platform license is required".to_owned(),
+                    "Deny closes this one-use request".to_owned(),
+                ]
+            } else {
+                vec![
+                    format!(
+                        "Device: {}",
+                        shell.selected_device().unwrap_or("unavailable")
+                    ),
+                    "Explicit authorization is required before control".to_owned(),
+                ]
+            }
+        }
         PrimaryView::Session => {
             let mut details = vec![
                 format!(
