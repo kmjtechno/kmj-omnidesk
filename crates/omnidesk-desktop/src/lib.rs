@@ -1016,9 +1016,10 @@ mod tests {
         assert_eq!(frame_two.host_session_password, expected);
         assert_eq!(shell.host_password(), real_password);
 
+        let old_generation = shell.host_password_ref().approval_generation();
         shell.rotate_host_password();
         let rotated = shell.host_password_ref().formatted_password();
-        assert_ne!(rotated, expected);
+        assert_ne!(shell.host_password_ref().approval_generation(), old_generation);
         assert_eq!(presentation_for(&shell).host_session_password, rotated);
     }
 
