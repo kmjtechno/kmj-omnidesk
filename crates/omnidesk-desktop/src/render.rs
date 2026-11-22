@@ -1848,51 +1848,45 @@ fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout
 fn premium_panel(
     canvas: &mut Canvas<'_>,
     rect: crate::layout::DashboardRect,
-    _p: Palette,
+    p: Palette,
     accent: bool,
 ) {
-    if rect.width < 12 || rect.height < 12 {
-        return;
-    }
-    // Ambient layered glow around the card for visual depth
-    if accent {
-        canvas.rounded_panel(
-            rect.x.saturating_sub(2),
-            rect.y.saturating_sub(2),
-            rect.width + 4,
-            rect.height + 4,
-            14,
-            0x24_08_14,
-            0x24_08_14,
-        );
-    }
-    // Rich vertical gradient from top slate to bottom obsidian
+    // Rounded native panel and its restrained edge lighting. The master
+    // image is not used as a fake clickable background; these remain real
+    // per-control native surfaces with shared pointer geometry.
     canvas.rounded_gradient_panel(
         rect.x,
         rect.y,
         rect.width,
         rect.height,
-        if accent { 0x001c_2032 } else { 0x0016_1a28 },
-        if accent { 0x000c_0f1a } else { 0x000a_0d16 },
-        if accent { 0xa8_20_3c } else { 0x2e_36_4a },
+        0x12_0f_1b,
+        0x09_0d_18,
+        if accent { 0xb9_25_4b } else { p.border },
     );
-    // Specular top highlight line
     canvas.h_line(
-        rect.x + 14,
+        rect.x + 16,
         rect.y + 1,
-        rect.width.saturating_sub(28),
-        if accent { 0xff_38_60 } else { 0x3d_48_62 },
+        rect.width.saturating_sub(32),
+        0x43_34_4f,
     );
+    if accent {
+        canvas.soft_glow(
+            rect.x + rect.width / 2,
+            rect.y + rect.height.saturating_sub(5),
+            rect.width / 2,
+            53,
+            0xf7_19_4a,
+            0.62,
+        );
+        canvas.h_line(
+            rect.x + 22,
+            rect.y + rect.height.saturating_sub(2),
+            rect.width.saturating_sub(44),
+            0xee_27_57,
+        );
+    }
 }
 
-/// Decorative red light-trail art following the approved sidebar's lower
-/// gradient composition. It is visual decoration, never a connection indicator.
-#[allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::suboptimal_flops
-)]
 fn draw_premium_sidebar_wave(canvas: &mut Canvas<'_>, nav: crate::layout::DashboardRect) {
     if nav.width < 20 || nav.height < 220 {
         return;
