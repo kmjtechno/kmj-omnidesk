@@ -331,8 +331,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let address = listener.local_addr().expect("local address");
         let server = thread::spawn(move || listener.accept().expect("accept").0);
-        let transport =
-            TcpLanTransport::connect(address, Duration::from_secs(2)).expect("connect");
+        let transport = TcpLanTransport::connect(address, Duration::from_secs(2)).expect("connect");
         let _peer = server.join().expect("peer");
 
         assert_eq!(
