@@ -1031,7 +1031,10 @@ impl DesktopHost {
         ) {
             if let Some(job) = self.inbound_proof.as_ref() {
                 job.cancel();
-                if matches!(action, DesktopAction::Disconnect | DesktopAction::DenyPermission) {
+                if matches!(
+                    action,
+                    DesktopAction::Disconnect | DesktopAction::DenyPermission
+                ) {
                     self.shell.set_allow_remote_control(false);
                 }
             }
