@@ -432,36 +432,43 @@ impl DesktopHost {
         // challenge, not a second host waiting for an inbound Hello.
         let Some(expected_host_id) = self.shell.selected_device().map(str::to_owned) else {
             self.shell.disconnect();
-            self.shell.set_error("Select a trusted host device before connecting");
+            self.shell
+                .set_error("Select a trusted host device before connecting");
             return;
         };
         let store = match TrustedDeviceStore::load_or_create(&self.store_path) {
             Ok(store) => store,
             Err(_) => {
                 self.shell.disconnect();
-                self.shell.set_error("Trusted peer store unavailable; connection refused");
+                self.shell
+                    .set_error("Trusted peer store unavailable; connection refused");
                 return;
             }
         };
         if store.get(&expected_host_id).is_none() {
             self.shell.disconnect();
-            self.shell.set_error("Remote host ID is not enrolled; connection refused");
+            self.shell
+                .set_error("Remote host ID is not enrolled; connection refused");
             return;
         }
         let identity = match DeviceIdentity::load_from_path(&self.identity_path) {
             Ok(identity) => identity,
             Err(_) => {
                 self.shell.disconnect();
-                self.shell.set_error("Local signing identity unavailable; connection refused");
+                self.shell
+                    .set_error("Local signing identity unavailable; connection refused");
                 return;
             }
         };
 
-        let target_addr = expected_host_id.parse::<std::net::SocketAddr>().ok().or_else(|| {
-            std::env::var("OMNIDESK_PEER_ADDR")
-                .ok()
-                .and_then(|address| address.parse().ok())
-        });
+        let target_addr = expected_host_id
+            .parse::<std::net::SocketAddr>()
+            .ok()
+            .or_else(|| {
+                std::env::var("OMNIDESK_PEER_ADDR")
+                    .ok()
+                    .and_then(|address| address.parse().ok())
+            });
         let Some(address) = target_addr else {
             self.shell.disconnect();
             self.shell.set_error(
@@ -469,8 +476,7 @@ impl DesktopHost {
             );
             return;
         };
-        let tenant =
-            std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
+        let tenant = std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
@@ -554,7 +560,8 @@ impl DesktopHost {
                 Ok(store) => store,
                 Err(_) => {
                     transport.close();
-                    self.shell.set_error("Incoming session rejected: trusted peer store missing");
+                    self.shell
+                        .set_error("Incoming session rejected: trusted peer store missing");
                     self.refresh_presentation();
                     continue;
                 }
@@ -563,7 +570,8 @@ impl DesktopHost {
                 Ok(identity) => identity,
                 Err(_) => {
                     transport.close();
-                    self.shell.set_error("Incoming session rejected: local signing key missing");
+                    self.shell
+                        .set_error("Incoming session rejected: local signing key missing");
                     self.refresh_presentation();
                     continue;
                 }
@@ -571,13 +579,8 @@ impl DesktopHost {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs());
-            let result = host_mutual_identity_handshake(
-                &mut transport,
-                &identity,
-                &store,
-                &tenant,
-                now,
-            );
+            let result =
+                host_mutual_identity_handshake(&mut transport, &identity, &store, &tenant, now);
             transport.close();
             self.shell.disconnect();
             match result {
