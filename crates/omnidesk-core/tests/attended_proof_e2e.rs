@@ -4,9 +4,9 @@ use std::{net::TcpListener, thread, time::Duration};
 
 use omnidesk_core::{
     attended_proof_wire::{
-        AttendedProofError, client_await_attended_host_consent,
-        client_prove_attended_password, host_deny_unlicensed_attended_consent,
-        host_verify_attended_password, host_verify_attended_password_with_receipt,
+        AttendedProofError, client_await_attended_host_consent, client_prove_attended_password,
+        host_deny_unlicensed_attended_consent, host_verify_attended_password,
+        host_verify_attended_password_with_receipt,
     },
     device_identity::DeviceIdentity,
     noise_encrypted_transport::UnauthenticatedNoiseChannel,
@@ -249,7 +249,9 @@ fn real_noise_tcp_requires_separate_host_decision_after_password_proof() {
         assert_eq!(receipt.host_id(), host.public_id());
         verified_tx.send(()).expect("signal verified receipt");
         // Host keeps the AEAD channel alive until the local decision.
-        decision_rx.recv_timeout(Duration::from_secs(2)).expect("host operator denies");
+        decision_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("host operator denies");
         host_deny_unlicensed_attended_consent(&mut channel).expect("AEAD denial");
         channel.close();
     });
@@ -258,12 +260,19 @@ fn real_noise_tcp_requires_separate_host_decision_after_password_proof() {
     let mut channel = UnauthenticatedNoiseChannel::connect(tcp).expect("Noise");
     assert_eq!(
         client_prove_attended_password(
-            &mut channel, &client, &client_store, &host_id,
-            "kmj-tenant", &password, now,
+            &mut channel,
+            &client,
+            &client_store,
+            &host_id,
+            "kmj-tenant",
+            &password,
+            now,
         ),
         Ok(())
     );
-    verified_rx.recv_timeout(Duration::from_secs(2)).expect("proof verified");
+    verified_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("proof verified");
     decision_tx.send(()).expect("host Deny");
     assert_eq!(
         client_await_attended_host_consent(&mut channel),
