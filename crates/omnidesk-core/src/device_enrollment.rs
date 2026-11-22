@@ -3,16 +3,9 @@
 //! Handles single-use challenge creation, signature verification over
 //! domain-separated enrollment payloads, and clock-drift bounded authentication.
 
-use std::{
-    collections::{HashMap, hash_map::RandomState},
-    hash::{BuildHasher, Hasher},
-    path::Path,
-    sync::atomic::{AtomicU64, Ordering},
-    time::Instant,
-};
+use std::{collections::HashMap, path::Path};
 
 use ed25519_dalek::{Signature, VerifyingKey};
-use sha2::{Digest, Sha256};
 
 use crate::{
     PROTOCOL_VERSION,
@@ -395,36 +388,24 @@ pub enum EnrollmentStage {
     Failed,
 }
 
-/// Generates 32 bytes of cryptographically secure random entropy by sampling the OS
-/// CSPRNG via multiple [`RandomState`] seeds and mixing with monotonic and process entropy.
+/// Generate a 256-bit enrollment/session challenge from the OS CSPRNG.
+///
+/// Never derive a security nonce from process time, PID, or `std::hash` seeds.
+/// The timestamp parameter remains only for caller compatibility; challenge
+/// freshness and single-use are enforced by the enrollment tracker.
+///
+/// # Panics
+///
+/// Panics (fail closed) when the operating system cannot supply secure entropy.
 #[must_use]
-pub fn generate_csprng_nonce(now_epoch_secs: u64) -> [u8; 32] {
-    static COUNTER: AtomicU64 = AtomicU64::new(1);
-    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
-
-    let mut hasher = Sha256::new();
-    hasher.update(b"KMJ_OMNIDESK_CSPRNG_CHALLENGE_V1");
-    hasher.update(now_epoch_secs.to_be_bytes());
-    hasher.update(count.to_be_bytes());
-    hasher.update(std::process::id().to_be_bytes());
-
-    for _ in 0..4 {
-        let rs = RandomState::new();
-        let mut h = rs.build_hasher();
-        h.write_u64(count);
-        hasher.update(h.finish().to_be_bytes());
-    }
-
-    let nanos = Instant::now().elapsed().as_nanos();
-    hasher.update(nanos.to_be_bytes());
-
-    let result = hasher.finalize();
+pub fn generate_csprng_nonce(_now_epoch_secs: u64) -> [u8; 32] {
     let mut nonce = [0_u8; 32];
-    nonce.copy_from_slice(&result);
-    if nonce == [0_u8; 32] {
-        nonce[0] = 1;
+    loop {
+        getrandom::fill(&mut nonce).expect("OS CSPRNG unavailable: refusing enrollment challenge");
+        if nonce != [0_u8; 32] {
+            return nonce;
+        }
     }
-    nonce
 }
 
 /// Auditable pairing and enrollment coordinator.
@@ -761,6 +742,18 @@ mod tests {
         let signing = SigningKey::from_bytes(&[seed; 32]);
         let public = signing.verifying_key().to_bytes();
         (signing, public)
+    }
+
+    #[test]
+    fn challenge_nonce_is_os_generated_nonzero_and_time_independent() {
+        let first = generate_csprng_nonce(123_456);
+        let second = generate_csprng_nonce(123_456);
+        let third = generate_csprng_nonce(0);
+        assert_ne!(first, [0_u8; 32]);
+        assert_ne!(second, [0_u8; 32]);
+        assert_ne!(third, [0_u8; 32]);
+        assert_ne!(first, second, "same timestamp must never imply same nonce");
+        assert_ne!(second, third);
     }
 
     fn sample_challenge(now: u64) -> EnrollmentChallenge {
