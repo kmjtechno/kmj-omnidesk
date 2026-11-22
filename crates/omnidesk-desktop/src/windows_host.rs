@@ -13,9 +13,14 @@ use std::{
 use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
-    attended_proof_wire::{client_prove_attended_password, host_verify_attended_password},
+    attended_proof_wire::{
+        HostPasswordProofReceipt, client_await_attended_host_consent,
+        client_prove_attended_password, host_deny_unlicensed_attended_consent,
+        host_verify_attended_password_with_receipt,
+    },
     device_enrollment::EnrollmentCoordinator,
     device_identity::DeviceIdentity,
+    host_approval::{HOST_APPROVAL_WINDOW_SECS, PendingHostApproval},
     noise_encrypted_transport::UnauthenticatedNoiseChannel,
     product_shell::{DeviceStatus, PrimaryView, ProductShell},
     transport::{HostTransport, Transport},
@@ -275,14 +280,24 @@ struct InboundProofRequest {
 
 struct InboundProofOutcome {
     manager: omnidesk_core::password_auth::HostPasswordManager,
-    result: Result<(), String>,
+    result: Result<HostPasswordProofReceipt, String>,
     peer_addr: std::net::SocketAddr,
+}
+
+/// The sole native host prompt originates in a sealed password proof.
+/// With no provisioned Main Platform issuer + lease, Allow still denies.
+struct PendingNativeHostConsent {
+    approval: PendingHostApproval,
+    peer_id: String,
+    verified_at_epoch_secs: u64,
 }
 
 struct InboundProofJob {
     result_rx: Receiver<InboundProofOutcome>,
+    decision_tx: mpsc::SyncSender<()>,
     cancelled: Arc<AtomicBool>,
     original_generation: (u64, u64),
+    awaiting_decision: bool,
 }
 
 impl Drop for InboundProofJob {
@@ -485,6 +500,7 @@ struct DesktopHost {
     frameless_premium: bool,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
     inbound_proof: Option<InboundProofJob>,
+    pending_host_consent: Option<PendingNativeHostConsent>,
     outbound_proof: Option<OutboundProofJob>,
 }
 
@@ -607,6 +623,7 @@ impl DesktopHost {
             frameless_premium: false,
             incoming_rx,
             inbound_proof: None,
+            pending_host_consent: None,
             outbound_proof: None,
         }
     }
