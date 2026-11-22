@@ -3336,7 +3336,7 @@ mod tests {
             "All Services Operational",
             "42 ms",
             "Connected to KMJ Cloud Relay (Asia)",
-            "\\"Completed\\"",
+            r#""Completed""#,
         ] {
             assert!(
                 !premium.contains(demo_value),
