@@ -1192,9 +1192,8 @@ impl DesktopHost {
                 false
             }
             _ => {
-                self.shell.set_error(
-                    "Answer the authenticated incoming host Allow/Deny prompt first",
-                );
+                self.shell
+                    .set_error("Answer the authenticated incoming host Allow/Deny prompt first");
                 self.refresh_presentation();
                 true
             }
