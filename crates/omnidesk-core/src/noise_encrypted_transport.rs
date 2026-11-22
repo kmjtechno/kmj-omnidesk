@@ -168,12 +168,9 @@ impl<T: Transport> Transport for UnauthenticatedNoiseChannel<T> {
             return Err(TransportError::PayloadTooLarge);
         }
         let mut ciphertext = vec![0_u8; payload.len() + NOISE_AEAD_TAG_BYTES];
-        let length = match self.cipher.write_message(payload, &mut ciphertext) {
-            Ok(length) => length,
-            Err(_) => {
-                self.poison();
-                return Err(TransportError::Io(ErrorKind::InvalidData));
-            }
+        let Ok(length) = self.cipher.write_message(payload, &mut ciphertext) else {
+            self.poison();
+            return Err(TransportError::Io(ErrorKind::InvalidData));
         };
         if let Err(error) = self.inner.send(&ciphertext[..length]) {
             self.poison();
@@ -199,12 +196,9 @@ impl<T: Transport> Transport for UnauthenticatedNoiseChannel<T> {
             return Err(TransportError::Io(ErrorKind::InvalidData));
         }
         let mut plain = vec![0_u8; ciphertext.len()];
-        let length = match self.cipher.read_message(&ciphertext, &mut plain) {
-            Ok(length) => length,
-            Err(_) => {
-                self.poison();
-                return Err(TransportError::Io(ErrorKind::InvalidData));
-            }
+        let Ok(length) = self.cipher.read_message(&ciphertext, &mut plain) else {
+            self.poison();
+            return Err(TransportError::Io(ErrorKind::InvalidData));
         };
         if length == 0 {
             self.poison();
@@ -222,7 +216,7 @@ impl<T: Transport> Transport for UnauthenticatedNoiseChannel<T> {
 #[cfg(test)]
 mod tests {
     use std::{
-        net::{TcpListener, TcpStream},
+        net::TcpListener,
         thread,
         time::Duration,
     };
