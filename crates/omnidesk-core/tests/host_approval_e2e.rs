@@ -398,3 +398,25 @@ fn host_click_expires_at_thirty_seconds_without_control() {
         Some(HostApprovalError::ProofExpired),
     );
 }
+
+#[test]
+fn host_click_refuses_trust_expiry_at_exact_boundary() {
+    let (proof, manager, host, trust) = real_host_proof();
+    let peer_id = proof.peer_id().to_owned();
+    let hash = *proof.noise_handshake_hash();
+    let mut expired_trust = TrustedDeviceStore::new();
+    let mut record = trust.get(&peer_id).expect("original enrolled client").clone();
+    record.trust_expires_at_epoch_secs = NOW;
+    expired_trust.add(record).expect("record remains well formed");
+    let (payload, signature, issuer, claims) =
+        signed_test_lease(&host.public_key_bytes(), NOW);
+    let mut pending = PendingHostApproval::new(proof);
+    assert_eq!(
+        pending.approve_after_visible_host_click(
+            &peer_id, &hash, &host, &expired_trust, &manager, &issuer,
+            &payload, &signature, &context(&claims, NOW), 0, NOW,
+        ).err(),
+        Some(HostApprovalError::PeerRevokedOrExpired),
+    );
+    assert!(pending.is_consumed());
+}
