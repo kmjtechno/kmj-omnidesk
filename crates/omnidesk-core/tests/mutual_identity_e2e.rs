@@ -1,7 +1,10 @@
 //! Real loopback-LAN socket integration for mutual **identity-only** proof.
 //! Even a successful signed handshake does not enable remote desktop.
 
-use std::{net::{TcpListener, TcpStream}, thread};
+use std::{
+    net::{TcpListener, TcpStream},
+    thread,
+};
 
 use omnidesk_core::{
     device_identity::DeviceIdentity,
@@ -9,23 +12,23 @@ use omnidesk_core::{
         MutualIdentityError, client_mutual_identity_handshake, host_mutual_identity_handshake,
     },
     transport::{HostTransport, Transport},
-    trusted_device_store::{
-        PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
-    },
+    trusted_device_store::{PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore},
 };
 
 fn store_one(identity: &DeviceIdentity, now: u64, revoked: bool) -> TrustedDeviceStore {
     let mut store = TrustedDeviceStore::new();
-    store.add(TrustedDeviceRecord {
-        device_id: identity.public_id().to_owned(),
-        display_name: "Verified Test Peer".to_owned(),
-        public_key: identity.public_key_bytes(),
-        enrolled_at_epoch_secs: now - 20,
-        trust_expires_at_epoch_secs: now + 600,
-        managed: false,
-        revoked,
-        status: PersistedDeviceStatus::Offline,
-    }).expect("test trusted identity");
+    store
+        .add(TrustedDeviceRecord {
+            device_id: identity.public_id().to_owned(),
+            display_name: "Verified Test Peer".to_owned(),
+            public_key: identity.public_key_bytes(),
+            enrolled_at_epoch_secs: now - 20,
+            trust_expires_at_epoch_secs: now + 600,
+            managed: false,
+            revoked,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .expect("test trusted identity");
     store
 }
 
@@ -43,17 +46,23 @@ fn tcp_mutual_identity_verifies_both_pinned_keys_without_authorizing_control() {
     let handle = thread::spawn(move || {
         let (stream, _) = listener.accept().expect("accept");
         let mut transport = HostTransport::from_tcp_stream(stream).expect("transport");
-        let receipt = host_mutual_identity_handshake(
-            &mut transport, &host, &host_store, "kmj-tenant", now
-        ).expect("signed host and trusted client");
+        let receipt =
+            host_mutual_identity_handshake(&mut transport, &host, &host_store, "kmj-tenant", now)
+                .expect("signed host and trusted client");
         assert_eq!(receipt.peer_id, expected_client_id);
         transport.close();
     });
     let stream = TcpStream::connect(addr).expect("connect");
     let mut transport = HostTransport::from_tcp_stream(stream).expect("transport");
     let receipt = client_mutual_identity_handshake(
-        &mut transport, &client, &client_store, &expected_host_id, "kmj-tenant", now
-    ).expect("verified host");
+        &mut transport,
+        &client,
+        &client_store,
+        &expected_host_id,
+        "kmj-tenant",
+        now,
+    )
+    .expect("verified host");
     assert_eq!(receipt.peer_id, expected_host_id);
     // No adapter authorization: this receipt cannot make the encrypted-
     // transport and attended-password release gates true.
@@ -76,17 +85,25 @@ fn tcp_mutual_identity_rejects_impostor_host_key_before_client_proof() {
         let (stream, _) = listener.accept().expect("accept");
         let mut transport = HostTransport::from_tcp_stream(stream).expect("transport");
         let result = host_mutual_identity_handshake(
-            &mut transport, &impostor, &host_store, "kmj-tenant", now
+            &mut transport,
+            &impostor,
+            &host_store,
+            "kmj-tenant",
+            now,
         );
         assert!(result.is_err(), "client must refuse impostor");
         transport.close();
     });
-    let mut transport = HostTransport::from_tcp_stream(
-        TcpStream::connect(addr).expect("connect")
-    ).expect("transport");
+    let mut transport = HostTransport::from_tcp_stream(TcpStream::connect(addr).expect("connect"))
+        .expect("transport");
     assert_eq!(
         client_mutual_identity_handshake(
-            &mut transport, &client, &client_store, &expected_host_id, "kmj-tenant", now
+            &mut transport,
+            &client,
+            &client_store,
+            &expected_host_id,
+            "kmj-tenant",
+            now
         ),
         Err(MutualIdentityError::IdentityMismatch)
     );
@@ -108,18 +125,20 @@ fn tcp_mutual_identity_rejects_revoked_client_before_host_challenge() {
         let (stream, _) = listener.accept().expect("accept");
         let mut transport = HostTransport::from_tcp_stream(stream).expect("transport");
         assert_eq!(
-            host_mutual_identity_handshake(
-                &mut transport, &host, &host_store, "kmj-tenant", now
-            ),
+            host_mutual_identity_handshake(&mut transport, &host, &host_store, "kmj-tenant", now),
             Err(MutualIdentityError::Revoked)
         );
         transport.close();
     });
-    let mut transport = HostTransport::from_tcp_stream(
-        TcpStream::connect(addr).expect("connect")
-    ).expect("transport");
+    let mut transport = HostTransport::from_tcp_stream(TcpStream::connect(addr).expect("connect"))
+        .expect("transport");
     let result = client_mutual_identity_handshake(
-        &mut transport, &client, &client_store, &expected_host_id, "kmj-tenant", now
+        &mut transport,
+        &client,
+        &client_store,
+        &expected_host_id,
+        "kmj-tenant",
+        now,
     );
     assert!(result.is_err());
     transport.close();
