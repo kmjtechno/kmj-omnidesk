@@ -302,9 +302,9 @@ struct InboundProofJob {
 
 fn run_inbound_host_proof(
     request: InboundProofRequest,
-    cancelled: Arc<AtomicBool>,
-    tx: mpsc::SyncSender<InboundProofOutcome>,
-    decision_rx: Receiver<()>,
+    cancelled: &AtomicBool,
+    tx: &mpsc::SyncSender<InboundProofOutcome>,
+    decision_rx: &Receiver<()>,
 ) {
     let InboundProofRequest {
         stream,
@@ -396,7 +396,7 @@ impl InboundProofJob {
         let (decision_tx, decision_rx) = mpsc::sync_channel(1);
         std::thread::Builder::new()
             .name("omnidesk-inbound-auth-probe".to_owned())
-            .spawn(move || run_inbound_host_proof(request, worker_cancelled, tx, decision_rx))?;
+            .spawn(move || run_inbound_host_proof(request, &worker_cancelled, &tx, &decision_rx))?;
         Ok(Self {
             result_rx,
             decision_tx,
@@ -1170,30 +1170,40 @@ impl DesktopHost {
         }
     }
 
-    fn dispatch_action(&mut self, action: DesktopAction) {
-        if self.pending_host_consent.is_some() {
-            match action {
-                DesktopAction::AllowPermission => {
-                    self.finish_pending_host_consent(true);
-                    return;
-                }
-                DesktopAction::DenyPermission => {
-                    self.finish_pending_host_consent(false);
-                    return;
-                }
-                DesktopAction::Disconnect
-                | DesktopAction::ToggleRemoteControl
-                | DesktopAction::RotateSessionPassword => {
-                    self.finish_pending_host_consent(false);
-                }
-                _ => {
-                    self.shell.set_error(
-                        "Answer the authenticated incoming host Allow/Deny prompt first",
-                    );
-                    self.refresh_presentation();
-                    return;
-                }
+    /// Consume the one native host consent prompt before any fallback
+    /// shell action could treat an unlicensed peer as authorized.
+    fn dispatch_host_consent(&mut self, action: DesktopAction) -> bool {
+        if self.pending_host_consent.is_none() {
+            return false;
+        }
+        match action {
+            DesktopAction::AllowPermission => {
+                self.finish_pending_host_consent(true);
+                true
             }
+            DesktopAction::DenyPermission => {
+                self.finish_pending_host_consent(false);
+                true
+            }
+            DesktopAction::Disconnect
+            | DesktopAction::ToggleRemoteControl
+            | DesktopAction::RotateSessionPassword => {
+                self.finish_pending_host_consent(false);
+                false
+            }
+            _ => {
+                self.shell.set_error(
+                    "Answer the authenticated incoming host Allow/Deny prompt first",
+                );
+                self.refresh_presentation();
+                true
+            }
+        }
+    }
+
+    fn dispatch_action(&mut self, action: DesktopAction) {
+        if self.dispatch_host_consent(action) {
+            return;
         }
         self.cancel_inbound_probe_for_policy_action(action);
         if action == DesktopAction::EnrollDevice {
