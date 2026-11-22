@@ -705,6 +705,18 @@ impl DesktopHost {
                     }
                 }
             }
+        } else if action == DesktopAction::ToggleRemoteControl {
+            // Do not advertise an active incoming host while the only
+            // transport handshake authenticates the peer ID, not the host
+            // temporary password. Also covers keyboard/accessibility clicks.
+            if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+                self.shell.set_allow_remote_control(false);
+                self.shell.set_error(
+                    "Remote sharing unavailable until secure password proof is verified",
+                );
+            } else {
+                apply_action(&mut self.shell, action);
+            }
         } else if action == DesktopAction::CopyYourId {
             copy_to_clipboard(self.shell.local_device_id());
             apply_action(&mut self.shell, action);
