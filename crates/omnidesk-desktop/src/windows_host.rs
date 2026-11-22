@@ -809,6 +809,12 @@ impl DesktopHost {
     // One guarded entrypoint for both mouse and keyboard Remote ID actions.
     // No password or session is sent over a TCP identity-only handshake.
     fn dispatch_remote_connect(&mut self) {
+        if self.outbound_proof.is_some() {
+            self.shell.set_error(
+                "Encrypted authentication already running; retry after it finishes",
+            );
+            return;
+        }
         if self.shell.remote_id_input().is_empty() {
             self.shell.set_error("Please enter a Remote Device ID");
         } else if self.shell.remote_password_input().is_empty() {
@@ -842,6 +848,9 @@ impl DesktopHost {
             action,
             DesktopAction::Disconnect | DesktopAction::DenyPermission
         ) {
+            if let Some(job) = self.outbound_proof.as_mut() {
+                job.cancel();
+            }
             if let Some(mut adapter) = self.session_adapter.take() {
                 adapter.close();
             }
@@ -1179,6 +1188,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.poll_outbound_proof();
         self.poll_incoming();
         if secure_proof_diagnostic_enabled() {
             // A TCP listener runs on another thread. Without a wake event,
