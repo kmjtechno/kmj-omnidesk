@@ -2149,41 +2149,6 @@ fn draw_upload_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.fill_rect(x + 8, y + 4, 2, 1, color);
 }
 
-fn draw_windows_icon(canvas: &mut Canvas<'_>, x: usize, y: usize) {
-    let blue = 0x0000_a4ef;
-    canvas.fill_rect(x, y, 6, 6, blue);
-    canvas.fill_rect(x + 8, y, 6, 6, blue);
-    canvas.fill_rect(x, y + 8, 6, 6, blue);
-    canvas.fill_rect(x + 8, y + 8, 6, 6, blue);
-}
-
-fn draw_crown_icon(canvas: &mut Canvas<'_>, x: usize, y: usize) {
-    let gold = 0x00f5_9e0b;
-    canvas.h_line(x, y + 8, 12, gold);
-    canvas.fill_rect(x + 1, y + 6, 10, 2, gold);
-    canvas.v_line(x + 1, y + 2, 4, gold);
-    canvas.v_line(x + 6, y, 6, gold);
-    canvas.v_line(x + 11, y + 2, 4, gold);
-}
-
-fn draw_dots_menu(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.dot(x, y, 2, color);
-    canvas.dot(x + 6, y, 2, color);
-    canvas.dot(x + 12, y, 2, color);
-}
-
-fn draw_laptop_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.stroke_rect(x + 2, y, 12, 8, 1, color);
-    canvas.h_line(x, y + 9, 16, color);
-}
-
-fn draw_server_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.stroke_rect(x, y, 15, 5, 1, color);
-    canvas.stroke_rect(x, y + 7, 15, 5, 1, color);
-    canvas.dot(x + 12, y + 2, 1, 0x48_bb_78);
-    canvas.dot(x + 12, y + 9, 1, 0x48_bb_78);
-}
-
 fn draw_document_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.stroke_rect(x + 1, y + 1, 10, 12, 1, color);
     canvas.h_line(x + 3, y + 4, 6, color);
@@ -2311,6 +2276,9 @@ fn draw_approved_v7_static_chrome(canvas: &mut Canvas<'_>, presentation: &Presen
     }
 }
 
+// The owner-locked V7 renderer is a legacy single-pass geometry draw.
+// Split only together with shared pointer and accessibility hitboxes.
+#[allow(clippy::too_many_lines)]
 fn draw_premium_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
