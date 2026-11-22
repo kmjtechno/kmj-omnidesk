@@ -542,6 +542,78 @@ mod tests {
     }
 
     #[test]
+    fn pinned_device_id_and_key_cannot_be_reassigned_or_revocation_cleared() {
+        let mut store = TrustedDeviceStore::new();
+        let original = sample_record("pinned-host", 1);
+        store.add(original.clone()).expect("first enrollment");
+        assert!(store.revoke("pinned-host"));
+
+        // Same device ID, different valid signing key: never take over.
+        let replacement = sample_record("pinned-host", 2);
+        assert!(matches!(
+            store.add(replacement),
+            Err(DeviceStoreError::DeviceAlreadyExists(_))
+        ));
+
+        // Same key, different claimed device ID: never alias trust.
+        let alias = sample_record("spoofed-host", 1);
+        assert!(matches!(
+            store.add(alias),
+            Err(DeviceStoreError::DeviceAlreadyExists(_))
+        ));
+
+        // Even the same record must not silently undo a revocation.
+        assert!(matches!(
+            store.add(original.clone()),
+            Err(DeviceStoreError::DeviceAlreadyExists(_))
+        ));
+        assert_eq!(store.len(), 1);
+        let pinned = store.get("pinned-host").expect("original remains");
+        assert_eq!(pinned.public_key, original.public_key);
+        assert!(pinned.revoked);
+    }
+
+    #[test]
+    fn duplicate_or_unsupported_persisted_trust_store_fails_closed() {
+        let dir = TempTestDir::new("untrusted_duplicates");
+        let path = dir.path().join("trusted_devices.json");
+        let original = sample_record("known-host", 1);
+
+        let duplicate = StoreEnvelope {
+            schema_version: CURRENT_SCHEMA_VERSION,
+            devices: vec![original.clone(), sample_record("known-host", 2)],
+        };
+        std::fs::write(&path, serde_json::to_vec(&duplicate).expect("encode"))
+            .expect("write duplicate");
+        assert!(matches!(
+            TrustedDeviceStore::load_from_path(&path),
+            Err(DeviceStoreError::DeviceAlreadyExists(_))
+        ));
+
+        let duplicate_key = StoreEnvelope {
+            schema_version: CURRENT_SCHEMA_VERSION,
+            devices: vec![original.clone(), sample_record("alias-host", 1)],
+        };
+        std::fs::write(&path, serde_json::to_vec(&duplicate_key).expect("encode"))
+            .expect("write alias");
+        assert!(matches!(
+            TrustedDeviceStore::load_from_path(&path),
+            Err(DeviceStoreError::DeviceAlreadyExists(_))
+        ));
+
+        let unsupported = StoreEnvelope {
+            schema_version: CURRENT_SCHEMA_VERSION + 1,
+            devices: vec![original],
+        };
+        std::fs::write(&path, serde_json::to_vec(&unsupported).expect("encode"))
+            .expect("write schema");
+        assert!(matches!(
+            TrustedDeviceStore::load_from_path(&path),
+            Err(DeviceStoreError::Json(_))
+        ));
+    }
+
+    #[test]
     fn atomic_file_persistence_roundtrip() {
         let dir = TempTestDir::new("roundtrip");
         let path = dir.path().join("trusted_devices.json");
