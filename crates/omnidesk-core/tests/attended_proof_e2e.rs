@@ -1,6 +1,10 @@
 //! Real TCP encrypted attended proof tests. This is NOT remote-control QA.
 
-use std::{net::{TcpListener, TcpStream}, thread, time::Duration};
+use std::{
+    net::{TcpListener, TcpStream},
+    thread,
+    time::Duration,
+};
 
 use omnidesk_core::{
     attended_proof_wire::{
@@ -15,16 +19,18 @@ use omnidesk_core::{
 
 fn pin_peer(identity: &DeviceIdentity, now: u64) -> TrustedDeviceStore {
     let mut store = TrustedDeviceStore::new();
-    store.add(TrustedDeviceRecord {
-        device_id: identity.public_id().to_owned(),
-        display_name: "Pinned Test Peer".to_owned(),
-        public_key: identity.public_key_bytes(),
-        enrolled_at_epoch_secs: now.saturating_sub(20),
-        trust_expires_at_epoch_secs: now + 600,
-        managed: false,
-        revoked: false,
-        status: PersistedDeviceStatus::Offline,
-    }).expect("pin");
+    store
+        .add(TrustedDeviceRecord {
+            device_id: identity.public_id().to_owned(),
+            display_name: "Pinned Test Peer".to_owned(),
+            public_key: identity.public_key_bytes(),
+            enrolled_at_epoch_secs: now.saturating_sub(20),
+            trust_expires_at_epoch_secs: now + 600,
+            managed: false,
+            revoked: false,
+            status: PersistedDeviceStatus::Offline,
+        })
+        .expect("pin");
     store
 }
 
@@ -48,7 +54,12 @@ fn encrypted_tcp_accepts_correct_attended_password_only_after_mutual_pinning() {
         let mut session = UnauthenticatedNoiseChannel::accept(tcp).expect("noise responder");
         assert_eq!(
             host_verify_attended_password(
-                &mut session, &host, &host_store, &mut manager, "kmj-tenant", now,
+                &mut session,
+                &host,
+                &host_store,
+                &mut manager,
+                "kmj-tenant",
+                now,
             ),
             Ok(())
         );
@@ -59,8 +70,13 @@ fn encrypted_tcp_accepts_correct_attended_password_only_after_mutual_pinning() {
     let mut session = UnauthenticatedNoiseChannel::connect(tcp).expect("noise initiator");
     assert_eq!(
         client_prove_attended_password(
-            &mut session, &client, &client_store, &host_id, "kmj-tenant",
-            &password, now,
+            &mut session,
+            &client,
+            &client_store,
+            &host_id,
+            "kmj-tenant",
+            &password,
+            now,
         ),
         Ok(())
     );
@@ -89,9 +105,16 @@ fn encrypted_tcp_wrong_attended_password_is_denied_and_counts_host_attempt() {
         let mut session = UnauthenticatedNoiseChannel::accept(tcp).expect("noise responder");
         assert!(matches!(
             host_verify_attended_password(
-                &mut session, &host, &host_store, &mut manager, "kmj-tenant", now,
+                &mut session,
+                &host,
+                &host_store,
+                &mut manager,
+                "kmj-tenant",
+                now,
             ),
-            Err(AttendedProofError::Password(PasswordVerificationError::InvalidPassword { .. }))
+            Err(AttendedProofError::Password(
+                PasswordVerificationError::InvalidPassword { .. }
+            ))
         ));
         session.close();
     });
@@ -100,8 +123,13 @@ fn encrypted_tcp_wrong_attended_password_is_denied_and_counts_host_attempt() {
     let mut session = UnauthenticatedNoiseChannel::connect(tcp).expect("noise initiator");
     assert_eq!(
         client_prove_attended_password(
-            &mut session, &client, &client_store, &host_id, "kmj-tenant",
-            "WRONG999", now,
+            &mut session,
+            &client,
+            &client_store,
+            &host_id,
+            "kmj-tenant",
+            "WRONG999",
+            now,
         ),
         Err(AttendedProofError::Denied)
     );
