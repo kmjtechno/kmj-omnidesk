@@ -2149,41 +2149,6 @@ fn draw_upload_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.fill_rect(x + 8, y + 4, 2, 1, color);
 }
 
-fn draw_windows_icon(canvas: &mut Canvas<'_>, x: usize, y: usize) {
-    let blue = 0x0000_a4ef;
-    canvas.fill_rect(x, y, 6, 6, blue);
-    canvas.fill_rect(x + 8, y, 6, 6, blue);
-    canvas.fill_rect(x, y + 8, 6, 6, blue);
-    canvas.fill_rect(x + 8, y + 8, 6, 6, blue);
-}
-
-fn draw_crown_icon(canvas: &mut Canvas<'_>, x: usize, y: usize) {
-    let gold = 0x00f5_9e0b;
-    canvas.h_line(x, y + 8, 12, gold);
-    canvas.fill_rect(x + 1, y + 6, 10, 2, gold);
-    canvas.v_line(x + 1, y + 2, 4, gold);
-    canvas.v_line(x + 6, y, 6, gold);
-    canvas.v_line(x + 11, y + 2, 4, gold);
-}
-
-fn draw_dots_menu(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.dot(x, y, 2, color);
-    canvas.dot(x + 6, y, 2, color);
-    canvas.dot(x + 12, y, 2, color);
-}
-
-fn draw_laptop_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.stroke_rect(x + 2, y, 12, 8, 1, color);
-    canvas.h_line(x, y + 9, 16, color);
-}
-
-fn draw_server_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
-    canvas.stroke_rect(x, y, 15, 5, 1, color);
-    canvas.stroke_rect(x, y + 7, 15, 5, 1, color);
-    canvas.dot(x + 12, y + 2, 1, 0x48_bb_78);
-    canvas.dot(x + 12, y + 9, 1, 0x48_bb_78);
-}
-
 fn draw_document_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
     canvas.stroke_rect(x + 1, y + 1, 10, 12, 1, color);
     canvas.h_line(x + 3, y + 4, 6, color);
@@ -2205,6 +2170,115 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
     clippy::suboptimal_flops,
     clippy::match_same_arms
 )]
+// Artwork only: approved V7 reference pixels are permitted exclusively
+// in immutable static UI regions. Never copy sample IDs, passwords, license
+// status, session data or relay health from the design mockup.
+fn approved_v7_static_chrome() -> Option<&'static crate::brand::BrandImage> {
+    static SKIN: OnceLock<Option<crate::brand::BrandImage>> = OnceLock::new();
+    SKIN.get_or_init(|| {
+        let art = image::load_from_memory(include_bytes!(
+            "../../../docs/design/OMNIDESK_ENTERPRISE_V7_APPROVED_MASTER.png"
+        ))
+        .ok()?
+        .into_rgba8();
+        let (width, height) = art.dimensions();
+        if (width, height) != (1672, 941) {
+            return None;
+        }
+        Some(crate::brand::BrandImage {
+            width,
+            height,
+            rgba: art.into_raw(),
+        })
+    })
+    .as_ref()
+}
+
+fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
+    let in_rect =
+        |x1: usize, y1: usize, x2: usize, y2: usize| x >= x1 && x < x2 && y >= y1 && y < y2;
+    // Opaque, *fully safe* regions; never contain runtime sample identities.
+    if y < 70 || (x < 260 && (70..870).contains(&y)) {
+        return true;
+    }
+    if in_rect(258, 70, 1268, 249) || in_rect(280, 532, 1269, 635) {
+        return true;
+    }
+    // Full quick-action artwork is safe: no online state, sample peer or
+    // credential is present anywhere on this panel.
+    if in_rect(1284, 532, 1632, 843) {
+        return true;
+    }
+    // Keep red beveled card outlines without copying the source's example
+    // input contents. Only a 3px safe frame survives from each card.
+    for (x1, x2) in [(280, 776), (795, 1260)] {
+        if in_rect(x1, 249, x2, 516) && (x < x1 + 3 || x >= x2 - 3 || !(252..513).contains(&y)) {
+            return true;
+        }
+    }
+    for (x1, x2) in [(280, 780), (797, 1269)] {
+        if in_rect(x1, 648, x2, 844) && (x < x1 + 3 || x >= x2 - 3 || !(651..841).contains(&y)) {
+            return true;
+        }
+    }
+    // Never import the right-edge green strips of the source's fake
+    // Active/All Healthy status badges, even through a border falloff.
+    for (y1, y2) in [(101, 305), (321, 515)] {
+        if in_rect(1284, y1, 1632, y2) && (x < 1288 || y < y1 + 3 || y >= y2 - 4) {
+            return true;
+        }
+    }
+    // Source footer fake relay/latency/All Operational are always masked.
+    in_rect(280, 860, 1633, 920) && (x < 284 || !(864..916).contains(&y))
+}
+
+// Copy *only bright glyph/illustration pixels* from the reference in static
+// section-title zones, not the differently-colored card background. This
+// prevents sharp rectangular bands while preserving pixel-exact owner font
+// artwork. Lower title regions stop before fake (12) device count/View All.
+fn draw_approved_v7_static_chrome(canvas: &mut Canvas<'_>, presentation: &PresentationModel) {
+    use omnidesk_core::product_shell::{NavTab, PrimaryView};
+    if (canvas.width, canvas.height) != (1672, 941)
+        || presentation.primary_view != PrimaryView::Devices
+        || presentation.nav_tab != NavTab::Devices
+    {
+        return;
+    }
+    let Some(art) = approved_v7_static_chrome() else {
+        return;
+    };
+    for y in 0..canvas.height {
+        let row_offset = y * canvas.width;
+        for x in 0..canvas.width {
+            if !approved_v7_skin_allow(x, y) {
+                continue;
+            }
+            let pixel_index = row_offset + x;
+            let source_index = pixel_index * 4;
+            let alpha = art.rgba[source_index + 3];
+            if alpha == 0 {
+                continue;
+            }
+            let rgb = (u32::from(art.rgba[source_index]) << 16)
+                | (u32::from(art.rgba[source_index + 1]) << 8)
+                | u32::from(art.rgba[source_index + 2]);
+            if alpha == u8::MAX {
+                canvas.pixels[pixel_index] = rgb;
+            } else {
+                canvas.blend_coverage(
+                    i32::try_from(x).unwrap_or(i32::MAX),
+                    i32::try_from(y).unwrap_or(i32::MAX),
+                    rgb,
+                    f32::from(alpha) / 255.0,
+                );
+            }
+        }
+    }
+}
+
+// The owner-locked V7 renderer is a legacy single-pass geometry draw.
+// Split only together with shared pointer and accessibility hitboxes.
+#[allow(clippy::too_many_lines)]
 fn draw_premium_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -2795,7 +2869,7 @@ fn draw_premium_dashboard(
     canvas.text(
         devices.x + 44,
         devices.y + 18,
-        "My Devices (12)",
+        "My Devices",
         1,
         p.foreground,
     );
@@ -2806,86 +2880,39 @@ fn draw_premium_dashboard(
         1,
         0x5d_68_7d,
     );
-    let device_rows = [
-        (
-            "DESKTOP-5FVJMET",
-            " (This Device)",
-            "Windows 11 Pro · PS20 · Office",
-            true,
-            false,
-        ),
-        (
-            "KMJ-ELITE-SERVER",
-            "",
-            "Ubuntu 24.04 · CloudOS",
-            false,
-            true,
-        ),
-        (
-            "CLIENT-AV-01",
-            "",
-            "Windows 11 Pro · Client Site",
-            true,
-            false,
-        ),
-    ];
-    for (idx, (name, tag, sub, is_win, is_crown)) in device_rows.iter().enumerate() {
-        let row_y = devices.y + 54 + idx * 56;
-        if idx > 0 {
-            canvas.h_line(
-                devices.x + 18,
-                row_y - 8,
-                devices.width.saturating_sub(36),
-                0x18_1e_2b,
-            );
-        }
-        if *is_win {
-            draw_windows_icon(canvas, devices.x + 20, row_y + 4);
-        } else {
-            draw_server_icon(canvas, devices.x + 20, row_y + 4, 0x0000_a4ef);
-        }
-        canvas.text(devices.x + 44, row_y, name, 1, p.foreground);
-        if !tag.is_empty() {
-            let offset = name.len() * 8 + 48;
-            canvas.text(devices.x + offset, row_y, tag, 1, 0x7a_86_99);
-        }
-        if *is_crown {
-            let offset = name.len() * 8 + 48;
-            draw_crown_icon(canvas, devices.x + offset, row_y + 2);
-        }
-        if idx == 2 {
-            let offset = name.len() * 8 + 48;
-            canvas.rounded_panel(
-                devices.x + offset,
-                row_y - 2,
-                48,
-                18,
-                4,
-                0x10_26_18,
-                0x2e_7d_4f,
-            );
-            canvas.text(devices.x + offset + 7, row_y, "Online", 1, 0x48_bb_78);
-        }
+    let real_device_rows = presentation
+        .controls
+        .iter()
+        .filter(|entry| matches!(entry.action, crate::DesktopAction::ConnectDevice(_, _)))
+        .take(3);
+    let mut count = 0_usize;
+    for (index, entry) in real_device_rows.enumerate() {
+        count += 1;
+        let y = devices.y + 54 + index * 56;
+        draw_monitor_icon(canvas, devices.x + 20, y + 4, 14, 10, 0x8a_96_aa);
+        let name = entry.label.split(" — ").next().unwrap_or("Device");
         canvas.text_clipped(
             devices.x + 44,
-            row_y + 20,
-            sub,
+            y,
+            name,
             1,
-            devices.width.saturating_sub(120),
-            0x72_7e_92,
+            devices.width.saturating_sub(64),
+            p.foreground,
         );
-        draw_monitor_icon(
-            canvas,
-            devices.x + devices.width - 56,
-            row_y + 8,
-            14,
-            10,
+        canvas.text(
+            devices.x + 44,
+            y + 20,
+            "Authentication not verified",
+            1,
             0x8a_96_aa,
         );
-        draw_dots_menu(
-            canvas,
-            devices.x + devices.width - 32,
-            row_y + 13,
+    }
+    if count == 0 {
+        canvas.text(
+            devices.x + 28,
+            devices.y + 90,
+            "No verified device entries to display",
+            1,
             0x8a_96_aa,
         );
     }
@@ -2906,52 +2933,14 @@ fn draw_premium_dashboard(
         1,
         0x5d_68_7d,
     );
-    let session_rows = [
-        ("CLIENT-AV-01", "Today, 01:42 PM · 47 min", 0),
-        ("LAPTOP-SUPPORT", "Today, 11:03 AM · 28 min", 1),
-        ("SRV-PROD-01", "Yesterday, 06:18 PM · 1 h 12 min", 2),
-    ];
-    for (idx, (name, sub, icon_type)) in session_rows.iter().enumerate() {
-        let row_y = sessions.y + 54 + idx * 56;
-        if idx > 0 {
-            canvas.h_line(
-                sessions.x + 18,
-                row_y - 8,
-                sessions.width.saturating_sub(36),
-                0x18_1e_2b,
-            );
-        }
-        match icon_type {
-            0 => draw_monitor_icon(canvas, sessions.x + 20, row_y + 4, 15, 11, 0x8a_96_aa),
-            1 => draw_laptop_icon(canvas, sessions.x + 20, row_y + 4, 0x8a_96_aa),
-            _ => draw_server_icon(canvas, sessions.x + 20, row_y + 4, 0x8a_96_aa),
-        }
-        canvas.text(sessions.x + 44, row_y, name, 1, p.foreground);
-        canvas.text_clipped(
-            sessions.x + 44,
-            row_y + 20,
-            sub,
-            1,
-            sessions.width.saturating_sub(130),
-            0x72_7e_92,
-        );
-        canvas.rounded_panel(
-            sessions.x + sessions.width - 86,
-            row_y + 4,
-            70,
-            22,
-            5,
-            0x10_26_18,
-            0x2e_7d_4f,
-        );
-        canvas.text(
-            sessions.x + sessions.width - 77,
-            row_y + 7,
-            "Completed",
-            1,
-            0x48_bb_78,
-        );
-    }
+    // Session history is unavailable until a trusted session store exists.
+    canvas.text(
+        sessions.x + 28,
+        sessions.y + 90,
+        "No verified session history",
+        1,
+        0x8a_96_aa,
+    );
 
     // 7. Right Column: License, System Status, Quick Actions
     let license = layout.license;
@@ -2971,25 +2960,25 @@ fn draw_premium_dashboard(
         p.foreground,
     );
     canvas.rounded_panel(
-        license.x + license.width.saturating_sub(76),
+        license.x + license.width.saturating_sub(116),
         license.y + 18,
-        60,
+        100,
         22,
         5,
-        0x12_29_1c,
-        0x2e_7d_4f,
+        0x17_1b_29,
+        0x3d_45_57,
     );
     canvas.text(
-        license.x + license.width.saturating_sub(62),
+        license.x + license.width.saturating_sub(108),
         license.y + 21,
-        "Active",
+        "Unverified",
         1,
-        0x48_bb_78,
+        0xa0_ae_c0,
     );
     canvas.text_clipped(
         license.x + 42,
         license.y + 40,
-        "KMJ OmniDesk Enterprise",
+        "No verified Licensing Hub entitlement",
         1,
         license.width.saturating_sub(54),
         0x8a_96_aa,
@@ -2998,7 +2987,7 @@ fn draw_premium_dashboard(
     canvas.text_right(
         license.x + license.width - 18,
         license.y + 83,
-        "250 / 1,000",
+        "Not verified",
         1,
         0xd0_d7_e5,
     );
@@ -3011,15 +3000,6 @@ fn draw_premium_dashboard(
         0x1b_20_2d,
         0x1b_20_2d,
     );
-    canvas.rounded_panel(
-        license.x + 18,
-        license.y + 107,
-        (license.width - 36) / 4,
-        8,
-        4,
-        0x38_a1_69,
-        0x48_bb_78,
-    );
     canvas.text(
         license.x + 18,
         license.y + 132,
@@ -3030,7 +3010,7 @@ fn draw_premium_dashboard(
     canvas.text_right(
         license.x + license.width - 18,
         license.y + 132,
-        "Dec 31, 2026",
+        "Not verified",
         1,
         0xd0_d7_e5,
     );
@@ -3062,26 +3042,26 @@ fn draw_premium_dashboard(
         p.foreground,
     );
     canvas.rounded_panel(
-        health.x + health.width.saturating_sub(92),
+        health.x + health.width.saturating_sub(116),
         health.y + 18,
-        78,
+        102,
         22,
         5,
-        0x12_29_1c,
-        0x2e_7d_4f,
+        0x17_1b_29,
+        0x3d_45_57,
     );
     canvas.text(
-        health.x + health.width.saturating_sub(84),
+        health.x + health.width.saturating_sub(108),
         health.y + 21,
-        "All Healthy",
+        "Unverified",
         1,
-        0x48_bb_78,
+        0xa0_ae_c0,
     );
     let status_items = [
-        ("OmniDesk Service", "Running", 0x48_bb_78),
-        ("Relay Network", "Connected", 0x48_bb_78),
-        ("Security (E2E Encryption)", "Active", 0x48_bb_78),
-        ("NAT Traversal (P2P)", "Ready", 0x48_bb_78),
+        ("OmniDesk Service", "Unverified", 0x8a_96_aa),
+        ("Relay Network", "Not checked", 0x8a_96_aa),
+        ("E2E Encryption", "No session", 0x8a_96_aa),
+        ("NAT Traversal (P2P)", "Not checked", 0x8a_96_aa),
     ];
     for (index, (label, value, val_color)) in status_items.iter().enumerate() {
         let y = health.y + 57 + index * 31;
@@ -3142,11 +3122,11 @@ fn draw_premium_dashboard(
     canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x0009_0d16);
     canvas.h_line(footer.x, footer.y, footer.width, 0x22_27_38);
 
-    canvas.dot(footer.x + 23, footer.y + 23, 4, 0x48_bb_78);
+    canvas.dot(footer.x + 23, footer.y + 23, 4, 0x8a_96_aa);
     canvas.text(
         footer.x + 36,
         footer.y + 17,
-        "Connected to KMJ Cloud Relay (Asia)",
+        "Relay: not authenticated",
         1,
         0xd0_d7_e5,
     );
@@ -3154,7 +3134,7 @@ fn draw_premium_dashboard(
     canvas.text(
         footer.x + 345,
         footer.y + 17,
-        "End-to-End Encrypted (AES-256)",
+        "Encryption: no active session",
         1,
         0xd0_d7_e5,
     );
@@ -3162,11 +3142,11 @@ fn draw_premium_dashboard(
     canvas.text(
         footer.x + 620,
         footer.y + 17,
-        "Zero-Trust Security",
+        "Peer authorization required",
         1,
         0xd0_d7_e5,
     );
-    canvas.text(footer.x + 790, footer.y + 17, "ıll 42 ms", 1, 0x48_bb_78);
+    canvas.text(footer.x + 790, footer.y + 17, "Latency: --", 1, 0x8a_96_aa);
 
     canvas.rounded_panel(
         footer.x + footer.width.saturating_sub(210),
@@ -3174,21 +3154,21 @@ fn draw_premium_dashboard(
         195,
         28,
         6,
-        0x10_26_18,
-        0x2e_7d_4f,
+        0x17_1b_29,
+        0x3d_45_57,
     );
     canvas.dot(
         footer.x + footer.width.saturating_sub(195),
         footer.y + 23,
         4,
-        0x48_bb_78,
+        0x8a_96_aa,
     );
     canvas.text(
         footer.x + footer.width.saturating_sub(182),
         footer.y + 17,
-        "All Services Operational",
+        "Services not verified",
         1,
-        0x48_bb_78,
+        0x8a_96_aa,
     );
 }
 fn draw_locked_dashboard(
@@ -3268,6 +3248,9 @@ pub fn render_shell(
     };
     if let Some(premium) = crate::PremiumDashboardLayout::for_window(width, height) {
         draw_premium_dashboard(&mut canvas, presentation, &premium, palette);
+        // Pixel-perfect static owner chrome over genuine, live-only
+        // native controls. Every demonstrative value is masked out.
+        draw_approved_v7_static_chrome(&mut canvas, presentation);
         return;
     }
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
@@ -3318,6 +3301,68 @@ mod tests {
             lower_pixels, upper_pixels,
             "lowercase navigation must remain lowercase"
         );
+    }
+
+    #[test]
+    fn premium_dashboard_never_fabricates_the_owners_demo_runtime_values() {
+        let source = include_str!("render.rs");
+        let premium = source
+            .split_once("fn draw_premium_dashboard(")
+            .and_then(|(_, remaining)| remaining.split_once("fn draw_locked_dashboard("))
+            .map(|(body, _)| body)
+            .expect("premium renderer source region");
+        for demo_value in [
+            "250 / 1,000",
+            "Dec 31, 2026",
+            "My Devices (12)",
+            "CLIENT-AV-01",
+            "KMJ-ELITE-SERVER",
+            "All Healthy",
+            "All Services Operational",
+            "42 ms",
+            "Connected to KMJ Cloud Relay (Asia)",
+            r#""Completed""#,
+        ] {
+            assert!(
+                !premium.contains(demo_value),
+                "demo status or device history must never be drawn: {demo_value}"
+            );
+        }
+        assert!(premium.contains("No verified session history"));
+        assert!(premium.contains("No verified Licensing Hub entitlement"));
+    }
+
+    #[test]
+    fn approved_static_chrome_excludes_all_demo_values() {
+        let art = approved_v7_static_chrome().expect("owner approved PNG must decode");
+        assert_eq!((art.width, art.height), (1672, 941));
+        for (x, y) in [
+            (360, 357),  // demo local device ID
+            (361, 428),  // demo session password
+            (937, 357),  // remote device input
+            (939, 427),  // remote password input
+            (1030, 483), // active remote CTA label
+            (380, 713),  // demo device list
+            (1002, 713), // demo session history
+            (1554, 130), // false Active entitlement
+            (1557, 189), // fake seat count
+            (1551, 244), // fake expiry
+            (1565, 393), // false service health
+            (1553, 482), // false peer-to-peer readiness
+            (330, 890),  // false connected relay
+            (1495, 891), // false all-operational claim
+        ] {
+            assert!(
+                !approved_v7_skin_allow(x, y),
+                "demo status/data pixel must never be copied at ({x}, {y})"
+            );
+        }
+        assert!(approved_v7_skin_allow(42, 30));
+        assert!(approved_v7_skin_allow(932, 127));
+        assert!(approved_v7_skin_allow(55, 803));
+        assert!(!approved_v7_skin_allow(1629, 130));
+        assert!(!approved_v7_skin_allow(1629, 390));
+        assert!(!approved_v7_skin_allow(1629, 902));
     }
 
     #[test]
