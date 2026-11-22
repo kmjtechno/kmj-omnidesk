@@ -1028,6 +1028,10 @@ impl DesktopHost {
             if let Some(job) = self.outbound_proof.as_mut() {
                 job.cancel();
             }
+            if let Some(job) = self.inbound_proof.as_ref() {
+                job.cancel();
+                self.shell.set_allow_remote_control(false);
+            }
             if let Some(mut adapter) = self.session_adapter.take() {
                 adapter.close();
             }
@@ -1088,7 +1092,15 @@ impl DesktopHost {
                 }
             }
         } else if action == DesktopAction::ToggleRemoteControl {
+            if let Some(job) = self.inbound_proof.as_ref() {
+                job.cancel();
+            }
             self.apply_host_sharing_toggle();
+        } else if action == DesktopAction::RotateSessionPassword {
+            if let Some(job) = self.inbound_proof.as_ref() {
+                job.cancel();
+            }
+            apply_action(&mut self.shell, action);
         } else if action == DesktopAction::CopyYourId {
             copy_to_clipboard(self.shell.local_device_id());
             apply_action(&mut self.shell, action);
@@ -1224,7 +1236,15 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         }
 
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                if let Some(job) = self.inbound_proof.as_ref() {
+                    job.cancel();
+                }
+                if let Some(job) = self.outbound_proof.as_mut() {
+                    job.cancel();
+                }
+                event_loop.exit();
+            },
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::Resized(_) => {
                 self.update_accessibility_tree();
@@ -1365,6 +1385,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.poll_inbound_proof();
         self.poll_outbound_proof();
         self.poll_incoming();
         if secure_proof_diagnostic_enabled() {
