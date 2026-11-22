@@ -51,6 +51,37 @@ enum PremiumCaptionAction {
 // Never replace this guard with "password input is nonempty".
 const ATTENDED_PASSWORD_PROOF_TRANSPORT_READY: bool = false;
 
+// Pre-release operator opt-in for authentication QA only. Unlike the future
+// remote-control listener, this accepts only explicit loopback/RFC1918/ULA
+// addresses and ALWAYS closes after verifying the password; no mouse/screen
+// or application session can be authorized by this mode.
+fn secure_proof_diagnostic_enabled() -> bool {
+    std::env::var("OMNIDESK_AUTH_PROBE_ONLY").as_deref() == Ok("1")
+}
+
+fn allowed_proof_diagnostic_bind(value: &str) -> Option<std::net::SocketAddr> {
+    use std::net::{IpAddr, SocketAddr};
+    let address: SocketAddr = value.parse().ok()?;
+    if address.port() == 0 {
+        return None;
+    }
+    let local = match address.ip() {
+        IpAddr::V4(ip) => ip.is_loopback() || ip.is_private(),
+        IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local(),
+    };
+    local.then_some(address)
+}
+
+fn secure_proof_diagnostic_bind() -> Option<std::net::SocketAddr> {
+    if !secure_proof_diagnostic_enabled() {
+        return None;
+    }
+    let value = std::env::var("OMNIDESK_AUTH_PROBE_BIND")
+        .unwrap_or_else(|_| "127.0.0.1:21118".to_owned());
+    allowed_proof_diagnostic_bind(&value)
+}
+
+
 // Winit window attributes use logical sizes; rendering and mouse hitboxes
 // use *physical* client pixels. On a 200%-DPI P520 monitor the approved
 // 1672x941 native artboard can fit physically even though its logical width
@@ -296,33 +327,43 @@ impl DesktopHost {
         }
         let accessibility = accessibility_snapshot(&shell);
 
-        // No public listener while encrypted host-password proof is absent.
-        // A plaintext TCP port would expose an unused, unbounded attack
-        // surface even though authorization is already fail-closed.
+        // Production public listening stays disabled until authenticated
+        // encrypted control, separate visible consent and licensing all pass.
+        // A pre-release operator can opt into a PROOF-ONLY listener, strictly
+        // bound to loopback or a named private LAN address. It never grants
+        // remote desktop access and keeps the bounded incoming queue.
         let (incoming_tx, incoming_rx) = std::sync::mpsc::sync_channel::<IncomingPeer>(16);
-        if ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
-            let listen_port: u16 = std::env::var("OMNIDESK_LISTEN_PORT")
-                .ok()
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(21118);
-
-            // Never silently fall back to an unexpected ephemeral public port.
-            if let Ok(listener) = std::net::TcpListener::bind(("0.0.0.0", listen_port)) {
-                let _ = std::thread::Builder::new()
-                    .name("omnidesk-host-listener".to_owned())
-                    .spawn(move || {
-                        while let Ok((stream, peer_addr)) = listener.accept() {
-                            let deadline = Some(std::time::Duration::from_secs(3));
-                            let _ = stream.set_read_timeout(deadline);
-                            let _ = stream.set_write_timeout(deadline);
-                            let _ = stream.set_nodelay(true);
-                            match incoming_tx.try_send(IncomingPeer { stream, peer_addr }) {
-                                Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+        if let Some(listen_addr) = secure_proof_diagnostic_bind() {
+            match std::net::TcpListener::bind(listen_addr) {
+                Ok(listener) => {
+                    let result = std::thread::Builder::new()
+                        .name("omnidesk-auth-probe-listener".to_owned())
+                        .spawn(move || {
+                            while let Ok((stream, peer_addr)) = listener.accept() {
+                                let deadline = Some(std::time::Duration::from_secs(3));
+                                let _ = stream.set_read_timeout(deadline);
+                                let _ = stream.set_write_timeout(deadline);
+                                let _ = stream.set_nodelay(true);
+                                match incoming_tx.try_send(IncomingPeer { stream, peer_addr }) {
+                                    Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+                                }
                             }
-                        }
-                    });
+                        });
+                    if result.is_err() {
+                        shell.set_error("Authentication-only diagnostic listener failed to start");
+                    }
+                }
+                Err(err) => {
+                    shell.set_error(format!(
+                        "Authentication-only diagnostic listener could not bind: {err}"
+                    ));
+                }
             }
+        } else if secure_proof_diagnostic_enabled() {
+            shell.set_error(
+                "Authentication probe bind refused: use a named loopback or private LAN address",
+            );
         }
 
         Self {
@@ -649,10 +690,19 @@ impl DesktopHost {
     fn apply_host_sharing_toggle(&mut self) {
         if ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
             apply_action(&mut self.shell, DesktopAction::ToggleRemoteControl);
+        } else if secure_proof_diagnostic_bind().is_some() {
+            // The toggle only permits host password PROOF in the explicit
+            // pre-release diagnostic. Even if enabled, peer control and
+            // session authorization remain hard-disabled.
+            apply_action(&mut self.shell, DesktopAction::ToggleRemoteControl);
+            self.shell.set_error(
+                "Authentication-only LAN probe: no desktop control, screen or files are shared",
+            );
         } else {
             self.shell.set_allow_remote_control(false);
-            self.shell
-                .set_error("Remote sharing unavailable until secure password proof is verified");
+            self.shell.set_error(
+                "Remote sharing disabled: encrypted proof alone does not authorize desktop control",
+            );
         }
     }
 
@@ -663,10 +713,19 @@ impl DesktopHost {
             self.shell.set_error("Please enter a Remote Device ID");
         } else if self.shell.remote_password_input().is_empty() {
             self.shell.set_error("Please enter the session password");
-        } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+        } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY
+            && !secure_proof_diagnostic_enabled()
+        {
             self.shell.disconnect();
-            self.shell
-                .set_error("Secure remote connection unavailable: host password proof pending");
+            self.shell.set_error(
+                "Remote desktop disabled: host consent, licensing and control transport not ready",
+            );
+        } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+            // Authentication QA only: validate a pinned Remote ID and probe
+            // over Noise, with no session permission or control granted.
+            if self.shell.begin_connect_remote_id().is_ok() {
+                self.try_connect_peer();
+            }
         } else {
             apply_action(&mut self.shell, DesktopAction::ConnectRemoteId);
             if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
