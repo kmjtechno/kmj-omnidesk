@@ -2001,7 +2001,9 @@ mod tests {
         apply_action(&mut shell, remote_eye_action.unwrap());
         assert!(shell.is_remote_password_visible());
 
-        // Connect button requires both ID and password
+        // Nonempty ID/password are input only, never verified host proof.
+        // The V7 Connect button must remain unavailable until the
+        // authenticated encrypted password exchange is implemented.
         let connect_btn = layout.remote_connect_button();
         shell.clear_remote_id();
         assert_eq!(
@@ -2014,7 +2016,8 @@ mod tests {
         shell.append_remote_id_char('9');
         assert_eq!(
             action_at_point(&shell, 1672, 941, connect_btn.x + 10, connect_btn.y + 10),
-            Some(DesktopAction::ConnectRemoteId)
+            None,
+            "host proof, not just typed credentials, must gate remote Connect"
         );
     }
 }
