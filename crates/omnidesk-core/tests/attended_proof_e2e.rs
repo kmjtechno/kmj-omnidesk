@@ -1,7 +1,7 @@
 //! Real TCP encrypted attended proof tests. This is NOT remote-control QA.
 
 use std::{
-    net::{TcpListener, TcpStream},
+    net::TcpListener,
     thread,
     time::Duration,
 };
