@@ -22,7 +22,7 @@ use winit::{
 use crate::{
     AccessibilityNode, DesktopAction, accessibility_snapshot,
     accesskit_tree::{build_accesskit_tree_with_focus, desktop_action_for_node},
-    action_at_point, apply_action, apply_key,
+    action_at_point, action_for_key, apply_action,
     brand::official_kmj_mark,
     controls_for_shell,
     layout::{PremiumViewportFit, V7_ART_WIDTH, initial_window_inner_size, initial_window_origin},
@@ -41,6 +41,12 @@ enum PremiumCaptionAction {
     Maximize,
     Close,
 }
+
+// P0 #182: the current TCP identity challenge is NOT an encrypted host
+// password proof. Keep attended authorization disabled until a reviewed
+// identity/session-bound, replay-safe encrypted proof receipt exists.
+// Never replace this guard with "password input is nonempty".
+const ATTENDED_PASSWORD_PROOF_TRANSPORT_READY: bool = false;
 
 // Winit window attributes use logical sizes; rendering and mouse hitboxes
 // use *physical* client pixels. On a 200%-DPI P520 monitor the approved
@@ -162,6 +168,22 @@ fn verified_consent_for_authenticated_trust(
     trusted_record_verified: bool,
 ) -> bool {
     consent_matches_peer(shell, authenticated_device_id) && trusted_record_verified
+}
+
+// All three checks are independent: verified peer trust, visible local consent,
+// and a host-attested temporary password proof. The current transport does
+// not produce the last receipt, so physical remote control remains closed.
+fn verified_attended_session_authorization(
+    shell: &ProductShell,
+    authenticated_device_id: Option<&str>,
+    trusted_record_verified: bool,
+    password_proof_verified: bool,
+) -> bool {
+    verified_consent_for_authenticated_trust(
+        shell,
+        authenticated_device_id,
+        trusted_record_verified,
+    ) && password_proof_verified
 }
 
 #[cfg(test)]
@@ -617,6 +639,36 @@ impl DesktopHost {
             .expect("native render buffer presentation must succeed");
     }
 
+    // A visible host-sharing switch cannot enable unaudited incoming sessions.
+    fn apply_host_sharing_toggle(&mut self) {
+        if ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+            apply_action(&mut self.shell, DesktopAction::ToggleRemoteControl);
+        } else {
+            self.shell.set_allow_remote_control(false);
+            self.shell
+                .set_error("Remote sharing unavailable until secure password proof is verified");
+        }
+    }
+
+    // One guarded entrypoint for both mouse and keyboard Remote ID actions.
+    // No password or session is sent over a TCP identity-only handshake.
+    fn dispatch_remote_connect(&mut self) {
+        if self.shell.remote_id_input().is_empty() {
+            self.shell.set_error("Please enter a Remote Device ID");
+        } else if self.shell.remote_password_input().is_empty() {
+            self.shell.set_error("Please enter the session password");
+        } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+            self.shell.disconnect();
+            self.shell
+                .set_error("Secure remote connection unavailable: host password proof pending");
+        } else {
+            apply_action(&mut self.shell, DesktopAction::ConnectRemoteId);
+            if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
+                self.try_connect_peer();
+            }
+        }
+    }
+
     fn dispatch_action(&mut self, action: DesktopAction) {
         if action == DesktopAction::EnrollDevice {
             self.handle_enroll_device();
@@ -657,6 +709,20 @@ impl DesktopHost {
                 self.shell.set_error(
                     "Session approval rejected: authenticated trusted peer or consent invalid",
                 );
+            } else if !verified_attended_session_authorization(
+                &self.shell,
+                peer_id,
+                trust_verified,
+                ATTENDED_PASSWORD_PROOF_TRANSPORT_READY,
+            ) {
+                // Until the real encrypted proof exchange is complete, even a
+                // signed, trusted peer and a user click cannot grant control.
+                if let Some(mut adapter) = self.session_adapter.take() {
+                    adapter.close();
+                }
+                self.shell.disconnect();
+                self.shell
+                    .set_error("Session approval blocked: secure host password proof not verified");
             } else if let Some(adapter) = self.session_adapter.as_mut() {
                 match adapter.authorize_session() {
                     Ok(()) => apply_action(&mut self.shell, action),
@@ -669,6 +735,8 @@ impl DesktopHost {
                     }
                 }
             }
+        } else if action == DesktopAction::ToggleRemoteControl {
+            self.apply_host_sharing_toggle();
         } else if action == DesktopAction::CopyYourId {
             copy_to_clipboard(self.shell.local_device_id());
             apply_action(&mut self.shell, action);
@@ -677,18 +745,7 @@ impl DesktopHost {
             copy_to_clipboard(&pwd);
             apply_action(&mut self.shell, action);
         } else if action == DesktopAction::ConnectRemoteId {
-            let remote_id = self.shell.remote_id_input().to_owned();
-            let remote_pwd = self.shell.remote_password_input().to_owned();
-            if remote_id.is_empty() {
-                self.shell.set_error("Please enter a Remote Device ID");
-            } else if remote_pwd.is_empty() {
-                self.shell.set_error("Please enter the session password");
-            } else {
-                apply_action(&mut self.shell, action);
-                if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
-                    self.try_connect_peer();
-                }
-            }
+            self.dispatch_remote_connect();
         } else if matches!(
             action,
             DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
@@ -928,11 +985,13 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                                 control.enabled && control.keyboard_key == key.to_ascii_lowercase()
                             })
                             .map(|control| control.action);
-                        if let Some(action) = selected_action {
+                        // All keyboard actions, including legacy fallback
+                        // shortcuts, must pass the same transport/password
+                        // proof security guard as pointer and AccessKit clicks.
+                        if let Some(action) = selected_action
+                            .or_else(|| action_for_key(self.shell.primary_view(), key))
+                        {
                             self.dispatch_action(action);
-                        } else if apply_key(&mut self.shell, key) {
-                            self.accessibility_focus = None;
-                            self.refresh_presentation();
                         }
                     }
                 }
@@ -981,9 +1040,10 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, consent_matches_peer,
-        premium_caption_action, premium_frameless_on_monitor, refuse_unverified_session_action,
-        to_pixel, verified_consent_for_authenticated_trust,
+        ATTENDED_PASSWORD_PROOF_TRANSPORT_READY, MAX_PIXEL_OFFSET, PremiumCaptionAction,
+        PremiumViewportFit, consent_matches_peer, premium_caption_action,
+        premium_frameless_on_monitor, refuse_unverified_session_action, to_pixel,
+        verified_attended_session_authorization, verified_consent_for_authenticated_trust,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
@@ -1125,6 +1185,42 @@ mod tests {
         assert!(!verified_consent_for_authenticated_trust(
             &shell,
             Some("verified-peer"),
+            true,
+        ));
+    }
+
+    #[test]
+    fn trusted_peer_and_local_consent_cannot_bypass_missing_password_proof() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "verified-peer".to_owned(),
+            display_name: "Verified peer".to_owned(),
+            status: DeviceStatus::Online,
+        }]);
+        shell
+            .begin_connect("verified-peer")
+            .expect("trusted directory peer");
+        assert!(verified_consent_for_authenticated_trust(
+            &shell,
+            Some("verified-peer"),
+            true,
+        ));
+        assert!(!verified_attended_session_authorization(
+            &shell,
+            Some("verified-peer"),
+            true,
+            ATTENDED_PASSWORD_PROOF_TRANSPORT_READY,
+        ));
+        assert!(!verified_attended_session_authorization(
+            &shell,
+            Some("verified-peer"),
+            false,
+            true,
+        ));
+        assert!(!verified_attended_session_authorization(
+            &shell,
+            Some("wrong-peer"),
+            true,
             true,
         ));
     }
