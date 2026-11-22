@@ -4,7 +4,9 @@ use std::{net::TcpListener, thread, time::Duration};
 
 use omnidesk_core::{
     attended_proof_wire::{
-        AttendedProofError, client_prove_attended_password, host_verify_attended_password,
+        AttendedProofError, client_await_attended_host_consent,
+        client_prove_attended_password, host_deny_unlicensed_attended_consent,
+        host_verify_attended_password, host_verify_attended_password_with_receipt,
     },
     device_identity::DeviceIdentity,
     noise_encrypted_transport::UnauthenticatedNoiseChannel,
@@ -208,5 +210,66 @@ fn real_encrypted_tcp_attempts_preserve_host_lockout_across_connections() {
         }
         channel.close();
     }
+    host_task.join().expect("host");
+}
+
+#[test]
+fn real_noise_tcp_requires_separate_host_decision_after_password_proof() {
+    use std::sync::mpsc;
+
+    let now = 80_000;
+    let client = DeviceIdentity::from_seed(&[117_u8; 32]);
+    let host = DeviceIdentity::from_seed(&[118_u8; 32]);
+    let host_id = host.public_id().to_owned();
+    let client_id = client.public_id().to_owned();
+    let client_store = pin_peer(&host, now);
+    let host_store = pin_peer(&client, now);
+    let mut manager = HostPasswordManager::new(now);
+    manager.set_allow_remote_control(true);
+    let password = manager.password().to_owned();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let address = listener.local_addr().expect("local addr");
+    let (verified_tx, verified_rx) = mpsc::sync_channel(1);
+    let (decision_tx, decision_rx) = mpsc::sync_channel::<()>(1);
+
+    let host_task = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        let tcp = TcpLanTransport::from_stream(stream).expect("tcp");
+        let mut channel = UnauthenticatedNoiseChannel::accept(tcp).expect("Noise");
+        let receipt = host_verify_attended_password_with_receipt(
+            &mut channel,
+            &host,
+            &host_store,
+            &mut manager,
+            "kmj-tenant",
+            now,
+        )
+        .expect("encrypted password and pinned Ed25519 verification");
+        assert_eq!(receipt.peer_id(), client_id);
+        assert_eq!(receipt.host_id(), host.public_id());
+        verified_tx.send(()).expect("signal verified receipt");
+        // Host keeps the AEAD channel alive until the local decision.
+        decision_rx.recv_timeout(Duration::from_secs(2)).expect("host operator denies");
+        host_deny_unlicensed_attended_consent(&mut channel).expect("AEAD denial");
+        channel.close();
+    });
+
+    let tcp = TcpLanTransport::connect(address, Duration::from_secs(2)).expect("tcp");
+    let mut channel = UnauthenticatedNoiseChannel::connect(tcp).expect("Noise");
+    assert_eq!(
+        client_prove_attended_password(
+            &mut channel, &client, &client_store, &host_id,
+            "kmj-tenant", &password, now,
+        ),
+        Ok(())
+    );
+    verified_rx.recv_timeout(Duration::from_secs(2)).expect("proof verified");
+    decision_tx.send(()).expect("host Deny");
+    assert_eq!(
+        client_await_attended_host_consent(&mut channel),
+        Err(AttendedProofError::Denied),
+        "successful password proof must never grant control without separate host/license decision"
+    );
+    channel.close();
     host_task.join().expect("host");
 }
