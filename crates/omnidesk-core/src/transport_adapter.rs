@@ -27,6 +27,7 @@ pub enum TransportSessionError {
     Session(SessionError),
     Auth(AuthenticationError),
     UntrustedPeer,
+    PeerIdentityMismatch,
     PeerRevoked,
     TrustExpired,
     TenantMismatch { expected: String, received: String },
@@ -41,6 +42,12 @@ impl fmt::Display for TransportSessionError {
             Self::Session(err) => write!(f, "session error: {err:?}"),
             Self::Auth(err) => write!(f, "authentication error: {err:?}"),
             Self::UntrustedPeer => write!(f, "peer public key is not enrolled in trusted store"),
+            Self::PeerIdentityMismatch => {
+                write!(
+                    f,
+                    "claimed peer device ID does not match the verified trusted public key"
+                )
+            }
             Self::PeerRevoked => write!(f, "peer trust record has been revoked"),
             Self::TrustExpired => write!(f, "peer trust has expired"),
             Self::TenantMismatch { expected, received } => {
@@ -162,8 +169,9 @@ impl<T: Transport> TransportSessionAdapter<T> {
     /// 1. Tenant boundary matches `local_tenant`.
     /// 2. Ed25519 signature verifies over the domain-separated authentication challenge.
     /// 3. Public key exists in `store`.
-    /// 4. Trust record is not revoked.
-    /// 5. Trust record has not expired at `now_epoch_secs`.
+    /// 4. Claimed peer device ID exactly matches the ID bound to that key.
+    /// 5. Trust record is not revoked.
+    /// 6. Trust record has not expired at `now_epoch_secs`.
     ///
     /// # Errors
     ///
@@ -189,6 +197,13 @@ impl<T: Transport> TransportSessionAdapter<T> {
         let record = store
             .find_by_public_key(&public_key)
             .ok_or(TransportSessionError::UntrustedPeer)?;
+
+        // The signed key is authoritative; Hello.device_id is untrusted text.
+        // Refuse a valid enrolled key asserting a different enrolled device's
+        // ID, instead of allowing UI/session confusion or log impersonation.
+        if self.session.peer().map(PeerIdentity::as_str) != Some(record.device_id.as_str()) {
+            return Err(TransportSessionError::PeerIdentityMismatch);
+        }
 
         if record.revoked {
             return Err(TransportSessionError::PeerRevoked);
