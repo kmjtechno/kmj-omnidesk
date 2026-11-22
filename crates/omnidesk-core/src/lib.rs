@@ -24,6 +24,7 @@ pub mod licensing_lifecycle;
 pub mod log_scrubber;
 pub mod media;
 pub mod metrics;
+pub mod mutual_identity;
 pub mod nat_traversal;
 pub mod password_auth;
 pub mod pipeline;
