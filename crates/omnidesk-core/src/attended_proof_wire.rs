@@ -12,9 +12,7 @@ use crate::{
         MutualIdentityError, client_mutual_identity_handshake, host_mutual_identity_handshake,
     },
     noise_encrypted_transport::UnauthenticatedNoiseChannel,
-    password_auth::{
-        HostPasswordManager, PasswordVerificationError, generate_password_proof,
-    },
+    password_auth::{HostPasswordManager, PasswordVerificationError, generate_password_proof},
     transport::{Transport, TransportError},
     trusted_device_store::TrustedDeviceStore,
 };
@@ -56,7 +54,9 @@ enum Wire {
         host_key: [u8; 32],
         noise_hash: [u8; 32],
     },
-    Proof { digest: [u8; 32] },
+    Proof {
+        digest: [u8; 32],
+    },
     Denied,
     Verified,
 }
@@ -100,13 +100,7 @@ pub fn host_verify_attended_password<T: Transport>(
     tenant: &str,
     now_epoch_secs: u64,
 ) -> Result<(), AttendedProofError> {
-    let peer = host_mutual_identity_handshake(
-        channel,
-        identity,
-        store,
-        tenant,
-        now_epoch_secs,
-    )?;
+    let peer = host_mutual_identity_handshake(channel, identity, store, tenant, now_epoch_secs)?;
     let host_key = identity.public_key_bytes();
     let mut challenge = manager.issue_proof_challenge(
         identity.public_id(),
