@@ -9,7 +9,7 @@ use omnidesk_core::{
     product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell},
     transport::HostTransport,
     transport_adapter::{TransportSessionAdapter, host_negotiate_and_authenticate_session},
-    trusted_device_store::TrustedDeviceStore,
+    trusted_device_store::{TrustedDeviceRecord, TrustedDeviceStore},
 };
 use softbuffer::{Context, Surface};
 use winit::{
@@ -25,10 +25,73 @@ use crate::{
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
     controls_for_shell,
-    layout::{initial_window_inner_size, initial_window_origin},
+    layout::{PremiumViewportFit, V7_ART_WIDTH, initial_window_inner_size, initial_window_origin},
     presentation_for,
     render::render_shell,
 };
+
+// The owner's V7 reference has a custom 70px header and *no second*
+// Windows title bar. On screens that fit the locked artboard, the header
+// hosts real OS minimize/maximize/close and drag actions. Smaller monitors
+// retain native OS decorations so the compact UI always remains operable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PremiumCaptionAction {
+    Drag,
+    Minimize,
+    Maximize,
+    Close,
+}
+
+fn premium_caption_action(
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+    frameless: bool,
+) -> Option<PremiumCaptionAction> {
+    if !frameless {
+        return None;
+    }
+    // The rendered titlebar moves when the locked artboard is fitted into
+    // a non-16:9 window. Use the same inverse transform as remote-control
+    // hit testing so OS actions never drift into credentials or badges.
+    let (art_width, art_x, art_y) = if let Some(fit) = PremiumViewportFit::for_window(width, height)
+    {
+        let (source_x, source_y) = fit.artboard_point(x, y)?;
+        (V7_ART_WIDTH, source_x, source_y)
+    } else {
+        (width, x, y)
+    };
+    if art_y >= 70 || art_width < 600 {
+        return None;
+    }
+    if (art_width.saturating_sub(80)..art_width.saturating_sub(20)).contains(&art_x) {
+        Some(PremiumCaptionAction::Close)
+    } else if (art_width.saturating_sub(136)..art_width.saturating_sub(80)).contains(&art_x) {
+        Some(PremiumCaptionAction::Maximize)
+    } else if (art_width.saturating_sub(192)..art_width.saturating_sub(136)).contains(&art_x) {
+        Some(PremiumCaptionAction::Minimize)
+    } else if art_x < art_width.saturating_sub(450) {
+        Some(PremiumCaptionAction::Drag)
+    } else {
+        None
+    }
+}
+
+fn perform_premium_caption(
+    window: &Window,
+    event_loop: &ActiveEventLoop,
+    action: PremiumCaptionAction,
+) {
+    match action {
+        PremiumCaptionAction::Drag => {
+            let _ = window.drag_window();
+        }
+        PremiumCaptionAction::Minimize => window.set_minimized(true),
+        PremiumCaptionAction::Maximize => window.set_maximized(!window.is_maximized()),
+        PremiumCaptionAction::Close => event_loop.exit(),
+    }
+}
 
 /// Converts a window-logical coordinate to whole pixels.
 ///
@@ -74,6 +137,19 @@ fn consent_matches_peer(shell: &ProductShell, authenticated_device_id: Option<&s
         && shell.selected_device() == authenticated_device_id
 }
 
+// A visible consent click does not override the locally verified
+// enrollment record. Only a non-revoked, unexpired record whose pinned
+// Ed25519 key matches THIS authenticated transport can receive approval.
+fn trusted_peer_permission_valid(
+    record: Option<&TrustedDeviceRecord>,
+    authenticated_key: Option<&[u8; 32]>,
+    now_epoch_secs: u64,
+) -> bool {
+    record.is_some_and(|record| {
+        record.is_trusted_at(now_epoch_secs) && authenticated_key == Some(&record.public_key)
+    })
+}
+
 #[cfg(test)]
 fn refuse_unverified_session_action(
     shell: &mut ProductShell,
@@ -117,6 +193,7 @@ struct DesktopHost {
     accessibility: Vec<AccessibilityNode>,
     accessibility_focus: Option<NodeId>,
     cursor_position: Option<(usize, usize)>,
+    frameless_premium: bool,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
 }
 
@@ -213,6 +290,7 @@ impl DesktopHost {
             accessibility,
             accessibility_focus: None,
             cursor_position: None,
+            frameless_premium: false,
             incoming_rx,
         }
     }
@@ -533,16 +611,15 @@ impl DesktopHost {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs());
                 let store = TrustedDeviceStore::load_or_create(&self.store_path);
-                let valid = store.as_ref().is_ok_and(|store| {
-                    peer_id.and_then(|id| store.get(id)).is_some_and(|record| {
-                        !record.revoked
-                            && now <= record.trust_expires_at_epoch_secs
-                            && self.session_adapter.as_ref().is_some_and(|adapter| {
-                                adapter.session().authenticated_public_key()
-                                    == Some(&record.public_key)
-                            })
-                    })
-                }) || (peer_id.is_some() && self.session_adapter.is_some());
+                let authenticated_key = self
+                    .session_adapter
+                    .as_ref()
+                    .and_then(|adapter| adapter.session().authenticated_public_key());
+                let record = store
+                    .as_ref()
+                    .ok()
+                    .and_then(|trusted| peer_id.and_then(|id| trusted.get(id)));
+                let valid = trusted_peer_permission_valid(record, authenticated_key, now);
                 if !valid {
                     if let Some(mut adapter) = self.session_adapter.take() {
                         adapter.close();
@@ -642,11 +719,22 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 (size.width, size.height, monitor.scale_factor())
             });
             let (inner_width, inner_height) = initial_window_inner_size(initial_size);
+            let frameless_premium = inner_width >= 1280.0 && inner_height >= 720.0;
+            self.frameless_premium = frameless_premium;
             let attributes = WindowAttributes::default()
                 .with_title(title)
                 .with_visible(false)
                 .with_window_icon(window_icon)
-                .with_maximized(true)
+                .with_decorations(!frameless_premium)
+                .with_min_inner_size(winit::dpi::LogicalSize::new(
+                    if frameless_premium { 1280.0 } else { 640.0 },
+                    if frameless_premium { 720.0 } else { 480.0 },
+                ))
+                // A maximized launch overrides the fitted 1672x941 V7 size
+                // and stretches the locked hierarchy across the monitor.
+                // Launch at the reference dimensions when they fit; users
+                // can still maximize the window manually.
+                .with_maximized(false)
                 .with_inner_size(winit::dpi::LogicalSize::new(inner_width, inner_height));
             // Physical initial placement is as important as inner-size
             // fitting: hosted desktops can default to (156,156) on a
@@ -709,6 +797,16 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
             } => {
                 if let (Some((x, y)), Some(window)) = (self.cursor_position, self.window.as_ref()) {
                     let size = window.inner_size();
+                    if let Some(command) = premium_caption_action(
+                        usize::try_from(size.width).unwrap_or(usize::MAX),
+                        usize::try_from(size.height).unwrap_or(usize::MAX),
+                        x,
+                        y,
+                        self.frameless_premium,
+                    ) {
+                        perform_premium_caption(window, event_loop, command);
+                        return;
+                    }
                     if let Some(action) = action_at_point(
                         &self.shell,
                         usize::try_from(size.width).unwrap_or(usize::MAX),
@@ -813,10 +911,47 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_PIXEL_OFFSET, consent_matches_peer, refuse_unverified_session_action, to_pixel,
+        MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, TrustedDeviceRecord,
+        consent_matches_peer, premium_caption_action, refuse_unverified_session_action, to_pixel,
+        trusted_peer_permission_valid,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn owner_locked_v7_caption_has_real_os_actions_and_compact_fallback() {
+        assert_eq!(
+            premium_caption_action(1672, 941, 1618, 29, true),
+            Some(PremiumCaptionAction::Close)
+        );
+        assert_eq!(
+            premium_caption_action(1672, 941, 1570, 29, true),
+            Some(PremiumCaptionAction::Maximize)
+        );
+        assert_eq!(
+            premium_caption_action(1672, 941, 1515, 29, true),
+            Some(PremiumCaptionAction::Minimize)
+        );
+        assert_eq!(
+            premium_caption_action(1672, 941, 650, 32, true),
+            Some(PremiumCaptionAction::Drag)
+        );
+        assert!(premium_caption_action(1672, 941, 1320, 30, true).is_none());
+        assert!(premium_caption_action(1672, 941, 1621, 78, true).is_none());
+        assert!(premium_caption_action(1024, 768, 910, 20, false).is_none());
+        let fitted = PremiumViewportFit::for_window(1440, 900).expect("fitted V7");
+        let title_x = fitted.x + 1618 * fitted.width / 1672;
+        let title_y = fitted.y + 29 * fitted.height / 941;
+        assert_eq!(
+            premium_caption_action(1440, 900, title_x, title_y, true),
+            Some(PremiumCaptionAction::Close)
+        );
+        assert_eq!(
+            premium_caption_action(1440, 900, title_x, 0, true),
+            None,
+            "letterboxed pixels must never trigger OS controls"
+        );
+    }
 
     #[test]
     fn unverified_online_device_cannot_enter_session_by_click_or_retry() {
@@ -874,6 +1009,46 @@ mod tests {
         assert!(!consent_matches_peer(&shell, None));
         shell.disconnect();
         assert!(!consent_matches_peer(&shell, Some("verified-peer")));
+    }
+
+    #[test]
+    fn revoked_expired_or_key_mismatched_peer_cannot_gain_control_from_consent() {
+        let now = 1_000_u64;
+        let mut record = TrustedDeviceRecord {
+            device_id: "verified-peer".to_owned(),
+            display_name: "Verified peer".to_owned(),
+            public_key: [7_u8; 32],
+            enrolled_at_epoch_secs: now - 10,
+            trust_expires_at_epoch_secs: now + 10,
+            managed: false,
+            revoked: false,
+            status: omnidesk_core::trusted_device_store::PersistedDeviceStatus::Online,
+        };
+        let key = record.public_key;
+        assert!(trusted_peer_permission_valid(
+            Some(&record),
+            Some(&key),
+            now
+        ));
+        assert!(!trusted_peer_permission_valid(None, Some(&key), now));
+        assert!(!trusted_peer_permission_valid(Some(&record), None, now));
+        assert!(!trusted_peer_permission_valid(
+            Some(&record),
+            Some(&[8_u8; 32]),
+            now
+        ));
+        record.revoked = true;
+        assert!(!trusted_peer_permission_valid(
+            Some(&record),
+            Some(&key),
+            now
+        ));
+        record.revoked = false;
+        assert!(!trusted_peer_permission_valid(
+            Some(&record),
+            Some(&key),
+            record.trust_expires_at_epoch_secs
+        ));
     }
 
     #[test]

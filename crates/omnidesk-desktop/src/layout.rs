@@ -127,13 +127,19 @@ impl ShellLayout {
 /// available and the narrow shell is the explicit responsive fallback.
 #[must_use]
 pub fn initial_window_inner_size(monitor: Option<(u32, u32, f64)>) -> (f64, f64) {
-    const PREFERRED_WIDTH: f64 = 1280.0;
-    const PREFERRED_HEIGHT: f64 = 720.0;
+    // The owner-approved V7 reference is a 1672 x 941 native artboard.
+    // Prefer these proportions on a display that can fit them, rather than
+    // starting in the 1280 x 720 compact fallback on a full HD monitor.
+    const PREFERRED_WIDTH: f64 = 1672.0;
+    const PREFERRED_HEIGHT: f64 = 941.0;
+    // Without a reliable monitor geometry, keep the old safe startup size.
+    const SAFE_FALLBACK_WIDTH: f64 = 1280.0;
+    const SAFE_FALLBACK_HEIGHT: f64 = 720.0;
     let Some((physical_width, physical_height, scale_factor)) = monitor else {
-        return (PREFERRED_WIDTH, PREFERRED_HEIGHT);
+        return (SAFE_FALLBACK_WIDTH, SAFE_FALLBACK_HEIGHT);
     };
     if !scale_factor.is_finite() || scale_factor <= 0.0 {
-        return (PREFERRED_WIDTH, PREFERRED_HEIGHT);
+        return (SAFE_FALLBACK_WIDTH, SAFE_FALLBACK_HEIGHT);
     }
 
     let usable_width = f64::from(physical_width.saturating_sub(56));
@@ -159,6 +165,28 @@ pub const fn initial_window_origin(monitor_left: i32, monitor_top: i32) -> (i32,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn approved_v7_artboard_scales_without_hitbox_drift() {
+        assert!(PremiumViewportFit::for_window(1672, 941).is_none());
+        assert!(PremiumViewportFit::for_window(1024, 768).is_none());
+        assert!(PremiumViewportFit::for_window(1200, 800).is_none());
+        let fitted = PremiumViewportFit::for_window(1440, 900).expect("laptop fit");
+        assert_eq!(
+            (fitted.x, fitted.y, fitted.width, fitted.height),
+            (0, 45, 1440, 810)
+        );
+        assert_eq!(fitted.artboard_point(0, 45), Some((0, 0)));
+        assert_eq!(fitted.artboard_point(1439, 854), Some((1670, 939)));
+        assert_eq!(fitted.artboard_point(200, 0), None);
+        assert_eq!(fitted.artboard_point(200, 899), None);
+        let wide = PremiumViewportFit::for_window(1920, 1080).expect("wide fit");
+        assert_eq!(
+            (wide.x, wide.y, wide.width, wide.height),
+            (1, 0, 1918, 1080)
+        );
+        assert!(wide.artboard_point(100, 10).is_some());
+    }
 
     #[test]
     fn native_window_placement_keeps_its_monitor_origin() {
@@ -187,8 +215,15 @@ mod tests {
         assert_eq!(initial_window_inner_size(None), (1280.0, 720.0));
         assert_eq!(
             initial_window_inner_size(Some((1920, 1080, 1.0))),
-            (1280.0, 720.0)
+            (1672.0, 941.0)
         );
+        assert_eq!(
+            initial_window_inner_size(Some((1920, 1200, 1.0))),
+            (1672.0, 941.0)
+        );
+        // The reference-size initial window must actually select the V7
+        // renderer; otherwise the old four-column fallback appears on launch.
+        assert!(PremiumDashboardLayout::for_window(1672, 941).is_some());
         assert_eq!(
             initial_window_inner_size(Some((1024, 768, 1.25))),
             (774.4, 547.2)
@@ -288,6 +323,63 @@ mod tests {
     }
 }
 
+/// Fixed design-space width for the immutable owner-approved V7 artboard.
+pub const V7_ART_WIDTH: usize = 1672;
+/// Fixed design-space height for the immutable owner-approved V7 artboard.
+pub const V7_ART_HEIGHT: usize = 941;
+
+/// One proportional transform shared by renderer, pointer handling and the
+/// Windows caption controls. This avoids P520 high-DPI/resized-window drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PremiumViewportFit {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl PremiumViewportFit {
+    /// Keep readable native fallback under 1280x720. Exact reference size
+    /// stays unscaled; all other practical desktop sizes letterbox rather
+    /// than stretching the owner's locked typography or UI coordinates.
+    #[must_use]
+    pub const fn for_window(width: usize, height: usize) -> Option<Self> {
+        if width < 1280 || height < 720 || (width == V7_ART_WIDTH && height == V7_ART_HEIGHT) {
+            return None;
+        }
+        let (draw_width, draw_height) =
+            if width.saturating_mul(V7_ART_HEIGHT) <= height.saturating_mul(V7_ART_WIDTH) {
+                (width, width.saturating_mul(V7_ART_HEIGHT) / V7_ART_WIDTH)
+            } else {
+                (height.saturating_mul(V7_ART_WIDTH) / V7_ART_HEIGHT, height)
+            };
+        if draw_width == 0 || draw_height == 0 {
+            return None;
+        }
+        Some(Self {
+            x: width.saturating_sub(draw_width) / 2,
+            y: height.saturating_sub(draw_height) / 2,
+            width: draw_width,
+            height: draw_height,
+        })
+    }
+
+    /// Map a physical client-area click into the exact V7 design coordinate.
+    /// All letterboxed margins reject input, including remote-connect.
+    #[must_use]
+    pub fn artboard_point(self, x: usize, y: usize) -> Option<(usize, usize)> {
+        let local_x = x.checked_sub(self.x)?;
+        let local_y = y.checked_sub(self.y)?;
+        if local_x >= self.width || local_y >= self.height {
+            return None;
+        }
+        Some((
+            local_x.saturating_mul(V7_ART_WIDTH) / self.width,
+            local_y.saturating_mul(V7_ART_HEIGHT) / self.height,
+        ))
+    }
+}
+
 /// Pixel-space rectangle shared by the visual and input layers of the locked
 /// four-column dashboard. Draw and hit-test code must not duplicate offsets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -334,19 +426,26 @@ impl PremiumDashboardLayout {
     pub fn for_window(width: usize, height: usize) -> Option<Self> {
         // The approved source is a 1672x941 artboard. Use the legacy
         // responsive layout when there is insufficient usable space.
-        if width < 1500 || height < 860 {
+        // Retain the V7 hierarchy on standard 1440x900 laptop viewports.
+        // Truly compact windows still use the existing readable fallback.
+        if width < 1420 || height < 850 {
             return None;
         }
+        // At 1672x941 the owner reference has a 260px navigation rail,
+        // a 348px right inspector and workflow cards beginning at x=280.
+        // Pointer hitboxes and renderer share these exact rectangles.
         let navigation_width = (width * 16 / 100).clamp(240, 260);
         let right_width = (width * 21 / 100).clamp(315, 348);
-        let right_margin = (width / 42).clamp(28, 40);
+        let right_margin = width.div_ceil(42).clamp(28, 40);
         let main_x = navigation_width + 20;
         let right_x = width.saturating_sub(right_width + right_margin);
         let main_width = right_x.saturating_sub(main_x + 16);
-        if main_width < 840 {
+        if main_width < 780 {
             return None;
         }
-        let main_half = main_width.saturating_sub(16) / 2;
+        let main_half = main_width / 2;
+        let second_x = main_x + main_half + 22;
+        let second_width = main_width.saturating_sub(main_half + 32);
         let footer_y = height.saturating_sub(79);
         let lower_height = footer_y.saturating_sub(649 + 17);
         let rect = |x, y, width, height| DashboardRect {
@@ -358,30 +457,22 @@ impl PremiumDashboardLayout {
         Some(Self {
             header_height: 70,
             navigation: rect(0, 70, navigation_width, height.saturating_sub(70)),
-            hero: rect(main_x, 76, main_width, 168),
+            hero: rect(navigation_width.saturating_sub(2), 70, main_width + 40, 178),
             share: rect(main_x, 249, main_half, 266),
-            connect: rect(
-                main_x + main_half + 16,
-                249,
-                main_width.saturating_sub(main_half + 16),
-                266,
-            ),
+            connect: rect(second_x, 249, second_width, 266),
             features: rect(main_x, 533, main_width, 98),
             devices: rect(main_x, 649, main_half, lower_height),
-            sessions: rect(
-                main_x + main_half + 16,
-                649,
-                main_width.saturating_sub(main_half + 16),
-                lower_height,
-            ),
+            sessions: rect(second_x, 649, second_width, lower_height),
             license: rect(right_x, 101, right_width, 204),
             health: rect(right_x, 321, right_width, 194),
             quick_actions: rect(right_x, 533, right_width, footer_y.saturating_sub(533 + 18)),
+            // The approved status surface is inset from both app edges,
+            // rather than painting a full-width flat strip.
             footer: rect(
-                navigation_width,
+                navigation_width + 20,
                 footer_y,
-                width.saturating_sub(navigation_width),
-                56,
+                width.saturating_sub(navigation_width + 20 + right_margin),
+                60,
             ),
         })
     }
@@ -389,10 +480,10 @@ impl PremiumDashboardLayout {
     #[must_use]
     pub const fn nav_row(&self, index: usize) -> DashboardRect {
         DashboardRect {
-            x: self.navigation.x + 10,
-            y: self.navigation.y + 27 + index.saturating_mul(44),
-            width: self.navigation.width.saturating_sub(20),
-            height: 38,
+            x: self.navigation.x + 8,
+            y: self.navigation.y + 37 + index.saturating_mul(48),
+            width: self.navigation.width.saturating_sub(12),
+            height: 45,
         }
     }
 
@@ -467,8 +558,20 @@ mod premium_v7_tests {
     fn owner_artboard_geometry_is_nonoverlapping() {
         let premium = PremiumDashboardLayout::for_window(1672, 941).expect("V7 desktop");
         assert_eq!(premium.header_height, 70);
-        assert_eq!(premium.hero.y, 76);
-        assert!(premium.navigation.width < premium.hero.x);
+        assert_eq!(premium.hero.y, 70);
+        assert_eq!(premium.navigation.width, 260);
+        assert_eq!(premium.hero.x, 258);
+        assert_eq!(premium.hero.height, 178);
+        assert_eq!(premium.share.x, 280);
+        assert_eq!(premium.license.x, 1284);
+        assert_eq!(premium.share.width, 494);
+        assert_eq!(premium.connect.x, 796);
+        assert_eq!(premium.connect.width, 462);
+        assert_eq!(premium.footer.x, 280);
+        assert_eq!(premium.footer.width, 1352);
+        // The decorative hero underlaps the 260px sidebar edge by 2px.
+        // Active card controls remain entirely outside the nav column.
+        assert_eq!(premium.hero.x + 2, premium.navigation.width);
         assert_eq!(premium.share.y, premium.connect.y);
         assert!(premium.share.x + premium.share.width < premium.connect.x);
         assert!(premium.connect.x + premium.connect.width < premium.license.x);
@@ -481,6 +584,12 @@ mod premium_v7_tests {
             premium.local_id_copy().y + 12,
         ));
         assert!(PremiumDashboardLayout::for_window(1280, 720).is_none());
+        let laptop = PremiumDashboardLayout::for_window(1440, 900)
+            .expect("laptop must retain V7 rather than legacy four-column UI");
+        assert!(laptop.share.x + laptop.share.width < laptop.connect.x);
+        assert!(laptop.connect.x + laptop.connect.width < laptop.license.x);
+        assert!(laptop.share.y + laptop.share.height < laptop.features.y);
+        assert!(laptop.devices.y + laptop.devices.height < laptop.footer.y);
     }
 }
 

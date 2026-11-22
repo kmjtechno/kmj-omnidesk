@@ -105,11 +105,8 @@ pub struct RenewLeaseResponse {
 pub struct ActivationStatusResponse {
     pub activation_id: String,
     pub state: String,
-    pub sequence: u64,
-    #[serde(default)]
-    pub reason_code: Option<String>,
-    #[serde(default)]
-    pub revoked_at: Option<u64>,
+    pub current_sequence: u64,
+    pub reason_codes: Vec<String>,
     pub server_time: u64,
 }
 
@@ -221,6 +218,8 @@ pub struct CachedLease {
     pub renewal_due_at: u64,
     pub grace_expires_at: u64,
     pub known_revocation: RevocationState,
+    /// A server-side restriction cannot be bypassed by an offline cached lease.
+    pub last_server_state: Option<LicenseState>,
 }
 
 impl CachedLease {
@@ -244,16 +243,24 @@ impl CachedLease {
         if now >= self.verified_entitlement.payload.expires_at {
             return Ok(LicenseState::Restricted);
         }
-        if now < self.renewal_due_at {
-            return Ok(LicenseState::Active);
-        }
-        if now < self.verified_entitlement.payload.lease_expires_at {
-            return Ok(LicenseState::RenewalDue);
-        }
-        if now < self.grace_expires_at {
-            return Ok(LicenseState::Grace);
-        }
-        Ok(LicenseState::Restricted)
+        let local = if now < self.renewal_due_at {
+            LicenseState::Active
+        } else if now < self.verified_entitlement.payload.lease_expires_at {
+            LicenseState::RenewalDue
+        } else if now < self.grace_expires_at {
+            LicenseState::Grace
+        } else {
+            LicenseState::Restricted
+        };
+        // The live Licensing Hub state may only reduce cached permissions.
+        Ok(match (self.last_server_state, local) {
+            (Some(LicenseState::Restricted), _) => LicenseState::Restricted,
+            (Some(LicenseState::Grace), LicenseState::Active | LicenseState::RenewalDue) => {
+                LicenseState::Grace
+            }
+            (Some(LicenseState::RenewalDue), LicenseState::Active) => LicenseState::RenewalDue,
+            (_, state) => state,
+        })
     }
 }
 
@@ -522,6 +529,7 @@ impl LicensingManager {
             renewal_due_at,
             grace_expires_at,
             known_revocation: RevocationState::Clear,
+            last_server_state: None,
             verified_entitlement: entitlement,
         });
 
@@ -635,6 +643,7 @@ impl LicensingManager {
             renewal_due_at,
             grace_expires_at,
             known_revocation: current_lease.known_revocation,
+            last_server_state: None,
             verified_entitlement: entitlement,
         });
 
@@ -679,22 +688,55 @@ impl LicensingManager {
             ));
         }
 
-        if now < lease.last_trusted_server_time {
+        if resp.current_sequence != lease.last_accepted_sequence {
+            return Err(LicensingClientError::Verification(
+                LicenseError::ReplayOrStaleSequence,
+            ));
+        }
+        if now < lease.last_trusted_server_time || resp.server_time < lease.last_trusted_server_time
+        {
             return Err(LicensingClientError::ClockRollback {
-                now,
+                now: now.min(resp.server_time),
                 last_trusted_server_time: lease.last_trusted_server_time,
             });
         }
-
+        let server_state = match resp.state.as_str() {
+            // A status response is not a signed entitlement. It may
+            // report recovery, but only a NEW verified lease can clear a
+            // previously imposed server restriction.
+            "ACTIVE" | "REACTIVATED" => lease.last_server_state,
+            "RENEWAL_DUE" => Some(LicenseState::RenewalDue),
+            "GRACE" => Some(LicenseState::Grace),
+            "RESTRICTED" => Some(LicenseState::Restricted),
+            "REVOKED" => Some(LicenseState::Revoked),
+            _ => {
+                return Err(LicensingClientError::InvalidResponseFormat(
+                    "unknown Licensing Hub activation state",
+                ));
+            }
+        };
         lease.last_trusted_server_time = resp.server_time;
-
-        if resp.state == "REVOKED" {
-            lease.known_revocation = RevocationState::ActivationRevoked;
+        if server_state == Some(LicenseState::Revoked) {
+            lease.known_revocation = if resp
+                .reason_codes
+                .iter()
+                .any(|code| code == "LICENSE_REVOKED")
+            {
+                RevocationState::LicenseRevoked
+            } else if resp
+                .reason_codes
+                .iter()
+                .any(|code| code == "ENTITLEMENT_REVOKED")
+            {
+                RevocationState::EntitlementRevoked
+            } else {
+                RevocationState::ActivationRevoked
+            };
             return Err(LicensingClientError::Revoked {
-                reason: resp.reason_code,
+                reason: resp.reason_codes.first().cloned(),
             });
         }
-
+        lease.last_server_state = server_state;
         lease.evaluate_state(now)
     }
 
@@ -1268,13 +1310,62 @@ mod tests {
         mgr.process_activation_response(&activation_resp, 1_000_050)
             .unwrap();
 
+        // Hub's canonical shape is current_sequence + reason_codes, not
+        // the older client-only sequence/reason_code/revoked_at fixture.
+        let restricted = serde_json::to_vec(&ActivationStatusResponse {
+            activation_id: activation_id.to_owned(),
+            state: "RESTRICTED".to_owned(),
+            current_sequence: 1,
+            reason_codes: vec!["ENTITLEMENT_INACTIVE".to_owned()],
+            server_time: 1_000_060,
+        })
+        .unwrap();
+        assert_eq!(
+            mgr.process_status_response(&restricted, 1_000_060),
+            Ok(LicenseState::Restricted)
+        );
+        assert_eq!(
+            mgr.evaluate_state(1_000_061),
+            Ok(LicenseState::Restricted),
+            "an offline cache must not restore ACTIVE after server restriction"
+        );
+
+        let stale = serde_json::to_vec(&ActivationStatusResponse {
+            activation_id: activation_id.to_owned(),
+            state: "ACTIVE".to_owned(),
+            current_sequence: 0,
+            reason_codes: vec![],
+            server_time: 1_000_100,
+        })
+        .unwrap();
+        assert_eq!(
+            mgr.process_status_response(&stale, 1_000_100),
+            Err(LicensingClientError::Verification(
+                LicenseError::ReplayOrStaleSequence,
+            ))
+        );
+        assert_eq!(mgr.evaluate_state(1_000_101), Ok(LicenseState::Restricted));
+
+        let unsigned_reactivation = serde_json::to_vec(&ActivationStatusResponse {
+            activation_id: activation_id.to_owned(),
+            state: "REACTIVATED".to_owned(),
+            current_sequence: 1,
+            reason_codes: vec![],
+            server_time: 1_000_150,
+        })
+        .unwrap();
+        assert_eq!(
+            mgr.process_status_response(&unsigned_reactivation, 1_000_150),
+            Ok(LicenseState::Restricted),
+            "unsigned status alone must not reactivate a restricted signed lease"
+        );
+
         // Receive REVOKED status from server
         let status_resp = serde_json::to_vec(&ActivationStatusResponse {
             activation_id: activation_id.to_owned(),
             state: "REVOKED".to_owned(),
-            sequence: 1,
-            reason_code: Some("DEVICE_TRANSFERRED".to_owned()),
-            revoked_at: Some(1_001_000),
+            current_sequence: 1,
+            reason_codes: vec!["DEVICE_TRANSFERRED".to_owned()],
             server_time: 1_001_000,
         })
         .unwrap();

@@ -108,8 +108,7 @@ fn approved_v7_hero_art() -> Option<&'static crate::brand::BrandImage> {
                 let left = x.min(66) * 255 / 66;
                 let right = w.saturating_sub(x + 1).min(10) * 255 / 10;
                 let alpha = left.min(right).min(top).min(bottom);
-                rgba[(y * w + x) * 4 + 3] =
-                    u8::try_from(alpha).unwrap_or(u8::MAX);
+                rgba[(y * w + x) * 4 + 3] = u8::try_from(alpha).unwrap_or(u8::MAX);
             }
         }
         Some(crate::brand::BrandImage {
@@ -123,12 +122,13 @@ fn approved_v7_hero_art() -> Option<&'static crate::brand::BrandImage> {
 
 const fn native_text_size(scale: usize) -> f32 {
     match scale {
-        3 => 38.0, // V7 editorial hero
-        4 => 21.0, // section and card headings
-        5 => 13.0, // small legal/caption labels
-        6 => 30.0, // product wordmark
-        2 => 22.0, // existing native title
-        _ => 16.0,
+        3 => 50.0, // approved editorial hero
+        4 => 24.0, // premium card headings
+        5 => 15.0, // captions
+        6 => 34.0, // header product wordmark
+        7 => 30.0, // single KMJ company name
+        2 => 22.0, // compact shell and ID values
+        _ => 18.0,
     }
 }
 
@@ -1902,29 +1902,38 @@ fn premium_panel(
     p: Palette,
     accent: bool,
 ) {
+    // Rounded native panel and its restrained edge lighting. The master
+    // image is not used as a fake clickable background; these remain real
+    // per-control native surfaces with shared pointer geometry.
     canvas.rounded_gradient_panel(
         rect.x,
         rect.y,
         rect.width,
         rect.height,
-        0x1c_19_2a,
-        0x10_13_20,
-        if accent { 0x9e_24_46 } else { p.border },
+        0x12_0f_1b,
+        0x09_0d_18,
+        if accent { 0xb9_25_4b } else { p.border },
+    );
+    canvas.h_line(
+        rect.x + 16,
+        rect.y + 1,
+        rect.width.saturating_sub(32),
+        0x43_34_4f,
     );
     if accent {
         canvas.soft_glow(
             rect.x + rect.width / 2,
-            rect.y + rect.height.saturating_sub(9),
+            rect.y + rect.height.saturating_sub(5),
             rect.width / 2,
-            40,
+            53,
             0xf7_19_4a,
-            0.24,
+            0.62,
         );
         canvas.h_line(
             rect.x + 22,
             rect.y + rect.height.saturating_sub(2),
             rect.width.saturating_sub(44),
-            0xc7_23_4b,
+            0xee_27_57,
         );
     }
 }
@@ -2139,6 +2148,207 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
     canvas.h_line(x + 9, y + 6, 5, color);
 }
 
+// Scale hand-drawn native symbols to the visual weight of the locked V7
+// icons. The glyphs remain real renderer primitives, not image hotspots.
+#[derive(Clone, Copy)]
+enum PremiumIconSet {
+    Navigation,
+    Feature,
+    QuickAction,
+}
+
+fn draw_premium_symbol(
+    canvas: &mut Canvas<'_>,
+    set: PremiumIconSet,
+    index: usize,
+    x: usize,
+    y: usize,
+    color: u32,
+) {
+    const SIZE: usize = 20;
+    const OUTPUT: usize = 30;
+    const TRANSPARENT: u32 = 0x01_00_00_00;
+    let mut glyph_pixels = [TRANSPARENT; SIZE * SIZE];
+    {
+        let mut glyph = Canvas {
+            pixels: &mut glyph_pixels,
+            width: SIZE,
+            height: SIZE,
+        };
+        match (set, index) {
+            (PremiumIconSet::Navigation, 0) => draw_home_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 1)
+            | (PremiumIconSet::Feature | PremiumIconSet::QuickAction, 0) => {
+                draw_monitor_icon(&mut glyph, 2, 4, 16, 11, color);
+            }
+            (PremiumIconSet::Navigation, 2) => draw_devices_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 3) => draw_layers_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 4) | (PremiumIconSet::Feature, 1) => {
+                draw_folder_icon(&mut glyph, 3, 3, color);
+            }
+            (PremiumIconSet::Navigation, 5) | (PremiumIconSet::Feature, 2) => {
+                draw_dual_monitors_icon(&mut glyph, 1, 3, color);
+            }
+            (PremiumIconSet::Navigation, 6) => draw_users_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 7) => draw_shield_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 8) => draw_id_card_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 9) => draw_key_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, 10) => draw_chart_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Navigation, _) => draw_gear_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Feature, 3) => draw_waveform_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Feature, 4) => draw_clipboard_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Feature, 5) => draw_record_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::Feature, _) => draw_infinity_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::QuickAction, 1) => draw_power_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::QuickAction, 2) => draw_terminal_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::QuickAction, 3) => draw_upload_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::QuickAction, 4) => draw_document_icon(&mut glyph, 3, 3, color),
+            (PremiumIconSet::QuickAction, _) => draw_user_plus_icon(&mut glyph, 3, 3, color),
+        }
+    }
+    for dy in 0..OUTPUT {
+        for dx in 0..OUTPUT {
+            let sy = dy * SIZE / OUTPUT;
+            let sx = dx * SIZE / OUTPUT;
+            let pixel = glyph_pixels[sy * SIZE + sx];
+            if pixel != TRANSPARENT {
+                canvas.fill_rect(x + dx, y + dy, 1, 1, pixel);
+            }
+        }
+    }
+}
+
+// Pixel-exact *static chrome* from the owner's approved 1672x941 V7
+// artboard. The original PNG is a design-source texture, NOT the UI.
+// All device IDs, credentials, session rows, entitlements and live statuses
+// are drawn from PresentationModel by draw_premium_dashboard. They are never
+// imported from the reference screenshot (which contains demonstration data).
+fn approved_v7_static_chrome() -> Option<&'static crate::brand::BrandImage> {
+    static SKIN: OnceLock<Option<crate::brand::BrandImage>> = OnceLock::new();
+    SKIN.get_or_init(|| {
+        let art = image::load_from_memory(include_bytes!(
+            "../../../docs/design/OMNIDESK_ENTERPRISE_V7_APPROVED_MASTER.png"
+        ))
+        .ok()?
+        .into_rgba8();
+        let (width, height) = art.dimensions();
+        if (width, height) != (1672, 941) {
+            return None;
+        }
+        Some(crate::brand::BrandImage {
+            width,
+            height,
+            rgba: art.into_raw(),
+        })
+    })
+    .as_ref()
+}
+
+fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
+    let in_rect =
+        |x1: usize, y1: usize, x2: usize, y2: usize| x >= x1 && x < x2 && y >= y1 && y < y2;
+    // Opaque, *fully safe* regions; never contain runtime sample identities.
+    if y < 70 || (x < 260 && (70..870).contains(&y)) {
+        return true;
+    }
+    if in_rect(258, 70, 1268, 249) || in_rect(280, 532, 1269, 635) {
+        return true;
+    }
+    // Full quick-action artwork is safe: no online state, sample peer or
+    // credential is present anywhere on this panel.
+    if in_rect(1284, 532, 1632, 843) {
+        return true;
+    }
+    // Keep red beveled card outlines without copying the source's example
+    // input contents. Only a 3px safe frame survives from each card.
+    for (x1, x2) in [(280, 776), (795, 1260)] {
+        if in_rect(x1, 249, x2, 516) && (x < x1 + 3 || x >= x2 - 3 || !(252..513).contains(&y)) {
+            return true;
+        }
+    }
+    for (x1, x2) in [(280, 780), (797, 1269)] {
+        if in_rect(x1, 648, x2, 844) && (x < x1 + 3 || x >= x2 - 3 || !(651..841).contains(&y)) {
+            return true;
+        }
+    }
+    // Never import the right-edge green strips of the source's fake
+    // Active/All Healthy status badges, even through a border falloff.
+    for (y1, y2) in [(101, 305), (321, 515)] {
+        if in_rect(1284, y1, 1632, y2) && (x < 1288 || y < y1 + 3 || y >= y2 - 4) {
+            return true;
+        }
+    }
+    // Source footer fake relay/latency/All Operational are always masked.
+    in_rect(280, 860, 1633, 920) && (x < 284 || !(864..916).contains(&y))
+}
+
+// Copy *only bright glyph/illustration pixels* from the reference in static
+// section-title zones, not the differently-colored card background. This
+// prevents sharp rectangular bands while preserving pixel-exact owner font
+// artwork. Lower title regions stop before fake (12) device count/View All.
+fn approved_v7_skin_title_only(x: usize, y: usize) -> bool {
+    let inside =
+        |x1: usize, y1: usize, x2: usize, y2: usize| x >= x1 && x < x2 && y >= y1 && y < y2;
+    inside(282, 253, 751, 306)
+        || inside(799, 253, 1224, 306)
+        || inside(283, 651, 435, 693)
+        || inside(800, 651, 1045, 693)
+        || inside(1290, 109, 1484, 153)
+        || inside(1290, 325, 1490, 369)
+}
+
+fn draw_approved_v7_static_chrome(canvas: &mut Canvas<'_>, presentation: &PresentationModel) {
+    use omnidesk_core::product_shell::{NavTab, PrimaryView};
+    if (canvas.width, canvas.height) != (1672, 941)
+        || presentation.primary_view != PrimaryView::Devices
+        || presentation.nav_tab != NavTab::Devices
+    {
+        return;
+    }
+    let Some(art) = approved_v7_static_chrome() else {
+        return;
+    };
+    for y in 0..canvas.height {
+        let row_offset = y * canvas.width;
+        for x in 0..canvas.width {
+            let full_chrome = approved_v7_skin_allow(x, y);
+            let glyph_chrome = approved_v7_skin_title_only(x, y);
+            if !full_chrome && !glyph_chrome {
+                continue;
+            }
+            let pixel_index = row_offset + x;
+            let source_index = pixel_index * 4;
+            // Foreground-only atlas: background pixels never create
+            // rectangular seams over the actual native cards.
+            if glyph_chrome && !full_chrome {
+                let red = art.rgba[source_index];
+                let green = art.rgba[source_index + 1];
+                let blue = art.rgba[source_index + 2];
+                if red.max(green).max(blue) < 105 {
+                    continue;
+                }
+            }
+            let alpha = art.rgba[source_index + 3];
+            if alpha == 0 {
+                continue;
+            }
+            let rgb = (u32::from(art.rgba[source_index]) << 16)
+                | (u32::from(art.rgba[source_index + 1]) << 8)
+                | u32::from(art.rgba[source_index + 2]);
+            if alpha == u8::MAX {
+                canvas.pixels[pixel_index] = rgb;
+            } else {
+                canvas.blend_coverage(
+                    i32::try_from(x).unwrap_or(i32::MAX),
+                    i32::try_from(y).unwrap_or(i32::MAX),
+                    rgb,
+                    f32::from(alpha) / 255.0,
+                );
+            }
+        }
+    }
+}
+
 // V7's large native dashboard is maintained as a single legacy render path;
 // a future extraction into individual cards must preserve shared hit geometry.
 #[allow(clippy::too_many_lines)]
@@ -2150,16 +2360,29 @@ fn draw_premium_dashboard(
 ) {
     use omnidesk_core::product_shell::{NavTab, PrimaryView};
 
+    let exact_chrome = (canvas.width, canvas.height) == (1672, 941)
+        && presentation.primary_view == PrimaryView::Devices
+        && presentation.nav_tab == NavTab::Devices;
     canvas.pixels.fill(p.background);
 
     // 1. Premium header. KMJ TECHNO official mark appears only once.
     // The actual OS owns titlebar minimize/maximize/close controls.
     canvas.fill_rect(0, 0, canvas.width, layout.header_height, 0x09_0b_14);
     canvas.soft_glow(canvas.width / 2, 0, canvas.width / 2, 106, 0x47_1b_45, 0.31);
+    // The original lock's upper-right blue/purple glass reflection.
+    // Decorative only: never imply active connectivity.
+    canvas.soft_glow(
+        canvas.width.saturating_sub(400),
+        0,
+        255,
+        85,
+        0x4a_5a_9c,
+        0.36,
+    );
     canvas.h_line(0, layout.header_height - 1, canvas.width, 0x71_16_35);
     if let Some(mark) = official_kmj_mark() {
         canvas.image_rgba(
-            (31, 7, 56, 56),
+            (21, 1, 75, 66),
             (
                 usize::try_from(mark.width).unwrap_or(0),
                 usize::try_from(mark.height).unwrap_or(0),
@@ -2167,12 +2390,12 @@ fn draw_premium_dashboard(
             &mark.rgba,
         );
     }
-    canvas.text_bold(102, 11, "KMJ TECHNO", 2, p.foreground);
-    canvas.text(104, 44, "INNOVATE | BUILD | SCALE", 5, 0xc6_c9_d4);
-    canvas.fill_rect(301, 12, 2, 44, p.accent);
+    canvas.text_bold(99, 9, "KMJ TECHNO", 7, p.foreground);
+    canvas.text(101, 44, "INNOVATE | BUILD | SCALE", 5, 0xe0_e2_e8);
+    canvas.fill_rect(302, 11, 2, 47, p.accent);
 
-    let wordmark_x = 333;
-    canvas.text_bold(wordmark_x, 13, "OmniDesk", 6, p.foreground);
+    let wordmark_x = 336;
+    canvas.text_bold(wordmark_x, 10, "OmniDesk", 6, p.foreground);
     let wordmark_end = wordmark_x + Canvas::text_width("OmniDesk", 6);
     canvas.text(wordmark_end + 4, 15, "TM", 5, 0xc7_c6_cf);
     let license_pill = wordmark_end + 28;
@@ -2241,9 +2464,9 @@ fn draw_premium_dashboard(
         let available = matches!(i, 0 | 1 | 2 | 3 | 4 | 7 | 11);
         if selected {
             canvas.rounded_gradient_panel(
-                rect.x + 8,
+                rect.x + 6,
                 rect.y,
-                rect.width.saturating_sub(16),
+                rect.width.saturating_sub(10),
                 rect.height,
                 0xed_12_36,
                 0x94_07_20,
@@ -2252,28 +2475,20 @@ fn draw_premium_dashboard(
         }
 
         let icon_color = if selected { p.foreground } else { p.muted };
-        let icon_x = rect.x + 18;
-        let icon_y = rect.y + 11;
-        match i {
-            0 => draw_home_icon(canvas, icon_x, icon_y, icon_color),
-            1 => draw_monitor_icon(canvas, icon_x, icon_y, 13, 9, icon_color),
-            2 => draw_devices_icon(canvas, icon_x, icon_y, icon_color),
-            3 => draw_layers_icon(canvas, icon_x, icon_y, icon_color),
-            4 => draw_folder_icon(canvas, icon_x, icon_y, icon_color),
-            5 => draw_dual_monitors_icon(canvas, icon_x, icon_y, icon_color),
-            6 => draw_users_icon(canvas, icon_x, icon_y, icon_color),
-            7 => draw_shield_icon(canvas, icon_x, icon_y, icon_color),
-            8 => draw_id_card_icon(canvas, icon_x, icon_y, icon_color),
-            9 => draw_key_icon(canvas, icon_x, icon_y, icon_color),
-            10 => draw_chart_icon(canvas, icon_x, icon_y, icon_color),
-            _ => draw_gear_icon(canvas, icon_x, icon_y, icon_color),
-        }
+        draw_premium_symbol(
+            canvas,
+            PremiumIconSet::Navigation,
+            i,
+            rect.x + 25,
+            rect.y + 8,
+            icon_color,
+        );
 
         locked_label(
             canvas,
-            rect.x + 46,
-            rect.y + 12,
-            rect.width.saturating_sub(80),
+            rect.x + 82,
+            rect.y + 13,
+            rect.width.saturating_sub(86),
             label,
             if selected {
                 p.foreground
@@ -2326,6 +2541,14 @@ fn draw_premium_dashboard(
         0x0c_0d_17,
         0x52_21_3b,
     );
+    canvas.soft_glow(
+        hero.x + hero.width / 2,
+        hero.y + hero.height.saturating_sub(8),
+        hero.width / 2,
+        42,
+        0xf9_11_45,
+        0.47,
+    );
     if let Some(art) = approved_v7_hero_art() {
         let art_width = usize::try_from(art.width).unwrap_or(0).min(hero.width);
         let art_height = usize::try_from(art.height)
@@ -2333,7 +2556,10 @@ fn draw_premium_dashboard(
             .min(hero.height.saturating_sub(4));
         canvas.image_rgba(
             (
-                hero.x + hero.width.saturating_sub(art_width),
+                // Approved master crop begins at source x=770 on the
+                // canonical artboard. Keep its native 470px size and
+                // anchor it at x=771 instead of drifting with card widths.
+                hero.x + hero.width.saturating_sub(art_width + 28),
                 hero.y + 1,
                 art_width,
                 art_height,
@@ -2345,20 +2571,20 @@ fn draw_premium_dashboard(
             &art.rgba,
         );
     }
-    canvas.text_bold(hero.x + 22, hero.y + 22, "KMJ", 3, 0xff_20_4e);
-    let omni_x = hero.x + 22 + Canvas::text_width("KMJ", 3) + 13;
-    canvas.text_bold(omni_x, hero.y + 22, "OmniDesk", 3, p.foreground);
+    canvas.text_bold(hero.x + 40, hero.y + 35, "KMJ", 3, 0xff_20_4e);
+    let omni_x = hero.x + 40 + Canvas::text_width("KMJ", 3) + 13;
+    canvas.text_bold(omni_x, hero.y + 35, "OmniDesk", 3, p.foreground);
     canvas.text(
         omni_x + Canvas::text_width("OmniDesk", 3) + 3,
-        hero.y + 23,
+        hero.y + 37,
         "TM",
         5,
         0xde_d4_e0,
     );
     locked_label(
         canvas,
-        hero.x + 24,
-        hero.y + 104,
+        hero.x + 40,
+        hero.y + 100,
         hero.width.saturating_sub(44),
         "Secure Remote Access  ·  Support  ·  Manage  ·  Collaborate",
         0xe2_d9_e4,
@@ -2367,7 +2593,15 @@ fn draw_premium_dashboard(
         hero.x + 1,
         hero.y + hero.height.saturating_sub(2),
         hero.width.saturating_sub(2),
-        0x9f_10_37,
+        0xf0_1c_48,
+    );
+    canvas.soft_glow(
+        hero.x + hero.width / 2,
+        hero.y + hero.height,
+        hero.width / 2,
+        20,
+        0xf5_1d_4a,
+        0.22,
     );
 
     // 4. Two Primary Cards: "This Device" and "Connect to Remote Device"
@@ -2378,31 +2612,33 @@ fn draw_premium_dashboard(
     }
 
     // Card 1: This Device (Share Access)
-    canvas.rounded_panel(
-        share.x + 20,
-        share.y + 20,
-        36,
-        36,
-        8,
-        0x42_14_22,
-        0x8a_1e_35,
-    );
-    draw_monitor_icon(canvas, share.x + 29, share.y + 30, 18, 12, 0xff_30_55);
-    canvas.text_bold(
-        share.x + 66,
-        share.y + 18,
-        "This Device (Share Access)",
-        4,
-        p.foreground,
-    );
-    canvas.text_clipped(
-        share.x + 66,
-        share.y + 49,
-        "Allow others to securely connect to this device.",
-        1,
-        share.width.saturating_sub(76),
-        0x90_9a_ac,
-    );
+    if !exact_chrome {
+        canvas.rounded_panel(
+            share.x + 20,
+            share.y + 20,
+            36,
+            36,
+            8,
+            0x42_14_22,
+            0x8a_1e_35,
+        );
+        draw_monitor_icon(canvas, share.x + 29, share.y + 30, 18, 12, 0xff_30_55);
+        canvas.text_bold(
+            share.x + 66,
+            share.y + 18,
+            "This Device (Share Access)",
+            4,
+            p.foreground,
+        );
+        canvas.text_clipped(
+            share.x + 66,
+            share.y + 49,
+            "Allow others to securely connect to this device.",
+            1,
+            share.width.saturating_sub(76),
+            0x90_9a_ac,
+        );
+    }
 
     canvas.text(share.x + 20, share.y + 70, "Your Device ID", 1, 0xd0_d6_e3);
     let id_box_w = share.width.saturating_sub(40);
@@ -2412,8 +2648,8 @@ fn draw_premium_dashboard(
         id_box_w,
         42,
         8,
-        0x0b_12_19,
-        0x28_38_4a,
+        0x17_1b_2b,
+        0x47_4d_69,
     );
     let local_id_formatted = if presentation.local_device_id.is_empty() {
         "Not initialized"
@@ -2444,8 +2680,8 @@ fn draw_premium_dashboard(
         id_box_w,
         42,
         8,
-        0x0b_12_19,
-        0x28_38_4a,
+        0x17_1b_2b,
+        0x47_4d_69,
     );
     // This release does NOT have a temporary-password lifecycle.
     // Never render a fake masked password or an enabled sharing switch.
@@ -2490,16 +2726,18 @@ fn draw_premium_dashboard(
             );
         }
     } else {
+        // Keep the approved red-accented toggle geometry without claiming
+        // that password-protected inbound control is currently enabled.
         canvas.rounded_panel(
             share.x + 20,
-            share.y + 218,
-            38,
-            20,
-            10,
-            0x41_46_54,
-            0x56_5c_6d,
+            share.y + 215,
+            49,
+            26,
+            13,
+            0x3b_1b_2c,
+            0xaf_23_44,
         );
-        canvas.dot(share.x + 30, share.y + 228, 7, 0xb1_b8_c5);
+        canvas.dot(share.x + 34, share.y + 228, 9, 0xec_e8_f1);
         canvas.text(
             share.x + 68,
             share.y + 216,
@@ -2518,31 +2756,33 @@ fn draw_premium_dashboard(
     }
 
     // Card 2: Connect to Remote Device
-    canvas.rounded_panel(
-        connect.x + 20,
-        connect.y + 20,
-        36,
-        36,
-        8,
-        0x42_14_22,
-        0x8a_1e_35,
-    );
-    draw_link_icon(canvas, connect.x + 30, connect.y + 31, 0xff_30_55);
-    canvas.text_bold(
-        connect.x + 66,
-        connect.y + 18,
-        "Connect to Remote Device",
-        4,
-        p.foreground,
-    );
-    canvas.text_clipped(
-        connect.x + 66,
-        connect.y + 49,
-        "Access and control a remote device securely.",
-        1,
-        connect.width.saturating_sub(76),
-        0x90_9a_ac,
-    );
+    if !exact_chrome {
+        canvas.rounded_panel(
+            connect.x + 20,
+            connect.y + 20,
+            36,
+            36,
+            8,
+            0x42_14_22,
+            0x8a_1e_35,
+        );
+        draw_link_icon(canvas, connect.x + 30, connect.y + 31, 0xff_30_55);
+        canvas.text_bold(
+            connect.x + 66,
+            connect.y + 18,
+            "Connect to Remote Device",
+            4,
+            p.foreground,
+        );
+        canvas.text_clipped(
+            connect.x + 66,
+            connect.y + 49,
+            "Access and control a remote device securely.",
+            1,
+            connect.width.saturating_sub(76),
+            0x90_9a_ac,
+        );
+    }
 
     canvas.text(
         connect.x + 20,
@@ -2559,11 +2799,11 @@ fn draw_premium_dashboard(
         connect_box_w,
         42,
         8,
-        0x0b_12_19,
+        0x17_1b_2b,
         if presentation.remote_id_focused {
             p.accent
         } else {
-            0x28_38_4a
+            0x47_4d_69
         },
     );
     let input_text = if presentation.remote_id_input.is_empty() {
@@ -2603,8 +2843,8 @@ fn draw_premium_dashboard(
         connect_box_w,
         42,
         8,
-        0x0b_12_19,
-        0x28_38_4a,
+        0x17_1b_2b,
+        0x47_4d_69,
     );
     canvas.text_clipped(
         connect.x + 32,
@@ -2624,14 +2864,16 @@ fn draw_premium_dashboard(
     // Password-based Connect Securely remains disabled until an audited
     // password proof and matching host verifier are integrated end-to-end.
     let button = layout.remote_connect_button();
-    canvas.rounded_panel(
+    // The owner-locked red CTA remains visible but is explicitly
+    // UNAVAILABLE until authenticated password-proof is implemented.
+    canvas.rounded_gradient_panel(
         button.x,
         button.y,
         button.width,
         button.height,
-        8,
-        0x5e_20_35,
-        0x72_31_4a,
+        0xe3_11_38,
+        0x9d_0a_2c,
+        0xdb_28_4f,
     );
     canvas.text_clipped(
         button.x + 18,
@@ -2710,32 +2952,43 @@ fn draw_premium_dashboard(
                     0xed_18_3b,
                 );
             }
-            let icon_x = rect.x + rect.width / 2 - 7;
-            let icon_y = rect.y + 12;
-            let icon_col = if is_active { 0xff_30_55 } else { 0xa0_ab_bc };
-            match i {
-                0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, icon_col),
-                1 => draw_folder_icon(canvas, icon_x, icon_y, icon_col),
-                2 => draw_dual_monitors_icon(canvas, icon_x, icon_y, icon_col),
-                3 => draw_waveform_icon(canvas, icon_x, icon_y, icon_col),
-                4 => draw_clipboard_icon(canvas, icon_x, icon_y, icon_col),
-                5 => draw_record_icon(canvas, icon_x, icon_y, icon_col),
-                _ => draw_infinity_icon(canvas, icon_x, icon_y, icon_col),
+            if is_active {
+                canvas.soft_glow(
+                    rect.x + rect.width / 2,
+                    rect.y + 30,
+                    rect.width / 2,
+                    39,
+                    0xf7_19_3b,
+                    0.26,
+                );
             }
-            canvas.text(
-                rect.x + 8,
-                rect.y + 44,
-                title,
-                1,
-                if is_active { p.foreground } else { 0xd5_db_e6 },
+            let icon_col = if is_active { 0xff_30_55 } else { 0xc4_ca_d9 };
+            draw_premium_symbol(
+                canvas,
+                PremiumIconSet::Feature,
+                i,
+                rect.x + rect.width / 2 - 15,
+                rect.y + 12,
+                icon_col,
             );
+            // Center captions under their visual icons like the locked
+            // enterprise design, without fabricating enabled controls.
+            let label_extent = Canvas::text_width(title, 5);
+            canvas.text_bold(
+                rect.x + rect.width.saturating_sub(label_extent) / 2,
+                rect.y + 49,
+                title,
+                5,
+                if is_active { p.foreground } else { 0xe5_e8_f0 },
+            );
+            let caption_extent = Canvas::text_width(subtitle, 5);
             canvas.text_clipped(
-                rect.x + 8,
-                rect.y + 64,
+                rect.x + rect.width.saturating_sub(caption_extent) / 2,
+                rect.y + 72,
                 subtitle,
-                1,
-                rect.width.saturating_sub(16),
-                0x85_8f_a1,
+                5,
+                rect.width.saturating_sub(6),
+                0x97_a0_b2,
             );
         }
     }
@@ -2748,14 +3001,17 @@ fn draw_premium_dashboard(
 
     // Directory is populated only by actual product-shell state; no sample
     // Windows/Linux devices and no fabricated online badges or history.
-    draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, 0xff_30_55);
-    canvas.text_bold(
-        devices.x + 48,
-        devices.y + 15,
-        "My Devices",
-        4,
-        p.foreground,
-    );
+    if !exact_chrome {
+        draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, 0xff_30_55);
+        canvas.text_bold(
+            devices.x + 48,
+            devices.y + 15,
+            "My Devices",
+            4,
+            p.foreground,
+        );
+    }
+
     let visible_devices = presentation
         .controls
         .iter()
@@ -2782,30 +3038,75 @@ fn draw_premium_dashboard(
         );
     }
     if !any_device {
-        canvas.text(
-            devices.x + 24,
-            devices.y + 92,
-            "No registered or verified online devices",
-            1,
-            p.muted,
-        );
+        // Three empty-state rows preserve the approved list rhythm without
+        // inventing any peer/device identity or advertising availability.
+        for i in 0..3 {
+            let item = layout.device_row(i);
+            canvas.h_line(item.x, item.y + item.height, item.width, 0x2a_2d_41);
+            draw_monitor_icon(canvas, item.x + 10, item.y + 12, 18, 12, 0x6c_7389);
+            if i == 0 {
+                canvas.text_clipped(
+                    item.x + 43,
+                    item.y + 11,
+                    "No registered or verified online devices",
+                    1,
+                    item.width.saturating_sub(55),
+                    p.muted,
+                );
+            } else {
+                canvas.rounded_panel(
+                    item.x + 43,
+                    item.y + 16,
+                    item.width.saturating_sub(148),
+                    7,
+                    3,
+                    0x23_2737,
+                    0x23_2737,
+                );
+            }
+        }
     }
     canvas.dot(sessions.x + 26, sessions.y + 26, 5, 0xf7_19_3b);
-    canvas.text_bold(
-        sessions.x + 48,
-        sessions.y + 15,
-        "Recent Sessions",
-        4,
-        p.foreground,
-    );
-    canvas.text_clipped(
-        sessions.x + 24,
-        sessions.y + 92,
-        "No verified session history available",
-        1,
-        sessions.width.saturating_sub(48),
-        p.muted,
-    );
+    if !exact_chrome {
+        canvas.text_bold(
+            sessions.x + 48,
+            sessions.y + 15,
+            "Recent Sessions",
+            4,
+            p.foreground,
+        );
+    }
+
+    for i in 0..3 {
+        let y = sessions.y + 56 + i * 47;
+        canvas.h_line(
+            sessions.x + 16,
+            y + 40,
+            sessions.width.saturating_sub(32),
+            0x2a_2d_41,
+        );
+        draw_monitor_icon(canvas, sessions.x + 22, y + 10, 18, 12, 0x6c_7389);
+        if i == 0 {
+            canvas.text_clipped(
+                sessions.x + 54,
+                y + 10,
+                "No verified session history available",
+                1,
+                sessions.width.saturating_sub(72),
+                p.muted,
+            );
+        } else {
+            canvas.rounded_panel(
+                sessions.x + 54,
+                y + 15,
+                sessions.width.saturating_sub(176),
+                7,
+                3,
+                0x23_2737,
+                0x23_2737,
+            );
+        }
+    }
 
     // 7. Right Column: License, System Status, Quick Actions
     let license = layout.license;
@@ -2817,14 +3118,17 @@ fn draw_premium_dashboard(
 
     // Entitlement and health are not provided by this renderer. Until
     // authenticated runtime probes exist all badges must remain neutral.
-    draw_award_icon(canvas, license.x + 18, license.y + 20, 0xf5_a6_23);
-    canvas.text_bold(
-        license.x + 48,
-        license.y + 16,
-        "Enterprise License",
-        4,
-        p.foreground,
-    );
+    if !exact_chrome {
+        draw_award_icon(canvas, license.x + 18, license.y + 20, 0xf5_a6_23);
+        canvas.text_bold(
+            license.x + 48,
+            license.y + 16,
+            "Enterprise License",
+            4,
+            p.foreground,
+        );
+    }
+
     canvas.rounded_panel(
         license.x + license.width.saturating_sub(89),
         license.y + 18,
@@ -2899,24 +3203,60 @@ fn draw_premium_dashboard(
     );
 
     draw_heartbeat_icon(canvas, health.x + 18, health.y + 20, 0xf7_19_3b);
-    canvas.text_bold(
-        health.x + 47,
-        health.y + 16,
-        "System Status",
-        4,
-        p.foreground,
-    );
+    if !exact_chrome {
+        canvas.text_bold(
+            health.x + 47,
+            health.y + 16,
+            "System Status",
+            4,
+            p.foreground,
+        );
+    }
+
     let health_rows = [
-        ("App shell", "Pre-alpha"),
-        ("Relay Network", "Not verified"),
-        ("Session Encryption", "No session"),
-        ("NAT Traversal", "Not verified"),
+        ("OmniDesk Service", "Pre-alpha"),
+        ("Relay Network", "Unverified"),
+        ("Security (E2E)", "No session"),
+        ("NAT Traversal (P2P)", "Unverified"),
     ];
     for (i, (item, state)) in health_rows.iter().enumerate() {
-        let y = health.y + 54 + i * 32;
-        canvas.dot(health.x + 23, y + 8, 3, 0x8a_92_a2);
-        canvas.text_clipped(health.x + 35, y + 2, item, 1, 168, 0xd0_d6_e3);
-        canvas.text_right(health.x + health.width - 14, y + 2, state, 1, 0x94_9e_ae);
+        let y = health.y + 52 + i * 32;
+        if i > 0 {
+            canvas.h_line(
+                health.x + 16,
+                y.saturating_sub(4),
+                health.width.saturating_sub(32),
+                0x25_29_39,
+            );
+        }
+        // The reference's compact status chips; neutral until a signed
+        // health source provides actual availability.
+        canvas.rounded_panel(
+            health.x + health.width.saturating_sub(106),
+            y,
+            92,
+            24,
+            11,
+            0x21_27_36,
+            0x3b_42_54,
+        );
+        canvas.dot(health.x + 25, y + 12, 4, 0x93_9b_b2);
+        canvas.text_clipped(
+            health.x + 39,
+            y + 4,
+            item,
+            1,
+            health.width.saturating_sub(147),
+            0xe6_e9_f1,
+        );
+        canvas.text_clipped(
+            health.x + health.width.saturating_sub(103),
+            y + 4,
+            state,
+            5,
+            88,
+            0xbd_c5_d6,
+        );
     }
 
     // Quick Actions
@@ -2932,28 +3272,41 @@ fn draw_premium_dashboard(
     ];
     let columns = 3;
     let cell_width = (quick.width - 32) / columns;
+    canvas.soft_glow(
+        quick.x + quick.width / 2,
+        quick.y + quick.height.saturating_sub(4),
+        quick.width / 2,
+        30,
+        0xe5_1a_4b,
+        0.23,
+    );
     for (i, action) in quick_actions.iter().enumerate() {
         let col = i % columns;
         let row = i / columns;
         let x = quick.x + 16 + col * cell_width;
-        let y = quick.y + 48 + row * 82;
+        let y = quick.y + 56 + row * 110;
         let cell_w = cell_width.saturating_sub(8);
-        canvas.rounded_panel(x, y, cell_w, 72, 6, 0x18_1c_2b, 0x2e_38_4e);
-        let icon_x = x + cell_w / 2 - 7;
-        let icon_y = y + 14;
-        match i {
-            0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, 0xf7_19_3b),
-            1 => draw_power_icon(canvas, icon_x, icon_y, 0xf7_19_3b),
-            2 => draw_terminal_icon(canvas, icon_x, icon_y, 0x42_99_e1),
-            3 => draw_upload_icon(canvas, icon_x, icon_y, 0x48_bb_78),
-            4 => draw_document_icon(canvas, icon_x, icon_y, 0xa0_ae_c0),
-            _ => draw_user_plus_icon(canvas, icon_x, icon_y, 0x38_b2_ac),
-        }
+        canvas.rounded_gradient_panel(x, y, cell_w, 87, 0x1e_20_35, 0x12_16_25, 0x43_48_63);
+        let icon_color = match i {
+            0 | 1 => 0xf7_19_3b,
+            2 => 0x7d_b4_ec,
+            3 => 0x6b_d5_99,
+            4 => 0xc5_ce_dd,
+            _ => 0x72_d8_cf,
+        };
+        draw_premium_symbol(
+            canvas,
+            PremiumIconSet::QuickAction,
+            i,
+            x + cell_w / 2 - 15,
+            y + 13,
+            icon_color,
+        );
         canvas.text_clipped(
             x + 4,
-            y + 46,
+            y + 59,
             action,
-            1,
+            5,
             cell_w.saturating_sub(8),
             p.foreground,
         );
@@ -2962,36 +3315,55 @@ fn draw_premium_dashboard(
     // No fabricated relay health, encryption algorithm, latency or service
     // status. These values may become green only after measured verification.
     let footer = layout.footer;
-    canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x0009_0d16);
-    canvas.h_line(footer.x, footer.y, footer.width, 0x22_27_38);
-    canvas.dot(footer.x + 22, footer.y + 22, 4, 0x9a_a2_b2);
-    canvas.text(
-        footer.x + 36,
-        footer.y + 16,
-        "No verified remote session",
+    // Owner V7 uses a floating rounded glass status surface, not a
+    // full-width flat developer/debug strip.
+    canvas.rounded_gradient_panel(
+        footer.x,
+        footer.y,
+        footer.width,
+        footer.height,
+        0x0e_12_21,
+        0x06_09_13,
+        0x38_3d_58,
+    );
+    let top = footer.y + 19;
+    let separators = [320, 612, 866, 1032];
+    for offset in separators {
+        if offset < footer.width.saturating_sub(15) {
+            canvas.v_line(footer.x + offset, footer.y + 14, 31, 0x36_38_51);
+        }
+    }
+    canvas.dot(footer.x + 24, top + 9, 8, 0x91_96_a9);
+    canvas.text_clipped(
+        footer.x + 44,
+        top,
+        "Relay: no verified connection",
         1,
+        260,
+        0xe0_e2_ea,
+    );
+    draw_shield_icon(canvas, footer.x + 340, top + 5, 0xb0_b8_cb);
+    canvas.text_clipped(
+        footer.x + 371,
+        top,
+        "Encryption: no active session",
+        1,
+        225,
         0xd0_d6_e3,
     );
-    canvas.text(
-        footer.x + 285,
-        footer.y + 16,
-        "Transport: not established",
-        1,
-        0x9d_a7_b7,
-    );
-    canvas.text(
-        footer.x + 528,
-        footer.y + 16,
-        "Security: unverified",
-        1,
-        0x9d_a7_b7,
-    );
-    canvas.text_right(
-        footer.x + footer.width.saturating_sub(18),
-        footer.y + 16,
-        "KMJ OmniDesk  /  PRE-ALPHA",
-        1,
-        0x9d_a7_b7,
+    draw_key_icon(canvas, footer.x + 628, top + 5, 0xb0_b8_cb);
+    canvas.text_clipped(footer.x + 655, top, "Consent required", 1, 199, 0xd0_d6_e3);
+    canvas.text(footer.x + 884, top, "Latency: --", 1, 0xb9_c1_cf);
+    let status_x = footer.x + footer.width.saturating_sub(282);
+    canvas.rounded_panel(status_x, footer.y + 12, 264, 35, 17, 0x20_27_37, 0x45_4b_60);
+    canvas.dot(status_x + 19, footer.y + 29, 6, 0x9a_a3_b5);
+    canvas.text_clipped(
+        status_x + 33,
+        footer.y + 20,
+        "Service status unverified",
+        5,
+        217,
+        0xd9_dce5,
     );
 }
 fn draw_locked_dashboard(
@@ -3030,6 +3402,33 @@ pub fn render_shell(
         return;
     }
 
+    // Render the authentic 1672x941 owner-locked V7 onto a canonical
+    // offscreen surface, then aspect-fit it into normal/high-DPI windows.
+    // Source text/interactive controls remain native. A letterbox never
+    // invents an online device, entitlement or remote authentication.
+    if presentation.primary_view == omnidesk_core::product_shell::PrimaryView::Devices
+        && presentation.nav_tab == omnidesk_core::product_shell::NavTab::Devices
+    {
+        if let Some(fit) = crate::layout::PremiumViewportFit::for_window(width, height) {
+            const ART_W: usize = crate::layout::V7_ART_WIDTH;
+            const ART_H: usize = crate::layout::V7_ART_HEIGHT;
+            let mut source = vec![0_u32; ART_W * ART_H];
+            render_shell(&mut source, ART_W, ART_H, presentation);
+            let background = packed_rgb(presentation.visual.background_rgb);
+            pixels[..width * height].fill(background);
+            for dest_y in 0..fit.height {
+                let source_y = dest_y.saturating_mul(ART_H) / fit.height;
+                let dest_row = (fit.y + dest_y) * width + fit.x;
+                let source_row = source_y * ART_W;
+                for dest_x in 0..fit.width {
+                    let source_x = dest_x.saturating_mul(ART_W) / fit.width;
+                    pixels[dest_row + dest_x] = source[source_row + source_x];
+                }
+            }
+            return;
+        }
+    }
+
     let palette = palette_for(presentation.visual);
 
     pixels[..width * height].fill(palette.background);
@@ -3044,6 +3443,9 @@ pub fn render_shell(
     };
     if let Some(premium) = crate::PremiumDashboardLayout::for_window(width, height) {
         draw_premium_dashboard(&mut canvas, presentation, &premium, palette);
+        // Layer the exact owner-approved static art over the genuine native
+        // data-driven controls, with every demo value explicitly excluded.
+        draw_approved_v7_static_chrome(&mut canvas, presentation);
         return;
     }
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
@@ -3066,6 +3468,41 @@ mod tests {
     use crate::{VisualSystem, presentation_for};
 
     #[test]
+    fn approved_static_chrome_excludes_all_demo_values() {
+        let art = approved_v7_static_chrome().expect("owner approved PNG must decode");
+        assert_eq!((art.width, art.height), (1672, 941));
+        for (x, y) in [
+            (360, 357),  // demo local device ID
+            (361, 428),  // demo session password
+            (937, 357),  // remote device input
+            (939, 427),  // remote password input
+            (1030, 483), // active remote CTA label
+            (380, 713),  // demo device list
+            (1002, 713), // demo session history
+            (1554, 130), // false Active entitlement
+            (1557, 189), // fake seat count
+            (1551, 244), // fake expiry
+            (1565, 393), // false service health
+            (1553, 482), // false peer-to-peer readiness
+            (330, 890),  // false connected relay
+            (1495, 891), // false all-operational claim
+        ] {
+            assert!(
+                !approved_v7_skin_allow(x, y),
+                "demo status/data pixel must never be copied at ({x}, {y})"
+            );
+        }
+        assert!(approved_v7_skin_allow(42, 30));
+        assert!(approved_v7_skin_allow(932, 127));
+        assert!(approved_v7_skin_allow(55, 803));
+        assert!(approved_v7_skin_title_only(345, 269));
+        assert!(!approved_v7_skin_title_only(1555, 133));
+        assert!(!approved_v7_skin_allow(1629, 130));
+        assert!(!approved_v7_skin_allow(1629, 390));
+        assert!(!approved_v7_skin_allow(1629, 902));
+    }
+
+    #[test]
     fn locked_design_preserves_lowercase_typography() {
         let mut lower_pixels = vec![0_u32; 16 * 12];
         let mut upper_pixels = vec![0_u32; 16 * 12];
@@ -3085,6 +3522,35 @@ mod tests {
             lower_pixels, upper_pixels,
             "lowercase navigation must remain lowercase"
         );
+    }
+
+    #[test]
+    fn scaled_premium_v7_reuses_exact_native_artboard_pixels() {
+        const ART_W: usize = crate::layout::V7_ART_WIDTH;
+        const ART_H: usize = crate::layout::V7_ART_HEIGHT;
+        let presentation = presentation_for(&ProductShell::new());
+        let mut original = vec![0_u32; ART_W * ART_H];
+        render_shell(&mut original, ART_W, ART_H, &presentation);
+        let width = 1440;
+        let height = 900;
+        let fit = crate::layout::PremiumViewportFit::for_window(width, height).unwrap();
+        let mut scaled = vec![0_u32; width * height];
+        render_shell(&mut scaled, width, height, &presentation);
+        assert_eq!(
+            scaled[0],
+            packed_rgb(presentation.visual.background_rgb),
+            "letterbox must show only the locked dark background"
+        );
+        for (dest_x, dest_y) in [(42, 50), (420, 220), (1100, 480), (1380, 800)] {
+            let (source_x, source_y) = fit
+                .artboard_point(dest_x, dest_y)
+                .expect("sample inside fitted artboard");
+            assert_eq!(
+                scaled[dest_y * width + dest_x],
+                original[source_y * ART_W + source_x],
+                "source pixel must match the actual native renderer, not new art"
+            );
+        }
     }
 
     #[test]
