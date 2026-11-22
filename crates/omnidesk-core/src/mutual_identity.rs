@@ -42,8 +42,8 @@ impl From<TransportError> for MutualIdentityError {
 }
 
 /// Receipt for both pinned identities on one Noise encrypted transcript.
-    ///
-    /// This is not a password-proof or remote-control authorization token.
+///
+/// This is not a password-proof or remote-control authorization token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityOnlyReceipt {
     pub peer_id: String,
