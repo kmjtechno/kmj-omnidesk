@@ -1120,9 +1120,8 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ATTENDED_PASSWORD_PROOF_TRANSPORT_READY, MAX_PIXEL_OFFSET, PremiumCaptionAction,
-        PremiumViewportFit, allowed_proof_diagnostic_bind, consent_matches_peer,
-        premium_caption_action, premium_frameless_on_monitor,
+        MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, allowed_proof_diagnostic_bind,
+        consent_matches_peer, premium_caption_action, premium_frameless_on_monitor,
         refuse_unverified_session_action, to_pixel, verified_attended_session_authorization,
         verified_consent_for_authenticated_trust,
     };
@@ -1323,7 +1322,7 @@ mod tests {
             &shell,
             Some("verified-peer"),
             true,
-            ATTENDED_PASSWORD_PROOF_TRANSPORT_READY,
+            super::ATTENDED_PASSWORD_PROOF_TRANSPORT_READY,
         ));
         assert!(!verified_attended_session_authorization(
             &shell,
