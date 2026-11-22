@@ -679,8 +679,12 @@ mod tests {
             Err(PasswordVerificationError::InvalidBinding)
         );
         let invalid = generate_password_proof(
-            &password, one.host_device_id(), one.session_id(),
-            &initial_nonce, one.client_public_key(), one.host_public_key(),
+            &password,
+            one.host_device_id(),
+            one.session_id(),
+            &initial_nonce,
+            one.client_public_key(),
+            one.host_public_key(),
         );
         assert!(matches!(
             host.verify_proof_once(&mut one, &invalid, now),
