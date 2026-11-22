@@ -757,8 +757,16 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 .with_window_icon(window_icon)
                 .with_decorations(!frameless_premium)
                 .with_min_inner_size(winit::dpi::LogicalSize::new(
-                    if frameless_premium { 1280.0 / monitor_scale } else { 640.0 },
-                    if frameless_premium { 720.0 / monitor_scale } else { 480.0 },
+                    if frameless_premium {
+                        1280.0 / monitor_scale
+                    } else {
+                        640.0
+                    },
+                    if frameless_premium {
+                        720.0 / monitor_scale
+                    } else {
+                        480.0
+                    },
                 ))
                 // A maximized launch overrides the fitted 1672x941 V7 size
                 // and stretches the locked hierarchy across the monitor.
@@ -974,9 +982,8 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 mod tests {
     use super::{
         MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, consent_matches_peer,
-        premium_frameless_on_monitor,
-        premium_caption_action, refuse_unverified_session_action, to_pixel,
-        verified_consent_for_authenticated_trust,
+        premium_caption_action, premium_frameless_on_monitor, refuse_unverified_session_action,
+        to_pixel, verified_consent_for_authenticated_trust,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
