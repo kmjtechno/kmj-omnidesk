@@ -18,6 +18,7 @@ pub mod direct_connect;
 pub mod direct_udp;
 pub mod enterprise;
 pub mod frame_queue;
+pub mod host_approval;
 pub mod input;
 pub mod licensing;
 pub mod licensing_key_discovery;
