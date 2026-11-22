@@ -287,12 +287,11 @@ impl DesktopHost {
             .map_or(0, |d| d.as_secs());
         // A corrupted/unwritable persisted device identity is not permission
         // to silently issue an unpinned ephemeral identity on every start.
-        match DeviceIdentity::load_or_create(&identity_path, now) {
-            Ok(identity) => shell.set_local_device_id(identity.public_id()),
-            Err(_) => {
-                shell.set_local_device_id("");
-                shell.set_error("Device identity unavailable: cannot establish trusted sessions");
-            }
+        if let Ok(identity) = DeviceIdentity::load_or_create(&identity_path, now) {
+            shell.set_local_device_id(identity.public_id());
+        } else {
+            shell.set_local_device_id("");
+            shell.set_error("Device identity unavailable: cannot establish trusted sessions");
         }
         let accessibility = accessibility_snapshot(&shell);
 
@@ -436,14 +435,11 @@ impl DesktopHost {
                 .set_error("Select a trusted host device before connecting");
             return;
         };
-        let store = match TrustedDeviceStore::load_or_create(&self.store_path) {
-            Ok(store) => store,
-            Err(_) => {
-                self.shell.disconnect();
-                self.shell
-                    .set_error("Trusted peer store unavailable; connection refused");
-                return;
-            }
+        let Ok(store) = TrustedDeviceStore::load_or_create(&self.store_path) else {
+            self.shell.disconnect();
+            self.shell
+                .set_error("Trusted peer store unavailable; connection refused");
+            return;
         };
         if store.get(&expected_host_id).is_none() {
             self.shell.disconnect();
@@ -451,14 +447,11 @@ impl DesktopHost {
                 .set_error("Remote host ID is not enrolled; connection refused");
             return;
         }
-        let identity = match DeviceIdentity::load_from_path(&self.identity_path) {
-            Ok(identity) => identity,
-            Err(_) => {
-                self.shell.disconnect();
-                self.shell
-                    .set_error("Local signing identity unavailable; connection refused");
-                return;
-            }
+        let Ok(identity) = DeviceIdentity::load_from_path(&self.identity_path) else {
+            self.shell.disconnect();
+            self.shell
+                .set_error("Local signing identity unavailable; connection refused");
+            return;
         };
 
         let target_addr = expected_host_id
@@ -556,25 +549,19 @@ impl DesktopHost {
             };
             let tenant =
                 std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-            let store = match TrustedDeviceStore::load_or_create(&self.store_path) {
-                Ok(store) => store,
-                Err(_) => {
-                    transport.close();
-                    self.shell
-                        .set_error("Incoming session rejected: trusted peer store missing");
-                    self.refresh_presentation();
-                    continue;
-                }
+            let Ok(store) = TrustedDeviceStore::load_or_create(&self.store_path) else {
+                transport.close();
+                self.shell
+                    .set_error("Incoming session rejected: trusted peer store missing");
+                self.refresh_presentation();
+                continue;
             };
-            let identity = match DeviceIdentity::load_from_path(&self.identity_path) {
-                Ok(identity) => identity,
-                Err(_) => {
-                    transport.close();
-                    self.shell
-                        .set_error("Incoming session rejected: local signing key missing");
-                    self.refresh_presentation();
-                    continue;
-                }
+            let Ok(identity) = DeviceIdentity::load_from_path(&self.identity_path) else {
+                transport.close();
+                self.shell
+                    .set_error("Incoming session rejected: local signing key missing");
+                self.refresh_presentation();
+                continue;
             };
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
