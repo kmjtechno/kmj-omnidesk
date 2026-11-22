@@ -1021,7 +1021,25 @@ impl DesktopHost {
         }
     }
 
+    fn cancel_inbound_probe_for_policy_action(&mut self, action: DesktopAction) {
+        if matches!(
+            action,
+            DesktopAction::ToggleRemoteControl
+                | DesktopAction::RotateSessionPassword
+                | DesktopAction::Disconnect
+                | DesktopAction::DenyPermission
+        ) {
+            if let Some(job) = self.inbound_proof.as_ref() {
+                job.cancel();
+                if matches!(action, DesktopAction::Disconnect | DesktopAction::DenyPermission) {
+                    self.shell.set_allow_remote_control(false);
+                }
+            }
+        }
+    }
+
     fn dispatch_action(&mut self, action: DesktopAction) {
+        self.cancel_inbound_probe_for_policy_action(action);
         if action == DesktopAction::EnrollDevice {
             self.handle_enroll_device();
         } else if matches!(
@@ -1030,10 +1048,6 @@ impl DesktopHost {
         ) {
             if let Some(job) = self.outbound_proof.as_mut() {
                 job.cancel();
-            }
-            if let Some(job) = self.inbound_proof.as_ref() {
-                job.cancel();
-                self.shell.set_allow_remote_control(false);
             }
             if let Some(mut adapter) = self.session_adapter.take() {
                 adapter.close();
@@ -1095,15 +1109,7 @@ impl DesktopHost {
                 }
             }
         } else if action == DesktopAction::ToggleRemoteControl {
-            if let Some(job) = self.inbound_proof.as_ref() {
-                job.cancel();
-            }
             self.apply_host_sharing_toggle();
-        } else if action == DesktopAction::RotateSessionPassword {
-            if let Some(job) = self.inbound_proof.as_ref() {
-                job.cancel();
-            }
-            apply_action(&mut self.shell, action);
         } else if action == DesktopAction::CopyYourId {
             copy_to_clipboard(self.shell.local_device_id());
             apply_action(&mut self.shell, action);
