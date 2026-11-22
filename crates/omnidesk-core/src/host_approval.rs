@@ -110,9 +110,7 @@ impl PendingHostApproval {
         if proof.peer_id() != expected_peer_id {
             return Err(HostApprovalError::PeerMismatch);
         }
-        if proof.noise_handshake_hash() != current_noise_hash
-            || *current_noise_hash == [0_u8; 32]
-        {
+        if proof.noise_handshake_hash() != current_noise_hash || *current_noise_hash == [0_u8; 32] {
             return Err(HostApprovalError::NoiseTranscriptMismatch);
         }
         if proof.host_id() != local_identity.public_id()
