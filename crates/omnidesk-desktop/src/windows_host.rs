@@ -903,7 +903,10 @@ impl DesktopHost {
     fn poll_incoming(&mut self) {
         // Serialise host password guesses. The previous worker's updated
         // lockout budget MUST be restored before accepting another peer.
-        if self.session_adapter.is_some() || self.inbound_proof.is_some() {
+        if self.session_adapter.is_some()
+            || self.inbound_proof.is_some()
+            || self.outbound_proof.is_some()
+        {
             return;
         }
         let Ok(incoming) = self.incoming_rx.try_recv() else {
@@ -1170,6 +1173,30 @@ impl DesktopHost {
     }
 
     fn dispatch_action(&mut self, action: DesktopAction) {
+        if self.pending_host_consent.is_some() {
+            match action {
+                DesktopAction::AllowPermission => {
+                    self.finish_pending_host_consent(true);
+                    return;
+                }
+                DesktopAction::DenyPermission => {
+                    self.finish_pending_host_consent(false);
+                    return;
+                }
+                DesktopAction::Disconnect
+                | DesktopAction::ToggleRemoteControl
+                | DesktopAction::RotateSessionPassword => {
+                    self.finish_pending_host_consent(false);
+                }
+                _ => {
+                    self.shell.set_error(
+                        "Answer the authenticated incoming host Allow/Deny prompt first",
+                    );
+                    self.refresh_presentation();
+                    return;
+                }
+            }
+        }
         self.cancel_inbound_probe_for_policy_action(action);
         if action == DesktopAction::EnrollDevice {
             self.handle_enroll_device();
@@ -1525,6 +1552,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.expire_pending_host_consent();
         self.poll_inbound_proof();
         self.poll_outbound_proof();
         self.poll_incoming();
