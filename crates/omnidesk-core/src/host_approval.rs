@@ -130,7 +130,7 @@ impl PendingHostApproval {
         let record = trust_store
             .get(expected_peer_id)
             .ok_or(HostApprovalError::PeerUntrusted)?;
-        if record.revoked || now_epoch_secs > record.trust_expires_at_epoch_secs {
+        if !record.is_trusted_at(now_epoch_secs) {
             return Err(HostApprovalError::PeerRevokedOrExpired);
         }
         if record.public_key != *proof.peer_public_key() {
