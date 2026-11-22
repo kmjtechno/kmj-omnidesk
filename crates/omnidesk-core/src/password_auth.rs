@@ -350,7 +350,10 @@ impl HostPasswordManager {
         }
     }
 
-    const fn ensure_password_usable(&self, now_epoch_secs: u64) -> Result<(), PasswordVerificationError> {
+    const fn ensure_password_usable(
+        &self,
+        now_epoch_secs: u64,
+    ) -> Result<(), PasswordVerificationError> {
         if !self.allow_remote_control {
             return Err(PasswordVerificationError::RemoteControlDisabled);
         }
