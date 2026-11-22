@@ -569,9 +569,7 @@ mod tests {
         let nonce = [2_u8; 32];
         let client = [3_u8; 32];
         let host = [4_u8; 32];
-        let proof = generate_password_proof(
-            password, "host", &session, &nonce, &client, &host,
-        );
+        let proof = generate_password_proof(password, "host", &session, &nonce, &client, &host);
         assert!(verify_password_proof(
             &proof, password, "host", &session, &nonce, &client, &host
         ));
@@ -581,5 +579,4 @@ mod tests {
             ));
         }
     }
-
 }
