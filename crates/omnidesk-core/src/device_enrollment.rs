@@ -390,7 +390,7 @@ pub enum EnrollmentStage {
 
 /// Generate a 256-bit enrollment/session challenge from the OS CSPRNG.
 ///
-/// Never derive a security nonce from process time, PID, or std::hash seeds.
+/// Never derive a security nonce from process time, PID, or `std::hash` seeds.
 /// The timestamp parameter remains only for caller compatibility; challenge
 /// freshness and single-use are enforced by the enrollment tracker.
 ///
