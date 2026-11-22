@@ -337,7 +337,11 @@ mod tests {
         let signature = host.sign(&signed);
         assert!(verify(&host_key, &signed, &signature).is_ok());
         assert_eq!(
-            verify(&host_key, &signed_message(b"client", &transcript), &signature),
+            verify(
+                &host_key,
+                &signed_message(b"client", &transcript),
+                &signature
+            ),
             Err(MutualIdentityError::InvalidSignature)
         );
         let different_nonce = [23_u8; 32];
@@ -358,7 +362,9 @@ mod tests {
             receive(&mut transport),
             Err(MutualIdentityError::InvalidFrame)
         );
-        transport.send(&vec![0x40; MAX_AUTH_MESSAGE_BYTES + 1]).unwrap();
+        transport
+            .send(&vec![0x40; MAX_AUTH_MESSAGE_BYTES + 1])
+            .unwrap();
         assert_eq!(
             receive(&mut transport),
             Err(MutualIdentityError::InvalidFrame)
