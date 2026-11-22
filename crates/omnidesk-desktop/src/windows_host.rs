@@ -1120,10 +1120,9 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_PIXEL_OFFSET, PremiumCaptionAction,
-        PremiumViewportFit, allowed_proof_diagnostic_bind, consent_matches_peer,
-        premium_caption_action, premium_frameless_on_monitor, refuse_unverified_session_action,
-        to_pixel, verified_attended_session_authorization,
+        MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, allowed_proof_diagnostic_bind,
+        consent_matches_peer, premium_caption_action, premium_frameless_on_monitor,
+        refuse_unverified_session_action, to_pixel, verified_attended_session_authorization,
         verified_consent_for_authenticated_trust,
     };
     use crate::DesktopAction;
