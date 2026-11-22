@@ -285,8 +285,7 @@ impl HostPasswordManager {
         }
         self.ensure_password_usable(now_epoch_secs)?;
         let mut entropy = [0_u8; 48];
-        getrandom::fill(&mut entropy)
-            .expect("OS CSPRNG unavailable: host proof challenge refused");
+        getrandom::fill(&mut entropy).expect("OS CSPRNG unavailable: host proof challenge refused");
         let mut session_id = [0_u8; 16];
         let mut nonce = [0_u8; 32];
         session_id.copy_from_slice(&entropy[..16]);
@@ -351,10 +350,7 @@ impl HostPasswordManager {
         }
     }
 
-    fn ensure_password_usable(
-        &self,
-        now_epoch_secs: u64,
-    ) -> Result<(), PasswordVerificationError> {
+    fn ensure_password_usable(&self, now_epoch_secs: u64) -> Result<(), PasswordVerificationError> {
         if !self.allow_remote_control {
             return Err(PasswordVerificationError::RemoteControlDisabled);
         }
