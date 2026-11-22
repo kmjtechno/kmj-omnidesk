@@ -976,7 +976,10 @@ mod tests {
             let py = fit.y + (rect.y + rect.height / 2) * fit.height / 941;
             action_at_point(&shell, width, height, px, py)
         };
-        assert_eq!(hit(art.remote_id_input()), Some(DesktopAction::FocusRemoteIdInput));
+        assert_eq!(
+            hit(art.remote_id_input()),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
         assert_eq!(
             hit(art.remote_password_input()),
             Some(DesktopAction::FocusRemotePasswordInput)
