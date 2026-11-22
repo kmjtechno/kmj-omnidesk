@@ -1106,12 +1106,47 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 mod tests {
     use super::{
         ATTENDED_PASSWORD_PROOF_TRANSPORT_READY, MAX_PIXEL_OFFSET, PremiumCaptionAction,
-        PremiumViewportFit, consent_matches_peer, premium_caption_action,
-        premium_frameless_on_monitor, refuse_unverified_session_action, to_pixel,
-        verified_attended_session_authorization, verified_consent_for_authenticated_trust,
+        PremiumViewportFit, allowed_proof_diagnostic_bind, consent_matches_peer,
+        premium_caption_action, premium_frameless_on_monitor, refuse_unverified_session_action,
+        to_pixel, verified_attended_session_authorization,
+        verified_consent_for_authenticated_trust,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn pre_release_proof_probe_rejects_public_and_wildcard_network_listening() {
+        assert!(!ATTENDED_PASSWORD_PROOF_TRANSPORT_READY);
+        for addr in [
+            "0.0.0.0:21118",
+            "[::]:21118",
+            "8.8.8.8:21118",
+            "203.0.113.11:21118",
+            "[2606:4700:4700::1111]:21118",
+            "127.0.0.1:0",
+            "not-a-socket-address",
+        ] {
+            assert_eq!(
+                allowed_proof_diagnostic_bind(addr),
+                None,
+                "probe must fail closed for {addr}"
+            );
+        }
+        for addr in [
+            "127.0.0.1:21118",
+            "[::1]:21118",
+            "10.0.0.4:21118",
+            "172.16.1.10:21118",
+            "192.168.1.15:21118",
+            "[fd00::1]:21118",
+        ] {
+            assert_eq!(
+                allowed_proof_diagnostic_bind(addr).map(|parsed| parsed.to_string()),
+                Some(addr.to_owned()),
+                "only explicitly named local/private interfaces may bind"
+            );
+        }
+    }
 
     #[test]
     fn windows_high_dpi_launch_uses_physical_artboard_and_logical_minimum() {
