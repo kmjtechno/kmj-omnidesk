@@ -1002,10 +1002,10 @@ mod tests {
         // A fresh shell is intentionally const/uninitialized. Rendering
         // must not generate a fake random password in a throwaway clone.
         let mut shell = ProductShell::new();
-        assert!(shell.host_password_ref().password().is_empty());
+        assert_eq!(shell.host_password_ref().password(), "");
         let uninitialised = presentation_for(&shell);
         assert_eq!(uninitialised.host_session_password, "--------");
-        assert!(shell.host_password_ref().password().is_empty());
+        assert_eq!(shell.host_password_ref().password(), "");
 
         let real_password = shell.host_password().to_owned();
         assert_eq!(real_password.len(), 8);
