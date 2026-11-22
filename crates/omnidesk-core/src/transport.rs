@@ -6,6 +6,7 @@ use std::{
 };
 
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
+const TCP_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathKind {
@@ -106,9 +107,18 @@ impl TcpLanTransport {
     ///
     /// # Errors
     ///
-    /// Returns an I/O error when low-latency stream configuration fails.
+    /// Returns an I/O error when safe bounded stream configuration fails.
     pub fn from_stream(stream: TcpStream) -> Result<Self, TransportError> {
         stream.set_nodelay(true).map_err(|error| io_error(&error))?;
+        // Authentication is still synchronous on the native UI path. A
+        // half-open or malicious peer must not block the main thread forever.
+        // A future async encrypted transport can own its own I/O policy.
+        stream
+            .set_read_timeout(Some(TCP_IO_TIMEOUT))
+            .map_err(|error| io_error(&error))?;
+        stream
+            .set_write_timeout(Some(TCP_IO_TIMEOUT))
+            .map_err(|error| io_error(&error))?;
         Ok(Self {
             stream,
             closed: false,
@@ -314,6 +324,25 @@ mod tests {
         assert_eq!(client.send(b"late"), Err(TransportError::Closed));
 
         server.join().expect("LAN proof server");
+    }
+
+    #[test]
+    fn tcp_lan_transport_bounds_blocked_reads_and_writes() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("local address");
+        let server = thread::spawn(move || listener.accept().expect("accept").0);
+        let transport =
+            TcpLanTransport::connect(address, Duration::from_secs(2)).expect("connect");
+        let _peer = server.join().expect("peer");
+
+        assert_eq!(
+            transport.stream.read_timeout().expect("read timeout"),
+            Some(TCP_IO_TIMEOUT)
+        );
+        assert_eq!(
+            transport.stream.write_timeout().expect("write timeout"),
+            Some(TCP_IO_TIMEOUT)
+        );
     }
 
     #[test]
