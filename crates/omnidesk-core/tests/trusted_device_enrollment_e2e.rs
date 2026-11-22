@@ -471,6 +471,46 @@ fn enrollment_coordinator_atomic_persistence_and_restart() {
 }
 
 #[test]
+fn enrollment_persistence_failure_never_leaves_an_ephemeral_trusted_peer() {
+    let path = temp_store_path("failed-durable-save");
+    // A directory cannot be atomically replaced with a regular store file.
+    // This creates an OS-independent failing persistence destination.
+    fs::create_dir_all(&path).expect("create non-file target");
+    let now = 2_100_000_u64;
+
+    let mut coordinator = EnrollmentCoordinator::new();
+    let mut store = TrustedDeviceStore::new();
+    let challenge = coordinator.create_challenge(now).expect("issue challenge");
+    let signer = SigningKey::from_bytes(&[0x6C_u8; 32]);
+    let public_key = signer.verifying_key().to_bytes();
+    let signed = build_enrollment_message(
+        "new-peer-during-disk-failure", &public_key, &challenge.nonce, now,
+    );
+    let request = EnrollmentRequest {
+        device_id: "new-peer-during-disk-failure".to_owned(),
+        display_name: "Denied Undurable Peer".to_owned(),
+        public_key,
+        nonce: challenge.nonce,
+        timestamp_epoch_secs: now,
+        signature: signer.sign(&signed).to_bytes(),
+    };
+
+    assert!(matches!(
+        coordinator.complete_enrollment(&request, &mut store, Some(&path), now),
+        Err(EnrollmentError::Store(DeviceStoreError::Io(_)))
+    ));
+    assert!(store.is_empty(), "failed disk save cannot publish live trust");
+    assert_eq!(coordinator.stage(), EnrollmentStage::Failed);
+    assert!(coordinator.active_nonce().is_none());
+    assert_eq!(
+        coordinator.complete_enrollment(&request, &mut store, None, now),
+        Err(EnrollmentError::ChallengeAlreadyConsumed)
+    );
+
+    fs::remove_dir_all(&path).expect("remove failing target");
+}
+
+#[test]
 fn enrollment_coordinator_corrupted_store_fails_closed() {
     let path = temp_store_path("coord-corrupt");
     fs::write(&path, b"corrupted non-json bytes!").expect("write corrupt file");
