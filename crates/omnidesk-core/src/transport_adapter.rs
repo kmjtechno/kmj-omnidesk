@@ -64,7 +64,10 @@ impl fmt::Display for TransportSessionError {
                 )
             }
             Self::EncryptedTransportRequired => {
-                write!(f, "remote control requires authenticated encrypted transport")
+                write!(
+                    f,
+                    "remote control requires authenticated encrypted transport"
+                )
             }
             Self::Protocol(err) => write!(f, "session auth protocol error: {err}"),
         }
