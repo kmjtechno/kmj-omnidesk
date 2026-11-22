@@ -25,10 +25,90 @@ use crate::{
     action_at_point, apply_action, apply_key,
     brand::official_kmj_mark,
     controls_for_shell,
-    layout::{initial_window_inner_size, initial_window_origin},
+    layout::{PremiumViewportFit, V7_ART_WIDTH, initial_window_inner_size, initial_window_origin},
     presentation_for,
     render::render_shell,
 };
+
+// The owner's V7 reference has a custom 70px header and *no second*
+// Windows title bar. On screens that fit the locked artboard, the header
+// hosts real OS minimize/maximize/close and drag actions. Smaller monitors
+// retain native OS decorations so the compact UI always remains operable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PremiumCaptionAction {
+    Drag,
+    Minimize,
+    Maximize,
+    Close,
+}
+
+// Winit window attributes use logical sizes; rendering and mouse hitboxes
+// use *physical* client pixels. On a 200%-DPI P520 monitor the approved
+// 1672x941 native artboard can fit physically even though its logical width
+// is below 1280. Decide borderless startup in physical coordinates.
+fn premium_frameless_on_monitor(
+    logical_width: f64,
+    logical_height: f64,
+    scale_factor: f64,
+) -> bool {
+    let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    logical_width * scale >= 1280.0 && logical_height * scale >= 720.0
+}
+
+fn premium_caption_action(
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+    frameless: bool,
+) -> Option<PremiumCaptionAction> {
+    if !frameless {
+        return None;
+    }
+    // The rendered titlebar moves when the locked artboard is fitted into
+    // a non-16:9 window. Use the same inverse transform as remote-control
+    // hit testing so OS actions never drift into credentials or badges.
+    let (art_width, art_x, art_y) = if let Some(fit) = PremiumViewportFit::for_window(width, height)
+    {
+        let (source_x, source_y) = fit.artboard_point(x, y)?;
+        (V7_ART_WIDTH, source_x, source_y)
+    } else {
+        (width, x, y)
+    };
+    if art_y >= 70 || art_width < 600 {
+        return None;
+    }
+    if (art_width.saturating_sub(80)..art_width.saturating_sub(20)).contains(&art_x) {
+        Some(PremiumCaptionAction::Close)
+    } else if (art_width.saturating_sub(136)..art_width.saturating_sub(80)).contains(&art_x) {
+        Some(PremiumCaptionAction::Maximize)
+    } else if (art_width.saturating_sub(192)..art_width.saturating_sub(136)).contains(&art_x) {
+        Some(PremiumCaptionAction::Minimize)
+    } else if art_x < art_width.saturating_sub(450) {
+        Some(PremiumCaptionAction::Drag)
+    } else {
+        None
+    }
+}
+
+fn perform_premium_caption(
+    window: &Window,
+    event_loop: &ActiveEventLoop,
+    action: PremiumCaptionAction,
+) {
+    match action {
+        PremiumCaptionAction::Drag => {
+            let _ = window.drag_window();
+        }
+        PremiumCaptionAction::Minimize => window.set_minimized(true),
+        PremiumCaptionAction::Maximize => window.set_maximized(!window.is_maximized()),
+        PremiumCaptionAction::Close => event_loop.exit(),
+    }
+}
 
 /// Converts a window-logical coordinate to whole pixels.
 ///
@@ -127,6 +207,7 @@ struct DesktopHost {
     accessibility: Vec<AccessibilityNode>,
     accessibility_focus: Option<NodeId>,
     cursor_position: Option<(usize, usize)>,
+    frameless_premium: bool,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
 }
 
@@ -223,6 +304,7 @@ impl DesktopHost {
             accessibility,
             accessibility_focus: None,
             cursor_position: None,
+            frameless_premium: false,
             incoming_rx,
         }
     }
@@ -659,11 +741,38 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 (size.width, size.height, monitor.scale_factor())
             });
             let (inner_width, inner_height) = initial_window_inner_size(initial_size);
+            let monitor_scale = initial_size.map_or(1.0, |(_, _, scale)| {
+                if scale.is_finite() && scale > 0.0 {
+                    scale
+                } else {
+                    1.0
+                }
+            });
+            let frameless_premium =
+                premium_frameless_on_monitor(inner_width, inner_height, monitor_scale);
+            self.frameless_premium = frameless_premium;
             let attributes = WindowAttributes::default()
                 .with_title(title)
                 .with_visible(false)
                 .with_window_icon(window_icon)
-                .with_maximized(true)
+                .with_decorations(!frameless_premium)
+                .with_min_inner_size(winit::dpi::LogicalSize::new(
+                    if frameless_premium {
+                        1280.0 / monitor_scale
+                    } else {
+                        640.0
+                    },
+                    if frameless_premium {
+                        720.0 / monitor_scale
+                    } else {
+                        480.0
+                    },
+                ))
+                // A maximized launch overrides the fitted 1672x941 V7 size
+                // and stretches the locked hierarchy across the monitor.
+                // Launch at the reference dimensions when they fit; users
+                // can still maximize the window manually.
+                .with_maximized(false)
                 .with_inner_size(winit::dpi::LogicalSize::new(inner_width, inner_height));
             // Physical initial placement is as important as inner-size
             // fitting: hosted desktops can default to (156,156) on a
@@ -727,6 +836,16 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
             } => {
                 if let (Some((x, y)), Some(window)) = (self.cursor_position, self.window.as_ref()) {
                     let size = window.inner_size();
+                    if let Some(command) = premium_caption_action(
+                        usize::try_from(size.width).unwrap_or(usize::MAX),
+                        usize::try_from(size.height).unwrap_or(usize::MAX),
+                        x,
+                        y,
+                        self.frameless_premium,
+                    ) {
+                        perform_premium_caption(window, event_loop, command);
+                        return;
+                    }
                     if let Some(action) = action_at_point(
                         &self.shell,
                         usize::try_from(size.width).unwrap_or(usize::MAX),
@@ -862,11 +981,58 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_PIXEL_OFFSET, consent_matches_peer, refuse_unverified_session_action, to_pixel,
-        verified_consent_for_authenticated_trust,
+        MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, consent_matches_peer,
+        premium_caption_action, premium_frameless_on_monitor, refuse_unverified_session_action,
+        to_pixel, verified_consent_for_authenticated_trust,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn windows_high_dpi_launch_uses_physical_artboard_and_logical_minimum() {
+        assert!(premium_frameless_on_monitor(1672.0, 941.0, 1.0));
+        assert!(premium_frameless_on_monitor(1252.0, 678.0, 2.0));
+        assert!(premium_frameless_on_monitor(1384.0, 816.0, 1.0));
+        assert!(!premium_frameless_on_monitor(774.4, 547.2, 1.25));
+        assert!(!premium_frameless_on_monitor(800.0, 600.0, f64::NAN));
+        assert_eq!(1280.0 / 2.0, 640.0);
+        assert_eq!(720.0 / 2.0, 360.0);
+    }
+
+    #[test]
+    fn owner_locked_v7_caption_has_real_os_actions_and_compact_fallback() {
+        assert_eq!(
+            premium_caption_action(1672, 941, 1618, 29, true),
+            Some(PremiumCaptionAction::Close)
+        );
+        assert_eq!(
+            premium_caption_action(1672, 941, 1570, 29, true),
+            Some(PremiumCaptionAction::Maximize)
+        );
+        assert_eq!(
+            premium_caption_action(1672, 941, 1515, 29, true),
+            Some(PremiumCaptionAction::Minimize)
+        );
+        assert_eq!(
+            premium_caption_action(1672, 941, 650, 32, true),
+            Some(PremiumCaptionAction::Drag)
+        );
+        assert!(premium_caption_action(1672, 941, 1320, 30, true).is_none());
+        assert!(premium_caption_action(1672, 941, 1621, 78, true).is_none());
+        assert!(premium_caption_action(1024, 768, 910, 20, false).is_none());
+        let fitted = PremiumViewportFit::for_window(1440, 900).expect("fitted V7");
+        let title_x = fitted.x + 1618 * fitted.width / 1672;
+        let title_y = fitted.y + 29 * fitted.height / 941;
+        assert_eq!(
+            premium_caption_action(1440, 900, title_x, title_y, true),
+            Some(PremiumCaptionAction::Close)
+        );
+        assert_eq!(
+            premium_caption_action(1440, 900, title_x, 0, true),
+            None,
+            "letterboxed pixels must never trigger OS controls"
+        );
+    }
 
     #[test]
     fn unverified_online_device_cannot_enter_session_by_click_or_retry() {
