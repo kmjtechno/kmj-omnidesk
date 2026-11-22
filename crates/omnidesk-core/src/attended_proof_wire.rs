@@ -305,3 +305,34 @@ pub fn client_prove_attended_password<T: Transport>(
         _ => Err(AttendedProofError::Protocol),
     }
 }
+
+/// Send a terminal denial only AFTER the verified password proof, during
+/// the same encrypted Noise session. The host must not send a remote-control
+/// grant in this diagnostic-only stage.
+///
+/// # Errors
+/// Fails closed if the AEAD transport is closed or rejects the frame.
+pub fn host_deny_unlicensed_attended_consent<T: Transport>(
+    channel: &mut UnauthenticatedNoiseChannel<T>,
+) -> Result<(), AttendedProofError> {
+    send(channel, &Wire::Denied)
+}
+
+/// An authenticated password proof never implies host permission.
+/// Wait for a separate encrypted host decision; in the pre-release
+/// diagnostic protocol the only supported decision is DENY. Unexpected
+/// messages and disconnects always fail closed.
+///
+/// # Errors
+/// Returns Denied for an explicit host denial and Protocol/Transport
+/// for any unexpected or missing decision. No remote-control capability
+/// can be obtained from this function.
+pub fn client_await_attended_host_consent<T: Transport>(
+    channel: &mut UnauthenticatedNoiseChannel<T>,
+) -> Result<(), AttendedProofError> {
+    match receive(channel)? {
+        Wire::Denied => Err(AttendedProofError::Denied),
+        _ => Err(AttendedProofError::Protocol),
+    }
+}
+
