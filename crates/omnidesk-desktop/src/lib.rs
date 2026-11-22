@@ -356,11 +356,14 @@ pub fn presentation_details(shell: &ProductShell) -> Vec<String> {
                 ]
             } else {
                 vec![
-                    format!("Device: {}", shell.selected_device().unwrap_or("unavailable")),
+                    format!(
+                        "Device: {}",
+                        shell.selected_device().unwrap_or("unavailable")
+                    ),
                     "Explicit authorization is required before control".to_owned(),
                 ]
             }
-        },
+        }
         PrimaryView::Session => {
             let mut details = vec![
                 format!(
