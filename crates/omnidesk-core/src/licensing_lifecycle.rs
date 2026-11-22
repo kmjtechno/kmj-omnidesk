@@ -479,15 +479,6 @@ impl LicensingManager {
         response_bytes: &[u8],
         now: u64,
     ) -> Result<LicenseState, LicensingClientError> {
-        // Activation is a one-time transition in this manager. Replaying a
-        // previously signed activation response must not erase a later
-        // server restriction or explicit revocation. A legitimate reactivation
-        // requires a separately initialized, independently verified lifecycle.
-        if self.active_lease.is_some() {
-            return Err(LicensingClientError::Verification(
-                LicenseError::ReplayOrStaleSequence,
-            ));
-        }
         let verifier = self
             .verifier
             .as_ref()
@@ -501,6 +492,16 @@ impl LicensingManager {
                 request_id: error_resp.request_id,
                 message: error_resp.message,
             });
+        }
+
+        // Activation is a one-time transition in this manager. Replaying a
+        // previously signed activation response must not erase a later
+        // server restriction or explicit revocation. A legitimate reactivation
+        // requires a separately initialized, independently verified lifecycle.
+        if self.active_lease.is_some() {
+            return Err(LicensingClientError::Verification(
+                LicenseError::ReplayOrStaleSequence,
+            ));
         }
 
         let resp: ActivationResponse = serde_json::from_slice(response_bytes).map_err(|_| {
