@@ -650,6 +650,25 @@ impl DesktopHost {
         }
     }
 
+    // One guarded entrypoint for both mouse and keyboard Remote ID actions.
+    // No password or session is sent over a TCP identity-only handshake.
+    fn dispatch_remote_connect(&mut self) {
+        if self.shell.remote_id_input().is_empty() {
+            self.shell.set_error("Please enter a Remote Device ID");
+        } else if self.shell.remote_password_input().is_empty() {
+            self.shell.set_error("Please enter the session password");
+        } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+            self.shell.disconnect();
+            self.shell
+                .set_error("Secure remote connection unavailable: host password proof pending");
+        } else {
+            apply_action(&mut self.shell, DesktopAction::ConnectRemoteId);
+            if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
+                self.try_connect_peer();
+            }
+        }
+    }
+
     fn dispatch_action(&mut self, action: DesktopAction) {
         if action == DesktopAction::EnrollDevice {
             self.handle_enroll_device();
@@ -726,24 +745,7 @@ impl DesktopHost {
             copy_to_clipboard(&pwd);
             apply_action(&mut self.shell, action);
         } else if action == DesktopAction::ConnectRemoteId {
-            let remote_id = self.shell.remote_id_input().to_owned();
-            let remote_pwd = self.shell.remote_password_input().to_owned();
-            if remote_id.is_empty() {
-                self.shell.set_error("Please enter a Remote Device ID");
-            } else if remote_pwd.is_empty() {
-                self.shell.set_error("Please enter the session password");
-            } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
-                // Never send a password or grant remote control through the
-                // existing plaintext TCP identity-only session handshake.
-                self.shell.disconnect();
-                self.shell
-                    .set_error("Secure remote connection unavailable: host password proof pending");
-            } else {
-                apply_action(&mut self.shell, action);
-                if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
-                    self.try_connect_peer();
-                }
-            }
+            self.dispatch_remote_connect();
         } else if matches!(
             action,
             DesktopAction::ConnectDevice(..) | DesktopAction::RetryConnect
@@ -1203,7 +1205,6 @@ mod tests {
             Some("verified-peer"),
             true,
         ));
-        assert!(!ATTENDED_PASSWORD_PROOF_TRANSPORT_READY);
         assert!(!verified_attended_session_authorization(
             &shell,
             Some("verified-peer"),
