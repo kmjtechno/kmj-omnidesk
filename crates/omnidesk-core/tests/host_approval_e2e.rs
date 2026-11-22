@@ -1,11 +1,7 @@
 //! Real Noise TCP password proof -> local consent -> real Ed25519 license.
 //! No test below activates or authorizes remote screen/input.
 
-use std::{
-    net::TcpListener,
-    thread,
-    time::Duration,
-};
+use std::{net::TcpListener, thread, time::Duration};
 
 use ed25519_dalek::{Signer, SigningKey};
 use omnidesk_core::{
@@ -18,10 +14,10 @@ use omnidesk_core::{
     device_identity::DeviceIdentity,
     host_approval::{HostApprovalError, PendingHostApproval},
     licensing::{
-        DeviceBinding, Ed25519SignatureVerifier, LICENSE_CONTRACT_VERSION, LICENSE_PROTOCOL_VERSION,
-        LicenseError, LicenseKeyStatus, LicensePlan, LicensePublicKey, LocalLicenseClock,
-        NullableLimit, ResourceLimits, RevocationState, SignedEntitlementPayload,
-        VerificationContext,
+        DeviceBinding, Ed25519SignatureVerifier, LICENSE_CONTRACT_VERSION,
+        LICENSE_PROTOCOL_VERSION, LicenseError, LicenseKeyStatus, LicensePlan, LicensePublicKey,
+        LocalLicenseClock, NullableLimit, ResourceLimits, RevocationState,
+        SignedEntitlementPayload, VerificationContext,
     },
     noise_encrypted_transport::UnauthenticatedNoiseChannel,
     password_auth::HostPasswordManager,
@@ -36,7 +32,12 @@ const NOW: u64 = 202_000;
 fn signed_test_lease(
     host_key: &[u8; 32],
     now: u64,
-) -> (Vec<u8>, [u8; 64], Ed25519SignatureVerifier, SignedEntitlementPayload) {
+) -> (
+    Vec<u8>,
+    [u8; 64],
+    Ed25519SignatureVerifier,
+    SignedEntitlementPayload,
+) {
     let issuer = SigningKey::from_bytes(&[77; 32]);
     let payload = SignedEntitlementPayload {
         protocol_version: LICENSE_PROTOCOL_VERSION.to_owned(),
@@ -178,8 +179,7 @@ fn host_click_requires_real_signed_lease_and_consumes_proof_once() {
     let (proof, manager, host, trust) = real_host_proof();
     let peer_id = proof.peer_id().to_owned();
     let hash = *proof.noise_handshake_hash();
-    let (payload, signature, issuer, claims) =
-        signed_test_lease(&host.public_key_bytes(), NOW);
+    let (payload, signature, issuer, claims) = signed_test_lease(&host.public_key_bytes(), NOW);
     let mut pending = PendingHostApproval::new(proof);
     let grant = pending
         .approve_after_visible_host_click(
@@ -202,10 +202,21 @@ fn host_click_requires_real_signed_lease_and_consumes_proof_once() {
     assert_eq!(grant.signed_license_jti(), claims.jti);
     assert!(pending.is_consumed());
     assert_eq!(
-        pending.approve_after_visible_host_click(
-            &peer_id, &hash, &host, &trust, &manager, &issuer, &payload,
-            &signature, &context(&claims, NOW), 0, NOW,
-        ).err(),
+        pending
+            .approve_after_visible_host_click(
+                &peer_id,
+                &hash,
+                &host,
+                &trust,
+                &manager,
+                &issuer,
+                &payload,
+                &signature,
+                &context(&claims, NOW),
+                0,
+                NOW,
+            )
+            .err(),
         Some(HostApprovalError::AlreadyConsumed),
     );
 }
@@ -215,21 +226,42 @@ fn host_click_rejects_a_different_channel_and_forbids_retry() {
     let (proof, manager, host, trust) = real_host_proof();
     let peer_id = proof.peer_id().to_owned();
     let real_hash = *proof.noise_handshake_hash();
-    let (payload, signature, issuer, claims) =
-        signed_test_lease(&host.public_key_bytes(), NOW);
+    let (payload, signature, issuer, claims) = signed_test_lease(&host.public_key_bytes(), NOW);
     let mut pending = PendingHostApproval::new(proof);
     assert_eq!(
-        pending.approve_after_visible_host_click(
-            &peer_id, &[19; 32], &host, &trust, &manager, &issuer,
-            &payload, &signature, &context(&claims, NOW), 0, NOW,
-        ).err(),
+        pending
+            .approve_after_visible_host_click(
+                &peer_id,
+                &[19; 32],
+                &host,
+                &trust,
+                &manager,
+                &issuer,
+                &payload,
+                &signature,
+                &context(&claims, NOW),
+                0,
+                NOW,
+            )
+            .err(),
         Some(HostApprovalError::NoiseTranscriptMismatch),
     );
     assert_eq!(
-        pending.approve_after_visible_host_click(
-            &peer_id, &real_hash, &host, &trust, &manager,
-            &issuer, &payload, &signature, &context(&claims, NOW), 0, NOW,
-        ).err(),
+        pending
+            .approve_after_visible_host_click(
+                &peer_id,
+                &real_hash,
+                &host,
+                &trust,
+                &manager,
+                &issuer,
+                &payload,
+                &signature,
+                &context(&claims, NOW),
+                0,
+                NOW,
+            )
+            .err(),
         Some(HostApprovalError::AlreadyConsumed),
     );
 }
@@ -240,14 +272,24 @@ fn host_click_refuses_revoked_peer_and_password_rotation() {
     let peer_id = proof.peer_id().to_owned();
     let hash = *proof.noise_handshake_hash();
     trust.revoke(&peer_id);
-    let (payload, signature, issuer, claims) =
-        signed_test_lease(&host.public_key_bytes(), NOW);
+    let (payload, signature, issuer, claims) = signed_test_lease(&host.public_key_bytes(), NOW);
     let mut pending = PendingHostApproval::new(proof);
     assert_eq!(
-        pending.approve_after_visible_host_click(
-            &peer_id, &hash, &host, &trust, &manager, &issuer,
-            &payload, &signature, &context(&claims, NOW), 0, NOW,
-        ).err(),
+        pending
+            .approve_after_visible_host_click(
+                &peer_id,
+                &hash,
+                &host,
+                &trust,
+                &manager,
+                &issuer,
+                &payload,
+                &signature,
+                &context(&claims, NOW),
+                0,
+                NOW,
+            )
+            .err(),
         Some(HostApprovalError::PeerRevokedOrExpired),
     );
 
@@ -255,14 +297,24 @@ fn host_click_refuses_revoked_peer_and_password_rotation() {
     let peer_id = proof.peer_id().to_owned();
     let hash = *proof.noise_handshake_hash();
     manager.rotate(NOW);
-    let (payload, signature, issuer, claims) =
-        signed_test_lease(&host.public_key_bytes(), NOW);
+    let (payload, signature, issuer, claims) = signed_test_lease(&host.public_key_bytes(), NOW);
     let mut pending = PendingHostApproval::new(proof);
     assert_eq!(
-        pending.approve_after_visible_host_click(
-            &peer_id, &hash, &host, &trust, &manager, &issuer,
-            &payload, &signature, &context(&claims, NOW), 0, NOW,
-        ).err(),
+        pending
+            .approve_after_visible_host_click(
+                &peer_id,
+                &hash,
+                &host,
+                &trust,
+                &manager,
+                &issuer,
+                &payload,
+                &signature,
+                &context(&claims, NOW),
+                0,
+                NOW,
+            )
+            .err(),
         Some(HostApprovalError::PasswordGenerationChanged),
     );
 }
@@ -272,29 +324,49 @@ fn host_click_rejects_modified_signed_entitlement_and_over_capacity() {
     let (proof, manager, host, trust) = real_host_proof();
     let peer_id = proof.peer_id().to_owned();
     let hash = *proof.noise_handshake_hash();
-    let (mut payload, signature, issuer, claims) =
-        signed_test_lease(&host.public_key_bytes(), NOW);
+    let (mut payload, signature, issuer, claims) = signed_test_lease(&host.public_key_bytes(), NOW);
     payload.push(b' ');
     let mut pending = PendingHostApproval::new(proof);
     assert_eq!(
-        pending.approve_after_visible_host_click(
-            &peer_id, &hash, &host, &trust, &manager, &issuer,
-            &payload, &signature, &context(&claims, NOW), 0, NOW,
-        ).err(),
+        pending
+            .approve_after_visible_host_click(
+                &peer_id,
+                &hash,
+                &host,
+                &trust,
+                &manager,
+                &issuer,
+                &payload,
+                &signature,
+                &context(&claims, NOW),
+                0,
+                NOW,
+            )
+            .err(),
         Some(HostApprovalError::License(LicenseError::InvalidSignature)),
     );
 
     let (proof, manager, host, trust) = real_host_proof();
     let peer_id = proof.peer_id().to_owned();
     let hash = *proof.noise_handshake_hash();
-    let (payload, signature, issuer, claims) =
-        signed_test_lease(&host.public_key_bytes(), NOW);
+    let (payload, signature, issuer, claims) = signed_test_lease(&host.public_key_bytes(), NOW);
     let mut pending = PendingHostApproval::new(proof);
     assert_eq!(
-        pending.approve_after_visible_host_click(
-            &peer_id, &hash, &host, &trust, &manager, &issuer,
-            &payload, &signature, &context(&claims, NOW), 1, NOW,
-        ).err(),
+        pending
+            .approve_after_visible_host_click(
+                &peer_id,
+                &hash,
+                &host,
+                &trust,
+                &manager,
+                &issuer,
+                &payload,
+                &signature,
+                &context(&claims, NOW),
+                1,
+                NOW,
+            )
+            .err(),
         Some(HostApprovalError::ConcurrentSessionLimit),
     );
 }
@@ -308,11 +380,21 @@ fn host_click_expires_at_thirty_seconds_without_control() {
         signed_test_lease(&host.public_key_bytes(), NOW + 30);
     let mut pending = PendingHostApproval::new(proof);
     assert_eq!(
-        pending.approve_after_visible_host_click(
-            &peer_id, &hash, &host, &trust, &manager, &issuer,
-            &payload, &signature, &context(&claims, NOW + 30),
-            0, NOW + 30,
-        ).err(),
+        pending
+            .approve_after_visible_host_click(
+                &peer_id,
+                &hash,
+                &host,
+                &trust,
+                &manager,
+                &issuer,
+                &payload,
+                &signature,
+                &context(&claims, NOW + 30),
+                0,
+                NOW + 30,
+            )
+            .err(),
         Some(HostApprovalError::ProofExpired),
     );
 }
