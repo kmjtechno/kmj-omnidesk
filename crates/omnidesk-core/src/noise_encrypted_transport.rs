@@ -215,11 +215,7 @@ impl<T: Transport> Transport for UnauthenticatedNoiseChannel<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        net::TcpListener,
-        thread,
-        time::Duration,
-    };
+    use std::{net::TcpListener, thread, time::Duration};
 
     use super::*;
     use crate::transport::TcpLanTransport;
