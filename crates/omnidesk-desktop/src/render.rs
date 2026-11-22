@@ -1919,6 +1919,15 @@ fn premium_panel(
     }
 }
 
+// Decorative pixel-wave math is bounded by the 260px native navigation card.
+// Only this non-security rasterizer intentionally converts pixel positions to
+// floating point and back; authentication, hitboxes and metrics remain strict.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::suboptimal_flops
+)]
 fn draw_premium_sidebar_wave(canvas: &mut Canvas<'_>, nav: crate::layout::DashboardRect) {
     if nav.width < 20 || nav.height < 220 {
         return;
