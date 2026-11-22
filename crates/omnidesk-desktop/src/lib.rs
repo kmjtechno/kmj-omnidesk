@@ -516,7 +516,33 @@ fn premium_action_at_point(
             return tab.map(DesktopAction::SelectNav);
         }
     }
+    // A painted help/settings glyph is a real control, not a mockup.
+    // Notification bell remains inert until a verified source exists.
+    if y < premium.header_height && width == 1672 && height == 941 {
+        if (1356..1396).contains(&x) {
+            return Some(DesktopAction::ToggleHelp);
+        }
+        if (1416..1458).contains(&x) {
+            return Some(DesktopAction::OpenSettings);
+        }
+    }
     if shell.nav_tab() == NavTab::Devices && shell.primary_view() == PrimaryView::Devices {
+        // Quick-action tiles use the exact same 3-column native rectangles
+        // drawn by the renderer (top=48px, 82px row pitch, 72px height).
+        // Only backed workflows are clickable; all unsupported actions
+        // remain fail-closed and cannot issue network commands.
+        let quick = premium.quick_actions;
+        let stride = (quick.width.saturating_sub(32)) / 3;
+        let left = quick.x + 16;
+        let top = quick.y + 48;
+        if (left..left + stride.saturating_sub(8)).contains(&x) && (top..top + 72).contains(&y) {
+            return Some(DesktopAction::FocusRemoteIdInput);
+        }
+        if (left..left + stride.saturating_sub(8)).contains(&x)
+            && (top + 82..top + 154).contains(&y)
+        {
+            return Some(DesktopAction::SelectNav(NavTab::FileTransfer));
+        }
         if !shell.local_device_id().is_empty() && premium.local_id_copy().contains(x, y) {
             return Some(DesktopAction::CopyYourId);
         }
@@ -563,6 +589,27 @@ pub fn action_at_point(
     x: usize,
     y: usize,
 ) -> Option<DesktopAction> {
+    // All V7 controls, including both password fields and the explicit
+    // attended-access toggle, share the renderer's inverse DPI transform.
+    // Never accept input in a letterbox margin or dispatch a click using
+    // the wrong physical window geometry.
+    if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() == NavTab::Devices {
+        if let Some(fit) = crate::layout::PremiumViewportFit::for_window(width, height) {
+            let (art_x, art_y) = fit.artboard_point(x, y)?;
+            let premium = PremiumDashboardLayout::for_window(
+                crate::layout::V7_ART_WIDTH,
+                crate::layout::V7_ART_HEIGHT,
+            )?;
+            return premium_action_at_point(
+                shell,
+                crate::layout::V7_ART_WIDTH,
+                crate::layout::V7_ART_HEIGHT,
+                art_x,
+                art_y,
+                &premium,
+            );
+        }
+    }
     if let Some(premium) = PremiumDashboardLayout::for_window(width, height) {
         return premium_action_at_point(shell, width, height, x, y, &premium);
     }
@@ -944,6 +991,82 @@ mod tests {
     use super::*;
 
     #[test]
+    fn approved_header_and_quick_actions_only_dispatch_existing_workflows() {
+        let shell = ProductShell::new();
+        let width = 1672;
+        let height = 941;
+        let layout = PremiumDashboardLayout::for_window(width, height).unwrap();
+        let quick = layout.quick_actions;
+        let tile_width = (quick.width.saturating_sub(32)) / 3;
+        let left = quick.x + 16;
+        let top = quick.y + 48;
+        assert_eq!(
+            action_at_point(&shell, width, height, 1375, 30),
+            Some(DesktopAction::ToggleHelp)
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, 1432, 30),
+            Some(DesktopAction::OpenSettings)
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, left + 20, top + 25),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, left + 20, top + 82 + 25),
+            Some(DesktopAction::SelectNav(NavTab::FileTransfer))
+        );
+        for (x, y) in [
+            (left + tile_width + 20, top + 25),
+            (left + 2 * tile_width + 20, top + 25),
+            (left + tile_width + 20, top + 82 + 25),
+            (left + 2 * tile_width + 20, top + 82 + 25),
+        ] {
+            assert_eq!(
+                action_at_point(&shell, width, height, x, y),
+                None,
+                "unimplemented Wake LAN, CMD, Logs, Invite must not dispatch"
+            );
+        }
+    }
+
+    #[test]
+    fn fitted_v7_password_and_remote_id_clicks_match_actual_drawn_artboard() {
+        let shell = ProductShell::new();
+        let width = 1440;
+        let height = 900;
+        let fit = crate::layout::PremiumViewportFit::for_window(width, height).unwrap();
+        let art = PremiumDashboardLayout::for_window(1672, 941).unwrap();
+        let hit = |rect: crate::layout::DashboardRect| {
+            let px = fit.x + (rect.x + rect.width / 2) * fit.width / 1672;
+            let py = fit.y + (rect.y + rect.height / 2) * fit.height / 941;
+            action_at_point(&shell, width, height, px, py)
+        };
+        assert_eq!(
+            hit(art.remote_id_input()),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
+        assert_eq!(
+            hit(art.remote_password_input()),
+            Some(DesktopAction::FocusRemotePasswordInput)
+        );
+        assert_eq!(
+            hit(art.remote_control_toggle()),
+            Some(DesktopAction::ToggleRemoteControl)
+        );
+        assert_eq!(
+            hit(art.remote_connect_button()),
+            None,
+            "an empty or unauthenticated remote Connect cannot be enabled by DPI scaling"
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, 300, 0),
+            None,
+            "letterbox outside the approved artboard is not an input target"
+        );
+    }
+
+    #[test]
     fn premium_v7_pointer_targets_match_visible_geometry() {
         let width = 1672;
         let height = 941;
@@ -992,8 +1115,8 @@ mod tests {
                 layout.quick_actions.x + 25,
                 layout.quick_actions.y + 70,
             ),
-            None,
-            "unimplemented quick actions cannot be clickable"
+            Some(DesktopAction::FocusRemoteIdInput),
+            "New Session only focuses the existing secure ID form"
         );
     }
 
