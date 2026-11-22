@@ -300,9 +300,91 @@ struct InboundProofJob {
     awaiting_decision: bool,
 }
 
+fn run_inbound_host_proof(
+    request: InboundProofRequest,
+    cancelled: Arc<AtomicBool>,
+    tx: mpsc::SyncSender<InboundProofOutcome>,
+    decision_rx: Receiver<()>,
+) {
+    let InboundProofRequest {
+        stream,
+        peer_addr,
+        identity,
+        store,
+        mut manager,
+        tenant,
+    } = request;
+    let result = if cancelled.load(Ordering::Acquire) {
+        Err("Host cancelled before inbound handshake".to_owned())
+    } else {
+        match HostTransport::from_tcp_stream(stream) {
+            Ok(transport) => {
+                // The only extension of the default 5s I/O deadline is an
+                // operator-opted, 30s host consent window (plus 5s margin).
+                match transport.configure_attended_consent_timeout() {
+                    Ok(()) => match UnauthenticatedNoiseChannel::accept(transport) {
+                        Ok(mut encrypted) => {
+                            let proof = if cancelled.load(Ordering::Acquire) {
+                                Err("Host cancelled during Noise handshake".to_owned())
+                            } else {
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map_or(0, |duration| duration.as_secs());
+                                host_verify_attended_password_with_receipt(
+                                    &mut encrypted,
+                                    &identity,
+                                    &store,
+                                    &mut manager,
+                                    &tenant,
+                                    now,
+                                )
+                                .map_err(|err| format!("{err:?}"))
+                            };
+                            match proof {
+                                Ok(receipt) => {
+                                    // Hand off one sealed receipt and the
+                                    // authoritative lockout state to the UI.
+                                    // Worker alone retains the AEAD channel.
+                                    let _ = tx.send(InboundProofOutcome {
+                                        manager,
+                                        result: Ok(receipt),
+                                        peer_addr,
+                                    });
+                                    let _ = decision_rx.recv_timeout(
+                                        std::time::Duration::from_secs(HOST_APPROVAL_WINDOW_SECS),
+                                    );
+                                    // Even if the host clicks Allow, a real
+                                    // platform-issued lease isn't provisioned
+                                    // yet: NO privileged accept wire exists.
+                                    let _ =
+                                        host_deny_unlicensed_attended_consent(&mut encrypted);
+                                    encrypted.close();
+                                    return;
+                                }
+                                Err(error) => {
+                                    encrypted.close();
+                                    Err(error)
+                                }
+                            }
+                        }
+                        Err(err) => Err(format!("Noise handshake failed: {err:?}")),
+                    },
+                    Err(err) => Err(format!("TCP consent timeout rejected: {err:?}")),
+                }
+            }
+            Err(err) => Err(format!("Incoming TCP transport rejected: {err:?}")),
+        }
+    };
+    let _ = tx.send(InboundProofOutcome {
+        manager,
+        result,
+        peer_addr,
+    });
+}
+
 impl Drop for InboundProofJob {
     fn drop(&mut self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancel();
     }
 }
 
@@ -312,64 +394,23 @@ impl InboundProofJob {
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancelled = Arc::clone(&cancelled);
         let (tx, result_rx) = mpsc::sync_channel(1);
+        let (decision_tx, decision_rx) = mpsc::sync_channel(1);
         std::thread::Builder::new()
             .name("omnidesk-inbound-auth-probe".to_owned())
-            .spawn(move || {
-                let InboundProofRequest {
-                    stream,
-                    peer_addr,
-                    identity,
-                    store,
-                    mut manager,
-                    tenant,
-                } = request;
-                let result = if worker_cancelled.load(Ordering::Acquire) {
-                    Err("Host cancelled before inbound handshake".to_owned())
-                } else {
-                    match HostTransport::from_tcp_stream(stream) {
-                        Ok(transport) => match UnauthenticatedNoiseChannel::accept(transport) {
-                            Ok(mut encrypted) => {
-                                let verified = if worker_cancelled.load(Ordering::Acquire) {
-                                    Err("Host cancelled during Noise handshake".to_owned())
-                                } else {
-                                    let now = std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .map_or(0, |duration| duration.as_secs());
-                                    host_verify_attended_password(
-                                        &mut encrypted,
-                                        &identity,
-                                        &store,
-                                        &mut manager,
-                                        &tenant,
-                                        now,
-                                    )
-                                    .map_err(|err| format!("{err:?}"))
-                                };
-                                encrypted.close();
-                                verified
-                            }
-                            Err(err) => Err(format!("Noise handshake failed: {err:?}")),
-                        },
-                        Err(err) => Err(format!("Incoming TCP transport rejected: {err:?}")),
-                    }
-                };
-                // No session/capability/transport returned, only a redacted
-                // result and updated lockout state for the host GUI.
-                let _ = tx.send(InboundProofOutcome {
-                    manager,
-                    result,
-                    peer_addr,
-                });
-            })?;
+            .spawn(move || run_inbound_host_proof(request, worker_cancelled, tx, decision_rx))?;
         Ok(Self {
             result_rx,
+            decision_tx,
             cancelled,
             original_generation,
+            awaiting_decision: false,
         })
     }
 
     fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
+        // Wake the worker immediately if it is waiting for visible consent.
+        let _ = self.decision_tx.try_send(());
     }
 }
 
