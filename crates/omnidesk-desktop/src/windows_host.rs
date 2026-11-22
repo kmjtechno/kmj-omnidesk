@@ -296,29 +296,33 @@ impl DesktopHost {
         }
         let accessibility = accessibility_snapshot(&shell);
 
-        let (incoming_tx, incoming_rx) = std::sync::mpsc::channel::<IncomingPeer>();
-        let listen_port: u16 = std::env::var("OMNIDESK_LISTEN_PORT")
-            .ok()
-            .and_then(|p| p.parse().ok())
-            .unwrap_or(21118);
+        // No public listener while encrypted host-password proof is absent.
+        // A plaintext TCP port would expose an unused, unbounded attack
+        // surface even though authorization is already fail-closed.
+        let (incoming_tx, incoming_rx) = std::sync::mpsc::sync_channel::<IncomingPeer>(16);
+        if ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+            let listen_port: u16 = std::env::var("OMNIDESK_LISTEN_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(21118);
 
-        if let Ok(listener) = std::net::TcpListener::bind(("0.0.0.0", listen_port))
-            .or_else(|_| std::net::TcpListener::bind(("0.0.0.0", 0)))
-        {
-            let _ = listener.set_nonblocking(false);
-            let _ = std::thread::Builder::new()
-                .name("omnidesk-host-listener".to_owned())
-                .spawn(move || {
-                    while let Ok((stream, peer_addr)) = listener.accept() {
-                        let _ = stream.set_nodelay(true);
-                        if incoming_tx
-                            .send(IncomingPeer { stream, peer_addr })
-                            .is_err()
-                        {
-                            break;
+            // Never silently fall back to an unexpected ephemeral public port.
+            if let Ok(listener) = std::net::TcpListener::bind(("0.0.0.0", listen_port)) {
+                let _ = std::thread::Builder::new()
+                    .name("omnidesk-host-listener".to_owned())
+                    .spawn(move || {
+                        while let Ok((stream, peer_addr)) = listener.accept() {
+                            let deadline = Some(std::time::Duration::from_secs(3));
+                            let _ = stream.set_read_timeout(deadline);
+                            let _ = stream.set_write_timeout(deadline);
+                            let _ = stream.set_nodelay(true);
+                            match incoming_tx.try_send(IncomingPeer { stream, peer_addr }) {
+                                Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+                            }
                         }
-                    }
-                });
+                    });
+            }
         }
 
         Self {
