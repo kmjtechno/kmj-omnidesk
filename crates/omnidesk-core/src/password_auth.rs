@@ -35,6 +35,8 @@ pub enum PasswordVerificationError {
     Expired,
     LockedOut { remaining_secs: u64 },
     InvalidPassword { remaining_attempts: u32 },
+    ChallengeConsumed,
+    InvalidBinding,
 }
 
 impl std::fmt::Display for PasswordVerificationError {
@@ -54,11 +56,64 @@ impl std::fmt::Display for PasswordVerificationError {
                     "Invalid session password - {remaining_attempts} attempts remaining"
                 )
             }
+            Self::ChallengeConsumed => write!(f, "Password proof challenge already consumed"),
+            Self::InvalidBinding => write!(f, "Invalid host proof session binding"),
         }
     }
 }
 
 impl std::error::Error for PasswordVerificationError {}
+
+/// Host-only one-use password challenge.
+///
+/// The SHA-256 password proof is NOT a PAKE: use only after independently
+/// authenticating both peers and establishing encryption, never raw TCP.
+#[derive(Debug)]
+pub struct HostProofChallenge {
+    host_device_id: String,
+    session_id: [u8; 16],
+    nonce: [u8; 32],
+    client_public_key: [u8; 32],
+    host_public_key: [u8; 32],
+    issued_at: u64,
+    expires_at: u64,
+    rotation_count: u64,
+    policy_revision: u64,
+    consumed: bool,
+}
+
+impl HostProofChallenge {
+    /// Expected remote host ID.
+    #[must_use]
+    pub fn host_device_id(&self) -> &str {
+        &self.host_device_id
+    }
+    /// Per-session identifier.
+    #[must_use]
+    pub const fn session_id(&self) -> &[u8; 16] {
+        &self.session_id
+    }
+    /// One-use OS-generated challenge.
+    #[must_use]
+    pub const fn nonce(&self) -> &[u8; 32] {
+        &self.nonce
+    }
+    /// Authenticated client public key.
+    #[must_use]
+    pub const fn client_public_key(&self) -> &[u8; 32] {
+        &self.client_public_key
+    }
+    /// Authenticated host public key.
+    #[must_use]
+    pub const fn host_public_key(&self) -> &[u8; 32] {
+        &self.host_public_key
+    }
+    /// Whether this host challenge has been spent.
+    #[must_use]
+    pub const fn is_consumed(&self) -> bool {
+        self.consumed
+    }
+}
 
 /// Host-managed session password and incoming authorization control state.
 #[derive(Clone, PartialEq, Eq)]
@@ -72,6 +127,7 @@ pub struct HostPasswordManager {
     lockout_until_epoch_secs: u64,
     allow_remote_control: bool,
     rotation_count: u64,
+    policy_revision: u64,
 }
 
 // Redact credential values in diagnostic output.
@@ -100,6 +156,7 @@ impl HostPasswordManager {
             lockout_until_epoch_secs: 0,
             allow_remote_control: false,
             rotation_count: 0,
+            policy_revision: 0,
         }
     }
 
@@ -116,6 +173,7 @@ impl HostPasswordManager {
             lockout_until_epoch_secs: 0,
             allow_remote_control: false,
             rotation_count: 0,
+            policy_revision: 0,
         };
         manager.rotate(now_epoch_secs);
         manager
@@ -148,10 +206,14 @@ impl HostPasswordManager {
     }
 
     pub const fn set_allow_remote_control(&mut self, allow: bool) {
-        self.allow_remote_control = allow;
+        if self.allow_remote_control != allow {
+            self.policy_revision = self.policy_revision.wrapping_add(1);
+            self.allow_remote_control = allow;
+        }
     }
 
     pub const fn toggle_allow_remote_control(&mut self) {
+        self.policy_revision = self.policy_revision.wrapping_add(1);
         self.allow_remote_control = !self.allow_remote_control;
     }
 
@@ -198,6 +260,128 @@ impl HostPasswordManager {
         self.lockout_until_epoch_secs = 0;
     }
 
+    /// Create one OS-random challenge on an authenticated encrypted host.
+    ///
+    /// This is host-side proof state, NOT a wire protocol or authorization.
+    ///
+    /// # Errors
+    /// Refuses disabled, expired, locked-out or malformed key binding.
+    ///
+    /// # Panics
+    /// Fails closed if the operating system CSPRNG is unavailable.
+    pub fn issue_proof_challenge(
+        &self,
+        host_device_id: &str,
+        client_public_key: [u8; 32],
+        host_public_key: [u8; 32],
+        now_epoch_secs: u64,
+    ) -> Result<HostProofChallenge, PasswordVerificationError> {
+        if host_device_id.trim().is_empty()
+            || client_public_key == [0_u8; 32]
+            || host_public_key == [0_u8; 32]
+            || client_public_key == host_public_key
+        {
+            return Err(PasswordVerificationError::InvalidBinding);
+        }
+        self.ensure_password_usable(now_epoch_secs)?;
+        let mut entropy = [0_u8; 48];
+        getrandom::fill(&mut entropy).expect("OS CSPRNG unavailable: host proof challenge refused");
+        let mut session_id = [0_u8; 16];
+        let mut nonce = [0_u8; 32];
+        session_id.copy_from_slice(&entropy[..16]);
+        nonce.copy_from_slice(&entropy[16..]);
+        if session_id == [0_u8; 16] || nonce == [0_u8; 32] {
+            return Err(PasswordVerificationError::InvalidBinding);
+        }
+        Ok(HostProofChallenge {
+            host_device_id: host_device_id.to_owned(),
+            session_id,
+            nonce,
+            client_public_key,
+            host_public_key,
+            issued_at: now_epoch_secs,
+            expires_at: now_epoch_secs.saturating_add(60),
+            rotation_count: self.rotation_count,
+            policy_revision: self.policy_revision,
+            consumed: false,
+        })
+    }
+
+    /// Verify and consume an attended-password challenge exactly once.
+    ///
+    /// Password rotation, sharing-policy changes, expiry and replay reject.
+    /// Each wrong proof counts toward the host lockout. Separate encrypted
+    /// transport, authenticated device identity and visible consent remain
+    /// mandatory before remote input may be authorized.
+    ///
+    /// # Errors
+    /// Rejects replay, stale challenge, disabled host and wrong proof.
+    pub fn verify_proof_once(
+        &mut self,
+        challenge: &mut HostProofChallenge,
+        proof: &[u8; 32],
+        now_epoch_secs: u64,
+    ) -> Result<(), PasswordVerificationError> {
+        if challenge.consumed {
+            return Err(PasswordVerificationError::ChallengeConsumed);
+        }
+        challenge.consumed = true;
+        self.ensure_password_usable(now_epoch_secs)?;
+        if now_epoch_secs < challenge.issued_at
+            || now_epoch_secs >= challenge.expires_at
+            || challenge.rotation_count != self.rotation_count
+            || challenge.policy_revision != self.policy_revision
+        {
+            return Err(PasswordVerificationError::Expired);
+        }
+        if verify_password_proof(
+            proof,
+            &self.password,
+            &challenge.host_device_id,
+            &challenge.session_id,
+            &challenge.nonce,
+            &challenge.client_public_key,
+            &challenge.host_public_key,
+        ) {
+            self.failed_attempts = 0;
+            Ok(())
+        } else {
+            Err(self.record_failed_attempt(now_epoch_secs))
+        }
+    }
+
+    const fn ensure_password_usable(
+        &self,
+        now_epoch_secs: u64,
+    ) -> Result<(), PasswordVerificationError> {
+        if !self.allow_remote_control {
+            return Err(PasswordVerificationError::RemoteControlDisabled);
+        }
+        if self.is_locked_out(now_epoch_secs) {
+            return Err(PasswordVerificationError::LockedOut {
+                remaining_secs: self.lockout_until_epoch_secs.saturating_sub(now_epoch_secs),
+            });
+        }
+        if self.is_expired(now_epoch_secs) {
+            return Err(PasswordVerificationError::Expired);
+        }
+        Ok(())
+    }
+
+    const fn record_failed_attempt(&mut self, now_epoch_secs: u64) -> PasswordVerificationError {
+        self.failed_attempts = self.failed_attempts.saturating_add(1);
+        if self.failed_attempts >= MAX_FAILED_ATTEMPTS {
+            self.lockout_until_epoch_secs = now_epoch_secs.saturating_add(LOCKOUT_DURATION_SECS);
+            PasswordVerificationError::LockedOut {
+                remaining_secs: LOCKOUT_DURATION_SECS,
+            }
+        } else {
+            PasswordVerificationError::InvalidPassword {
+                remaining_attempts: MAX_FAILED_ATTEMPTS.saturating_sub(self.failed_attempts),
+            }
+        }
+    }
+
     /// Verifies a candidate password against the host's active session credential.
     ///
     /// # Errors
@@ -208,20 +392,7 @@ impl HostPasswordManager {
         candidate: &str,
         now_epoch_secs: u64,
     ) -> Result<(), PasswordVerificationError> {
-        if !self.allow_remote_control {
-            return Err(PasswordVerificationError::RemoteControlDisabled);
-        }
-
-        if self.is_locked_out(now_epoch_secs) {
-            let remaining = self.lockout_until_epoch_secs.saturating_sub(now_epoch_secs);
-            return Err(PasswordVerificationError::LockedOut {
-                remaining_secs: remaining,
-            });
-        }
-
-        if self.is_expired(now_epoch_secs) {
-            return Err(PasswordVerificationError::Expired);
-        }
+        self.ensure_password_usable(now_epoch_secs)?;
 
         // Hash even malformed attempts so they cannot sidestep the
         // brute-force counter. An empty normalized string never matches the
@@ -232,19 +403,7 @@ impl HostPasswordManager {
             self.failed_attempts = 0;
             Ok(())
         } else {
-            self.failed_attempts = self.failed_attempts.saturating_add(1);
-            if self.failed_attempts >= MAX_FAILED_ATTEMPTS {
-                self.lockout_until_epoch_secs =
-                    now_epoch_secs.saturating_add(LOCKOUT_DURATION_SECS);
-                Err(PasswordVerificationError::LockedOut {
-                    remaining_secs: LOCKOUT_DURATION_SECS,
-                })
-            } else {
-                let remaining = MAX_FAILED_ATTEMPTS.saturating_sub(self.failed_attempts);
-                Err(PasswordVerificationError::InvalidPassword {
-                    remaining_attempts: remaining,
-                })
-            }
+            Err(self.record_failed_attempt(now_epoch_secs))
         }
     }
 }
@@ -339,6 +498,134 @@ pub fn constant_time_eq_32(a: &[u8; 32], b: &[u8; 32]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_proof_succeeds_once_and_replay_cannot_reauthorize() {
+        let now = 1_000;
+        let mut host = HostPasswordManager::new(now);
+        host.set_allow_remote_control(true);
+        let password = host.password().to_owned();
+        let mut challenge = host
+            .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now)
+            .expect("issue host challenge");
+        let proof = generate_password_proof(
+            &password,
+            challenge.host_device_id(),
+            challenge.session_id(),
+            challenge.nonce(),
+            challenge.client_public_key(),
+            challenge.host_public_key(),
+        );
+        assert_eq!(host.verify_proof_once(&mut challenge, &proof, now), Ok(()));
+        assert!(challenge.is_consumed());
+        assert_eq!(
+            host.verify_proof_once(&mut challenge, &proof, now),
+            Err(PasswordVerificationError::ChallengeConsumed)
+        );
+        let mut next = host
+            .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now)
+            .expect("new challenge");
+        assert_ne!(next.nonce(), challenge.nonce());
+        assert!(matches!(
+            host.verify_proof_once(&mut next, &proof, now),
+            Err(PasswordVerificationError::InvalidPassword { .. })
+        ));
+    }
+
+    #[test]
+    fn host_proof_expiry_rotation_and_toggle_revoke_pending_challenge() {
+        let now = 2_000;
+        let mut host = HostPasswordManager::new(now);
+        host.set_allow_remote_control(true);
+        let password = host.password().to_owned();
+        let mut expired = host
+            .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now)
+            .expect("issue");
+        let proof = generate_password_proof(
+            &password,
+            expired.host_device_id(),
+            expired.session_id(),
+            expired.nonce(),
+            expired.client_public_key(),
+            expired.host_public_key(),
+        );
+        assert_eq!(
+            host.verify_proof_once(&mut expired, &proof, now + 60),
+            Err(PasswordVerificationError::Expired)
+        );
+        let mut rotated = host
+            .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now)
+            .expect("issue");
+        host.rotate(now + 1);
+        assert_eq!(
+            host.verify_proof_once(&mut rotated, &proof, now + 1),
+            Err(PasswordVerificationError::Expired)
+        );
+        let mut policy = host
+            .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now + 1)
+            .expect("issue");
+        host.set_allow_remote_control(false);
+        host.set_allow_remote_control(true);
+        assert_eq!(
+            host.verify_proof_once(&mut policy, &proof, now + 2),
+            Err(PasswordVerificationError::Expired)
+        );
+    }
+
+    #[test]
+    fn wrong_host_proofs_consume_lockout_budget_across_fresh_challenges() {
+        let now = 3_000;
+        let mut host = HostPasswordManager::new(now);
+        host.set_allow_remote_control(true);
+        for attempt in 1..=MAX_FAILED_ATTEMPTS {
+            let mut challenge = host
+                .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now)
+                .expect("fresh nonce");
+            let result = host.verify_proof_once(&mut challenge, &[0_u8; 32], now);
+            if attempt == MAX_FAILED_ATTEMPTS {
+                assert_eq!(
+                    result,
+                    Err(PasswordVerificationError::LockedOut {
+                        remaining_secs: LOCKOUT_DURATION_SECS
+                    })
+                );
+            } else {
+                assert_eq!(
+                    result,
+                    Err(PasswordVerificationError::InvalidPassword {
+                        remaining_attempts: MAX_FAILED_ATTEMPTS - attempt
+                    })
+                );
+            }
+        }
+        assert!(matches!(
+            host.issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now),
+            Err(PasswordVerificationError::LockedOut { .. })
+        ));
+    }
+
+    #[test]
+    fn proof_challenge_rejects_missing_identity_or_unverified_host_policy() {
+        let now = 4_000;
+        let mut host = HostPasswordManager::new(now);
+        assert!(matches!(
+            host.issue_proof_challenge("host-p520", [1_u8; 32], [2_u8; 32], now),
+            Err(PasswordVerificationError::RemoteControlDisabled)
+        ));
+        host.set_allow_remote_control(true);
+        assert!(matches!(
+            host.issue_proof_challenge("", [1_u8; 32], [2_u8; 32], now),
+            Err(PasswordVerificationError::InvalidBinding)
+        ));
+        assert!(matches!(
+            host.issue_proof_challenge("host-p520", [0_u8; 32], [2_u8; 32], now),
+            Err(PasswordVerificationError::InvalidBinding)
+        ));
+        assert!(matches!(
+            host.issue_proof_challenge("host-p520", [1_u8; 32], [1_u8; 32], now),
+            Err(PasswordVerificationError::InvalidBinding)
+        ));
+    }
 
     #[test]
     fn host_password_generates_and_formats_cleanly() {
