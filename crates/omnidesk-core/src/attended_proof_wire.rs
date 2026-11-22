@@ -335,4 +335,3 @@ pub fn client_await_attended_host_consent<T: Transport>(
         _ => Err(AttendedProofError::Protocol),
     }
 }
-
