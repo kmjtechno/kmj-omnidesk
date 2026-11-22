@@ -484,7 +484,10 @@ fn enrollment_persistence_failure_never_leaves_an_ephemeral_trusted_peer() {
     let signer = SigningKey::from_bytes(&[0x6C_u8; 32]);
     let public_key = signer.verifying_key().to_bytes();
     let signed = build_enrollment_message(
-        "new-peer-during-disk-failure", &public_key, &challenge.nonce, now,
+        "new-peer-during-disk-failure",
+        &public_key,
+        &challenge.nonce,
+        now,
     );
     let request = EnrollmentRequest {
         device_id: "new-peer-during-disk-failure".to_owned(),
@@ -499,7 +502,10 @@ fn enrollment_persistence_failure_never_leaves_an_ephemeral_trusted_peer() {
         coordinator.complete_enrollment(&request, &mut store, Some(&path), now),
         Err(EnrollmentError::Store(DeviceStoreError::Io(_)))
     ));
-    assert!(store.is_empty(), "failed disk save cannot publish live trust");
+    assert!(
+        store.is_empty(),
+        "failed disk save cannot publish live trust"
+    );
     assert_eq!(coordinator.stage(), EnrollmentStage::Failed);
     assert!(coordinator.active_nonce().is_none());
     assert_eq!(
