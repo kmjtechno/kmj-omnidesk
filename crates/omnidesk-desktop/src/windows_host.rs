@@ -356,8 +356,7 @@ fn run_inbound_host_proof(
                                     // Even if the host clicks Allow, a real
                                     // platform-issued lease isn't provisioned
                                     // yet: NO privileged accept wire exists.
-                                    let _ =
-                                        host_deny_unlicensed_attended_consent(&mut encrypted);
+                                    let _ = host_deny_unlicensed_attended_consent(&mut encrypted);
                                     encrypted.close();
                                     return;
                                 }
@@ -464,35 +463,35 @@ impl OutboundProofJob {
                     match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
                         Ok(transport) => match transport.configure_attended_consent_timeout() {
                             Ok(()) => match UnauthenticatedNoiseChannel::connect(transport) {
-                            Ok(mut encrypted) => {
-                                // Refuse to send the password proof if the
-                                // operator cancelled during Noise negotiation.
-                                let verified = if worker_cancelled.load(Ordering::Acquire) {
-                                    Err("Operator cancelled during Noise handshake".to_owned())
-                                } else {
-                                    client_prove_attended_password(
-                                        &mut encrypted,
-                                        &identity,
-                                        &store,
-                                        &expected_host_id,
-                                        &tenant,
-                                        &password,
-                                        now,
-                                    )
-                                    .map_err(|err| format!("{err:?}"))
-                                };
-                                // Password proof is not permission.
-                                // Require the host's later encrypted decision;
-                                // diagnostic mode cannot return control.
-                                let result = verified.and_then(|()| {
-                                    client_await_attended_host_consent(&mut encrypted)
-                                        .map_err(|err| format!("Host consent refused: {err:?}"))
-                                });
-                                encrypted.close();
-                                result
-                            }
-                            Err(err) => Err(format!("Noise handshake rejected: {err:?}")),
-                        },
+                                Ok(mut encrypted) => {
+                                    // Refuse to send the password proof if the
+                                    // operator cancelled during Noise negotiation.
+                                    let verified = if worker_cancelled.load(Ordering::Acquire) {
+                                        Err("Operator cancelled during Noise handshake".to_owned())
+                                    } else {
+                                        client_prove_attended_password(
+                                            &mut encrypted,
+                                            &identity,
+                                            &store,
+                                            &expected_host_id,
+                                            &tenant,
+                                            &password,
+                                            now,
+                                        )
+                                        .map_err(|err| format!("{err:?}"))
+                                    };
+                                    // Password proof is not permission.
+                                    // Require the host's later encrypted decision;
+                                    // diagnostic mode cannot return control.
+                                    let result = verified.and_then(|()| {
+                                        client_await_attended_host_consent(&mut encrypted)
+                                            .map_err(|err| format!("Host consent refused: {err:?}"))
+                                    });
+                                    encrypted.close();
+                                    result
+                                }
+                                Err(err) => Err(format!("Noise handshake rejected: {err:?}")),
+                            },
                             Err(err) => Err(format!("Consent timeout rejected: {err:?}")),
                         },
                         Err(err) => Err(format!("TCP connection rejected: {err:?}")),
@@ -1019,9 +1018,8 @@ impl DesktopHost {
                 if cancelled || !generation_matches || !self.shell.allow_remote_control() {
                     self.inbound_proof = None;
                     self.shell.set_allow_remote_control(false);
-                    self.shell.set_error(
-                        "Host proof cancelled or policy changed; no session authorized",
-                    );
+                    self.shell
+                        .set_error("Host proof cancelled or policy changed; no session authorized");
                 } else {
                     match outcome.result {
                         Ok(receipt) => {
@@ -1696,32 +1694,47 @@ mod tests {
     #[test]
     fn native_host_proof_is_visible_and_waits_for_deny_without_control() {
         use omnidesk_core::{
-            attended_proof_wire::{AttendedProofError, client_await_attended_host_consent, client_prove_attended_password},
+            attended_proof_wire::{
+                AttendedProofError, client_await_attended_host_consent,
+                client_prove_attended_password,
+            },
             device_identity::DeviceIdentity,
             host_approval::PendingHostApproval,
             noise_encrypted_transport::UnauthenticatedNoiseChannel,
             password_auth::HostPasswordManager,
             transport::{TcpLanTransport, Transport},
-            trusted_device_store::{PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore},
+            trusted_device_store::{
+                PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
+            },
         };
-        use std::{net::TcpListener, thread, time::{Duration, SystemTime, UNIX_EPOCH}};
+        use std::{
+            net::TcpListener,
+            thread,
+            time::{Duration, SystemTime, UNIX_EPOCH},
+        };
 
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("time").as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_secs();
         let client = DeviceIdentity::from_seed(&[0x91; 32]);
         let host = DeviceIdentity::from_seed(&[0x92; 32]);
         let host_id = host.public_id().to_owned();
         let client_id = client.public_id().to_owned();
         let pin = |device: &DeviceIdentity| {
             let mut store = TrustedDeviceStore::new();
-            store.add(TrustedDeviceRecord {
-                device_id: device.public_id().to_owned(),
-                display_name: "Verified device".to_owned(),
-                public_key: device.public_key_bytes(),
-                enrolled_at_epoch_secs: now - 1,
-                trust_expires_at_epoch_secs: now + 600,
-                managed: false, revoked: false,
-                status: PersistedDeviceStatus::Offline,
-            }).expect("pin");
+            store
+                .add(TrustedDeviceRecord {
+                    device_id: device.public_id().to_owned(),
+                    display_name: "Verified device".to_owned(),
+                    public_key: device.public_key_bytes(),
+                    enrolled_at_epoch_secs: now - 1,
+                    trust_expires_at_epoch_secs: now + 600,
+                    managed: false,
+                    revoked: false,
+                    status: PersistedDeviceStatus::Offline,
+                })
+                .expect("pin");
             store
         };
         let client_store = pin(&host);
@@ -1736,7 +1749,13 @@ mod tests {
             let mut channel = UnauthenticatedNoiseChannel::connect(tcp).expect("Noise");
             assert_eq!(
                 client_prove_attended_password(
-                    &mut channel, &client, &client_store, &host_id, "kmj-tenant", &password, now
+                    &mut channel,
+                    &client,
+                    &client_store,
+                    &host_id,
+                    "kmj-tenant",
+                    &password,
+                    now
                 ),
                 Ok(())
             );
@@ -1746,15 +1765,25 @@ mod tests {
         });
         let (stream, peer_addr) = listener.accept().expect("accept");
         let job = super::InboundProofJob::launch(super::InboundProofRequest {
-            stream, peer_addr, identity: host, store: host_store,
-            manager, tenant: "kmj-tenant".to_owned(),
-        }).expect("native host worker");
-        let outcome = job.result_rx.recv_timeout(Duration::from_secs(8))
+            stream,
+            peer_addr,
+            identity: host,
+            store: host_store,
+            manager,
+            tenant: "kmj-tenant".to_owned(),
+        })
+        .expect("native host worker");
+        let outcome = job
+            .result_rx
+            .recv_timeout(Duration::from_secs(8))
             .expect("host consent phase");
         let receipt = outcome.result.expect("verified real pinned password proof");
         assert_eq!(receipt.peer_id(), client_id);
         let mut pending = PendingHostApproval::new(receipt);
-        assert!(!pending.is_consumed(), "one-use receipt exists only on host");
+        assert!(
+            !pending.is_consumed(),
+            "one-use receipt exists only on host"
+        );
         pending.deny();
         assert!(pending.is_consumed());
         job.decision_tx.send(()).expect("host clicked Deny");
