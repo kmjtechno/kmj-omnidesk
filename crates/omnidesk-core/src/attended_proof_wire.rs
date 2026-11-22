@@ -318,10 +318,10 @@ pub fn host_deny_unlicensed_attended_consent<T: Transport>(
     send(channel, &Wire::Denied)
 }
 
-/// An authenticated password proof never implies host permission.
-/// Wait for a separate encrypted host decision; in the pre-release
-/// diagnostic protocol the only supported decision is DENY. Unexpected
-/// messages and disconnects always fail closed.
+/// Wait for a separate encrypted host decision.
+///
+/// A verified password never implies host permission. Diagnostic mode
+/// supports only DENY; unexpected messages and disconnects fail closed.
 ///
 /// # Errors
 /// Returns Denied for an explicit host denial and Protocol/Transport
