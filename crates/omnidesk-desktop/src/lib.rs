@@ -998,6 +998,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rendered_host_password_never_differs_from_authoritative_manager() {
+        // A fresh shell is intentionally const/uninitialized. Rendering
+        // must not generate a fake random password in a throwaway clone.
+        let mut shell = ProductShell::new();
+        assert!(shell.host_password_ref().password().is_empty());
+        let uninitialised = presentation_for(&shell);
+        assert_eq!(uninitialised.host_session_password, "--------");
+        assert!(shell.host_password_ref().password().is_empty());
+
+        let real_password = shell.host_password().to_owned();
+        assert_eq!(real_password.len(), 8);
+        let expected = shell.host_password_ref().formatted_password();
+        let frame_one = presentation_for(&shell);
+        let frame_two = presentation_for(&shell);
+        assert_eq!(frame_one.host_session_password, expected);
+        assert_eq!(frame_two.host_session_password, expected);
+        assert_eq!(shell.host_password(), real_password);
+
+        shell.rotate_host_password();
+        let rotated = shell.host_password_ref().formatted_password();
+        assert_ne!(rotated, expected);
+        assert_eq!(presentation_for(&shell).host_session_password, rotated);
+    }
+
+    #[test]
     fn approved_header_and_quick_actions_only_dispatch_existing_workflows() {
         let shell = ProductShell::new();
         let width = 1672;
