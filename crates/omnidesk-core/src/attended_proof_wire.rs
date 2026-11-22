@@ -1,6 +1,7 @@
-//! Attended temporary-password proof over *already mutually authenticated*
-//! Noise AEAD. A successful proof is NOT authorization for screen/input:
-//! a separate visible host-consent and licensing decision remains mandatory.
+//! Attended password proof on a mutually authenticated Noise channel.
+//!
+//! A successful proof does NOT authorize remote screen/input.
+//! Visible host consent and licensing are still mandatory.
 //!
 //! Never expose a SHA-256 password proof over raw TCP: it is not a PAKE.
 
