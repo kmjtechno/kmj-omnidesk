@@ -531,7 +531,11 @@ impl EnrollmentCoordinator {
 
         debug_assert_eq!(record.status, PersistedDeviceStatus::Offline);
 
-        if let Err(err) = store.add(record.clone()) {
+        // Complete this state transition transactionally. A valid signed
+        // enrollment must not become an in-memory trusted device if the
+        // corresponding durable file update fails, even transiently.
+        let mut staged_store = store.clone();
+        if let Err(err) = staged_store.add(record.clone()) {
             self.stage = EnrollmentStage::Failed;
             self.last_error = Some(err.to_string());
             self.active_nonce = None;
@@ -539,13 +543,14 @@ impl EnrollmentCoordinator {
         }
 
         if let Some(path) = store_path {
-            if let Err(err) = store.save_to_path(path) {
+            if let Err(err) = staged_store.save_to_path(path) {
                 self.stage = EnrollmentStage::Failed;
                 self.last_error = Some(err.to_string());
                 self.active_nonce = None;
                 return Err(EnrollmentError::Store(err));
             }
         }
+        *store = staged_store;
 
         self.stage = EnrollmentStage::Enrolled {
             enrolled_at_epoch_secs: now_epoch_secs,
