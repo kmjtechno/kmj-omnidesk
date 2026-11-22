@@ -483,7 +483,7 @@ fn enrollment_persistence_failure_never_leaves_an_ephemeral_trusted_peer() {
     let challenge = coordinator.create_challenge(now).expect("issue challenge");
     let signer = SigningKey::from_bytes(&[0x6C_u8; 32]);
     let public_key = signer.verifying_key().to_bytes();
-    let signed = build_enrollment_message(
+    let enrollment_message = build_enrollment_message(
         "new-peer-during-disk-failure",
         &public_key,
         &challenge.nonce,
@@ -495,7 +495,7 @@ fn enrollment_persistence_failure_never_leaves_an_ephemeral_trusted_peer() {
         public_key,
         nonce: challenge.nonce,
         timestamp_epoch_secs: now,
-        signature: signer.sign(&signed).to_bytes(),
+        signature: signer.sign(&enrollment_message).to_bytes(),
     };
 
     assert!(matches!(
