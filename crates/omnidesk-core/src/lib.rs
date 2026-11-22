@@ -25,6 +25,7 @@ pub mod log_scrubber;
 pub mod media;
 pub mod metrics;
 pub mod mutual_identity;
+pub mod noise_encrypted_transport;
 pub mod nat_traversal;
 pub mod password_auth;
 pub mod pipeline;
