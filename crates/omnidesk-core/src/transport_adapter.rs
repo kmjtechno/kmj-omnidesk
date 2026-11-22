@@ -16,7 +16,7 @@ use crate::{
     authentication::{AuthenticationError, peer_auth_message, verify_peer_authentication},
     device_enrollment::generate_csprng_nonce,
     session::{PeerIdentity, Session, SessionError, SessionState},
-    transport::{Transport, TransportError},
+    transport::{PathKind, Transport, TransportError},
     trusted_device_store::{TrustedDeviceRecord, TrustedDeviceStore},
 };
 
@@ -32,6 +32,7 @@ pub enum TransportSessionError {
     TrustExpired,
     TenantMismatch { expected: String, received: String },
     UnverifiedControlBlocked,
+    EncryptedTransportRequired,
     Protocol(String),
 }
 
@@ -61,6 +62,9 @@ impl fmt::Display for TransportSessionError {
                     f,
                     "action blocked: peer transport is not authenticated or authorized"
                 )
+            }
+            Self::EncryptedTransportRequired => {
+                write!(f, "remote control requires authenticated encrypted transport")
             }
             Self::Protocol(err) => write!(f, "session auth protocol error: {err}"),
         }
@@ -220,12 +224,22 @@ impl<T: Transport> TransportSessionAdapter<T> {
         Ok(record.clone())
     }
 
-    /// Authorizes remote session control once authentication has succeeded.
+    /// Authorizes local in-memory simulation only after peer authentication.
+    ///
+    /// Raw TCP/relay/direct paths have no authenticated encryption yet and
+    /// MUST NOT authorize control even after an Ed25519 identity handshake.
+    /// Future encrypted sessions need a separate reviewed proof-bound gate.
     ///
     /// # Errors
     ///
     /// Returns [`TransportSessionError`] if the session is not awaiting authorization.
     pub fn authorize_session(&mut self) -> Result<(), TransportSessionError> {
+        // Loopback cannot transport data to a remote computer. Refuse every
+        // real network path until both AEAD encryption and host password proof
+        // are independently verified at the transport/session boundary.
+        if self.transport.path_kind() != PathKind::Loopback {
+            return Err(TransportSessionError::EncryptedTransportRequired);
+        }
         self.session
             .authorize_control()
             .map_err(TransportSessionError::Session)
