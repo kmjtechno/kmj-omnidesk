@@ -42,6 +42,23 @@ enum PremiumCaptionAction {
     Close,
 }
 
+// Winit window attributes use logical sizes; rendering and mouse hitboxes
+// use *physical* client pixels. On a 200%-DPI P520 monitor the approved
+// 1672x941 native artboard can fit physically even though its logical width
+// is below 1280. Decide borderless startup in physical coordinates.
+fn premium_frameless_on_monitor(
+    logical_width: f64,
+    logical_height: f64,
+    scale_factor: f64,
+) -> bool {
+    let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    logical_width * scale >= 1280.0 && logical_height * scale >= 720.0
+}
+
 fn premium_caption_action(
     width: usize,
     height: usize,
@@ -724,7 +741,15 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 (size.width, size.height, monitor.scale_factor())
             });
             let (inner_width, inner_height) = initial_window_inner_size(initial_size);
-            let frameless_premium = inner_width >= 1280.0 && inner_height >= 720.0;
+            let monitor_scale = initial_size.map_or(1.0, |(_, _, scale)| {
+                if scale.is_finite() && scale > 0.0 {
+                    scale
+                } else {
+                    1.0
+                }
+            });
+            let frameless_premium =
+                premium_frameless_on_monitor(inner_width, inner_height, monitor_scale);
             self.frameless_premium = frameless_premium;
             let attributes = WindowAttributes::default()
                 .with_title(title)
@@ -732,8 +757,8 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
                 .with_window_icon(window_icon)
                 .with_decorations(!frameless_premium)
                 .with_min_inner_size(winit::dpi::LogicalSize::new(
-                    if frameless_premium { 1280.0 } else { 640.0 },
-                    if frameless_premium { 720.0 } else { 480.0 },
+                    if frameless_premium { 1280.0 / monitor_scale } else { 640.0 },
+                    if frameless_premium { 720.0 / monitor_scale } else { 480.0 },
                 ))
                 // A maximized launch overrides the fitted 1672x941 V7 size
                 // and stretches the locked hierarchy across the monitor.
@@ -949,11 +974,23 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 mod tests {
     use super::{
         MAX_PIXEL_OFFSET, PremiumCaptionAction, PremiumViewportFit, consent_matches_peer,
+        premium_frameless_on_monitor,
         premium_caption_action, refuse_unverified_session_action, to_pixel,
         verified_consent_for_authenticated_trust,
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn windows_high_dpi_launch_uses_physical_artboard_and_logical_minimum() {
+        assert!(premium_frameless_on_monitor(1672.0, 941.0, 1.0));
+        assert!(premium_frameless_on_monitor(1252.0, 678.0, 2.0));
+        assert!(premium_frameless_on_monitor(1384.0, 816.0, 1.0));
+        assert!(!premium_frameless_on_monitor(774.4, 547.2, 1.25));
+        assert!(!premium_frameless_on_monitor(800.0, 600.0, f64::NAN));
+        assert_eq!(1280.0 / 2.0, 640.0);
+        assert_eq!(720.0 / 2.0, 360.0);
+    }
 
     #[test]
     fn owner_locked_v7_caption_has_real_os_actions_and_compact_fallback() {
