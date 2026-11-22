@@ -76,11 +76,10 @@ fn secure_proof_diagnostic_bind() -> Option<std::net::SocketAddr> {
     if !secure_proof_diagnostic_enabled() {
         return None;
     }
-    let value = std::env::var("OMNIDESK_AUTH_PROBE_BIND")
-        .unwrap_or_else(|_| "127.0.0.1:21118".to_owned());
+    let value =
+        std::env::var("OMNIDESK_AUTH_PROBE_BIND").unwrap_or_else(|_| "127.0.0.1:21118".to_owned());
     allowed_proof_diagnostic_bind(&value)
 }
-
 
 // Winit window attributes use logical sizes; rendering and mouse hitboxes
 // use *physical* client pixels. On a 200%-DPI P520 monitor the approved
@@ -713,9 +712,7 @@ impl DesktopHost {
             self.shell.set_error("Please enter a Remote Device ID");
         } else if self.shell.remote_password_input().is_empty() {
             self.shell.set_error("Please enter the session password");
-        } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY
-            && !secure_proof_diagnostic_enabled()
-        {
+        } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY && !secure_proof_diagnostic_enabled() {
             self.shell.disconnect();
             self.shell.set_error(
                 "Remote desktop disabled: host consent, licensing and control transport not ready",
