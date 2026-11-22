@@ -269,6 +269,13 @@ struct OutboundProofJob {
     operator_cancelled: bool,
 }
 
+impl Drop for OutboundProofJob {
+    fn drop(&mut self) {
+        // Closing the UI must not leave a queued future password attempt.
+        self.cancelled.store(true, Ordering::Release);
+    }
+}
+
 impl OutboundProofJob {
     fn cancel(&mut self) {
         self.operator_cancelled = true;
@@ -1233,6 +1240,78 @@ mod tests {
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn pending_outbound_probe_is_nonblocking_and_cancel_never_reports_authorized() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        };
+
+        let (tx, result_rx) = mpsc::sync_channel(1);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut job = super::OutboundProofJob {
+            result_rx,
+            cancelled: Arc::clone(&cancelled),
+            operator_cancelled: false,
+        };
+        assert_eq!(job.completed_status(), None, "UI polling never blocks");
+        tx.send(Ok(())).expect("worker outcome");
+        job.cancel();
+        assert_eq!(
+            job.completed_status(),
+            Some("Encrypted authentication probe cancelled; no remote control".to_owned())
+        );
+        assert!(cancelled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn dropped_window_probe_sets_cancellation_before_another_attempt() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        };
+
+        let (_tx, result_rx) = mpsc::sync_channel(1);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let job = super::OutboundProofJob {
+            result_rx,
+            cancelled: Arc::clone(&cancelled),
+            operator_cancelled: false,
+        };
+        drop(job);
+        assert!(cancelled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn disconnected_or_rejected_worker_never_reports_a_connected_desktop() {
+        use std::sync::{Arc, atomic::AtomicBool, mpsc};
+
+        let (tx, result_rx) = mpsc::sync_channel(1);
+        let job = super::OutboundProofJob {
+            result_rx,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            operator_cancelled: false,
+        };
+        tx.send(Err("invalid host proof".to_owned()))
+            .expect("worker rejection");
+        let result = job.completed_status().expect("completed");
+        assert!(result.contains("rejected"));
+        assert!(!result.contains("authorized"));
+
+        let (tx, result_rx) = mpsc::sync_channel::<Result<(), String>>(1);
+        drop(tx);
+        let lost = super::OutboundProofJob {
+            result_rx,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            operator_cancelled: false,
+        };
+        let result = lost.completed_status().expect("worker disconnected");
+        assert!(result.contains("without a result"));
+        assert!(result.contains("no session authorized"));
+    }
 
     #[test]
     fn pre_release_proof_probe_rejects_public_and_wildcard_network_listening() {
