@@ -42,6 +42,12 @@ enum PremiumCaptionAction {
     Close,
 }
 
+// P0 #182: the current TCP identity challenge is NOT an encrypted host
+// password proof. Keep attended authorization disabled until a reviewed
+// identity/session-bound, replay-safe encrypted proof receipt exists.
+// Never replace this guard with "password input is nonempty".
+const ATTENDED_PASSWORD_PROOF_TRANSPORT_READY: bool = false;
+
 // Winit window attributes use logical sizes; rendering and mouse hitboxes
 // use *physical* client pixels. On a 200%-DPI P520 monitor the approved
 // 1672x941 native artboard can fit physically even though its logical width
@@ -162,6 +168,19 @@ fn verified_consent_for_authenticated_trust(
     trusted_record_verified: bool,
 ) -> bool {
     consent_matches_peer(shell, authenticated_device_id) && trusted_record_verified
+}
+
+// All three checks are independent: verified peer trust, visible local consent,
+// and a host-attested temporary password proof. The current transport does
+// not produce the last receipt, so physical remote control remains closed.
+fn verified_attended_session_authorization(
+    shell: &ProductShell,
+    authenticated_device_id: Option<&str>,
+    trusted_record_verified: bool,
+    password_proof_verified: bool,
+) -> bool {
+    verified_consent_for_authenticated_trust(shell, authenticated_device_id, trusted_record_verified)
+        && password_proof_verified
 }
 
 #[cfg(test)]
@@ -657,6 +676,21 @@ impl DesktopHost {
                 self.shell.set_error(
                     "Session approval rejected: authenticated trusted peer or consent invalid",
                 );
+            } else if !verified_attended_session_authorization(
+                &self.shell,
+                peer_id,
+                trust_verified,
+                ATTENDED_PASSWORD_PROOF_TRANSPORT_READY,
+            ) {
+                // Until the real encrypted proof exchange is complete, even a
+                // signed, trusted peer and a user click cannot grant control.
+                if let Some(mut adapter) = self.session_adapter.take() {
+                    adapter.close();
+                }
+                self.shell.disconnect();
+                self.shell.set_error(
+                    "Session approval blocked: secure host password proof not verified",
+                );
             } else if let Some(adapter) = self.session_adapter.as_mut() {
                 match adapter.authorize_session() {
                     Ok(()) => apply_action(&mut self.shell, action),
@@ -683,6 +717,13 @@ impl DesktopHost {
                 self.shell.set_error("Please enter a Remote Device ID");
             } else if remote_pwd.is_empty() {
                 self.shell.set_error("Please enter the session password");
+            } else if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
+                // Never send a password or grant remote control through the
+                // existing plaintext TCP identity-only session handshake.
+                self.shell.disconnect();
+                self.shell.set_error(
+                    "Secure remote connection unavailable: host password proof pending",
+                );
             } else {
                 apply_action(&mut self.shell, action);
                 if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
@@ -1125,6 +1166,41 @@ mod tests {
         assert!(!verified_consent_for_authenticated_trust(
             &shell,
             Some("verified-peer"),
+            true,
+        ));
+    }
+
+    #[test]
+    fn trusted_peer_and_local_consent_cannot_bypass_missing_password_proof() {
+        let mut shell = ProductShell::new();
+        shell.replace_devices(vec![DeviceSummary {
+            id: "verified-peer".to_owned(),
+            display_name: "Verified peer".to_owned(),
+            status: DeviceStatus::Online,
+        }]);
+        shell.begin_connect("verified-peer").expect("trusted directory peer");
+        assert!(verified_consent_for_authenticated_trust(
+            &shell,
+            Some("verified-peer"),
+            true,
+        ));
+        assert!(!ATTENDED_PASSWORD_PROOF_TRANSPORT_READY);
+        assert!(!verified_attended_session_authorization(
+            &shell,
+            Some("verified-peer"),
+            true,
+            ATTENDED_PASSWORD_PROOF_TRANSPORT_READY,
+        ));
+        assert!(!verified_attended_session_authorization(
+            &shell,
+            Some("verified-peer"),
+            false,
+            true,
+        ));
+        assert!(!verified_attended_session_authorization(
+            &shell,
+            Some("wrong-peer"),
+            true,
             true,
         ));
     }
