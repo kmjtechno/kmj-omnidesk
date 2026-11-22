@@ -953,38 +953,98 @@ impl DesktopHost {
         self.refresh_presentation();
     }
 
+    fn finish_pending_host_consent(&mut self, allow_clicked: bool) {
+        let Some(mut pending) = self.pending_host_consent.take() else {
+            return;
+        };
+        // A signed Main Platform entitlement is NOT currently provisioned
+        // in the native runtime. Never substitute a local Allow click for
+        // Ed25519 license validation. Consume the receipt and deny on wire.
+        pending.approval.deny();
+        if let Some(job) = self.inbound_proof.take() {
+            job.cancel();
+        }
+        self.shell.disconnect();
+        self.shell.set_error(if allow_clicked {
+            format!(
+                "Host approval for {} rejected: no verified Main Platform signed lease; screen/input remain blocked",
+                pending.peer_id
+            )
+        } else {
+            format!(
+                "Host denied encrypted request from {}; no remote-control session",
+                pending.peer_id
+            )
+        });
+        self.refresh_presentation();
+    }
+
+    fn expire_pending_host_consent(&mut self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_secs());
+        if self.pending_host_consent.as_ref().is_some_and(|pending| {
+            now >= pending
+                .verified_at_epoch_secs
+                .saturating_add(HOST_APPROVAL_WINDOW_SECS)
+        }) {
+            self.finish_pending_host_consent(false);
+            self.shell
+                .set_error("Incoming consent window expired after 30s; request denied");
+            self.refresh_presentation();
+        }
+    }
+
     fn poll_inbound_proof(&mut self) {
         let Some(job) = self.inbound_proof.as_ref() else {
             return;
         };
+        if job.awaiting_decision {
+            return;
+        }
         match job.result_rx.try_recv() {
             Ok(outcome) => {
                 let cancelled = job.cancelled.load(Ordering::Acquire);
                 let generation_matches =
                     self.shell.host_password_ref().approval_generation() == job.original_generation;
-                self.inbound_proof = None;
-                // Restore the worker's *authoritative* failed-attempt count
-                // before processing another TCP connection. UI credential
-                // rotation/policy changes must never be silently undone.
+                // Restore authoritative password lockout before subsequent
+                // queued attempts; never revert a newer host-policy rotation.
                 if generation_matches {
                     *self.shell.host_password_mut() = outcome.manager;
                 }
                 self.shell.disconnect();
                 if cancelled || !generation_matches || !self.shell.allow_remote_control() {
+                    self.inbound_proof = None;
                     self.shell.set_allow_remote_control(false);
                     self.shell.set_error(
-                        "Host proof cancelled or host policy changed; no session authorized",
+                        "Host proof cancelled or policy changed; no session authorized",
                     );
                 } else {
                     match outcome.result {
-                        Ok(()) => self.shell.set_error(format!(
-                            "Encrypted password proof for {} verified (diagnostic only); screen/input NOT authorized",
-                            outcome.peer_addr
-                        )),
-                        Err(err) => self.shell.set_error(format!(
-                            "Incoming encrypted proof for {} rejected: {err}",
-                            outcome.peer_addr
-                        )),
+                        Ok(receipt) => {
+                            let peer_id = receipt.peer_id().to_owned();
+                            let verified_at_epoch_secs = receipt.verified_at_epoch_secs();
+                            self.pending_host_consent = Some(PendingNativeHostConsent {
+                                approval: PendingHostApproval::new(receipt),
+                                peer_id: peer_id.clone(),
+                                verified_at_epoch_secs,
+                            });
+                            if let Some(job) = self.inbound_proof.as_mut() {
+                                job.awaiting_decision = true;
+                            }
+                            self.shell.show_authenticated_host_consent(&peer_id);
+                            self.shell.set_error(format!(
+                                "Incoming encrypted proof from {} verified; local Allow/Deny required, licensing remains locked",
+                                outcome.peer_addr
+                            ));
+                        }
+                        Err(err) => {
+                            self.inbound_proof = None;
+                            self.shell.set_error(format!(
+                                "Incoming encrypted proof for {} rejected: {err}",
+                                outcome.peer_addr
+                            ));
+                        }
                     }
                 }
                 self.refresh_presentation();
