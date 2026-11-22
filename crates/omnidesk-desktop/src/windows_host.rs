@@ -5,9 +5,9 @@ use std::{num::NonZeroU32, path::PathBuf, sync::Arc};
 use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
+    attended_proof_wire::{client_prove_attended_password, host_verify_attended_password},
     device_enrollment::EnrollmentCoordinator,
     device_identity::DeviceIdentity,
-    mutual_identity::{client_mutual_identity_handshake, host_mutual_identity_handshake},
     noise_encrypted_transport::UnauthenticatedNoiseChannel,
     product_shell::{DeviceStatus, PrimaryView, ProductShell},
     transport::{HostTransport, Transport},
@@ -476,17 +476,19 @@ impl DesktopHost {
             .map_or(0, |d| d.as_secs());
         match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
             Ok(transport) => {
-                // Require a real Noise AEAD handshake BEFORE Ed25519 identity
-                // signatures, then sign the exact handshake hash to prevent
-                // active MITM from splicing two distinct encrypted sessions.
+                // This is a diagnostic authentication path, never a
+                // control capability. First establish Noise, verify pinned
+                // Ed25519 identities on its hash, then prove the host's
+                // short-lived password on the SAME encrypted channel.
                 let result = match UnauthenticatedNoiseChannel::connect(transport) {
                     Ok(mut encrypted) => {
-                        let verified = client_mutual_identity_handshake(
+                        let verified = client_prove_attended_password(
                             &mut encrypted,
                             &identity,
                             &store,
                             &expected_host_id,
                             &tenant,
+                            self.shell.remote_password_input(),
                             now,
                         );
                         encrypted.close();
@@ -494,14 +496,17 @@ impl DesktopHost {
                     }
                     Err(err) => Err(format!("Noise handshake failed: {err:?}")),
                 };
+                // Never carry a plaintext operator password into another
+                // attempted session or leave it visible after this attempt.
+                self.shell.clear_remote_password();
                 self.shell.disconnect();
                 match result {
-                    Ok(_) => self.shell.set_error(
-                        "Encrypted mutual device identity verified; attended password proof and remote control remain unavailable",
+                    Ok(()) => self.shell.set_error(
+                        "Encrypted peer and temporary password verified (diagnostic only); no remote-control session authorized",
                     ),
                     Err(err) => self
                         .shell
-                        .set_error(format!("Encrypted peer authentication rejected: {err}")),
+                        .set_error(format!("Encrypted attended authentication rejected: {err}")),
                 }
             }
             Err(err) => {
@@ -576,10 +581,16 @@ impl DesktopHost {
                 .map_or(0, |d| d.as_secs());
             let result = match UnauthenticatedNoiseChannel::accept(transport) {
                 Ok(mut encrypted) => {
-                    let verified = host_mutual_identity_handshake(
+                    // Host-only challenge creation, lockout and expiration
+                    // are owned by the displayed local password manager.
+                    // The authenticated encrypted channel is always CLOSED
+                    // after this probe: consent and licensing are separate.
+                    let _ = self.shell.host_password();
+                    let verified = host_verify_attended_password(
                         &mut encrypted,
                         &identity,
                         &store,
+                        self.shell.host_password_mut(),
                         &tenant,
                         now,
                     );
@@ -590,12 +601,12 @@ impl DesktopHost {
             };
             self.shell.disconnect();
             match result {
-                Ok(_) => self.shell.set_error(
-                    "Incoming encrypted identity verified only; host password proof and remote control remain unavailable",
+                Ok(()) => self.shell.set_error(
+                    "Incoming encrypted peer and temporary password verified (diagnostic only); host has NOT authorized remote control",
                 ),
                 Err(err) => self
                     .shell
-                    .set_error(format!("Incoming encrypted peer authentication rejected: {err}")),
+                    .set_error(format!("Incoming encrypted attended authentication rejected: {err}")),
             }
             self.refresh_presentation();
         }
