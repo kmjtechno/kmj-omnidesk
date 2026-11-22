@@ -35,6 +35,8 @@ pub enum PasswordVerificationError {
     Expired,
     LockedOut { remaining_secs: u64 },
     InvalidPassword { remaining_attempts: u32 },
+    ChallengeConsumed,
+    InvalidBinding,
 }
 
 impl std::fmt::Display for PasswordVerificationError {
@@ -54,11 +56,64 @@ impl std::fmt::Display for PasswordVerificationError {
                     "Invalid session password - {remaining_attempts} attempts remaining"
                 )
             }
+            Self::ChallengeConsumed => write!(f, "Password proof challenge already consumed"),
+            Self::InvalidBinding => write!(f, "Invalid host proof session binding"),
         }
     }
 }
 
 impl std::error::Error for PasswordVerificationError {}
+
+/// Host-only one-use password challenge.
+///
+/// The SHA-256 password proof is NOT a PAKE: use only after independently
+/// authenticating both peers and establishing encryption, never raw TCP.
+#[derive(Debug)]
+pub struct HostProofChallenge {
+    host_device_id: String,
+    session_id: [u8; 16],
+    nonce: [u8; 32],
+    client_public_key: [u8; 32],
+    host_public_key: [u8; 32],
+    issued_at: u64,
+    expires_at: u64,
+    password_revision: u64,
+    policy_revision: u64,
+    consumed: bool,
+}
+
+impl HostProofChallenge {
+    /// Expected remote host ID.
+    #[must_use]
+    pub fn host_device_id(&self) -> &str {
+        &self.host_device_id
+    }
+    /// Per-session identifier.
+    #[must_use]
+    pub const fn session_id(&self) -> &[u8; 16] {
+        &self.session_id
+    }
+    /// One-use OS-generated challenge.
+    #[must_use]
+    pub const fn nonce(&self) -> &[u8; 32] {
+        &self.nonce
+    }
+    /// Authenticated client public key.
+    #[must_use]
+    pub const fn client_public_key(&self) -> &[u8; 32] {
+        &self.client_public_key
+    }
+    /// Authenticated host public key.
+    #[must_use]
+    pub const fn host_public_key(&self) -> &[u8; 32] {
+        &self.host_public_key
+    }
+    /// Whether this host challenge has been spent.
+    #[must_use]
+    pub const fn is_consumed(&self) -> bool {
+        self.consumed
+    }
+}
 
 /// Host-managed session password and incoming authorization control state.
 #[derive(Clone, PartialEq, Eq)]
@@ -72,6 +127,7 @@ pub struct HostPasswordManager {
     lockout_until_epoch_secs: u64,
     allow_remote_control: bool,
     rotation_count: u64,
+    policy_revision: u64,
 }
 
 // Redact credential values in diagnostic output.
@@ -100,6 +156,7 @@ impl HostPasswordManager {
             lockout_until_epoch_secs: 0,
             allow_remote_control: false,
             rotation_count: 0,
+            policy_revision: 0,
         }
     }
 
@@ -116,6 +173,7 @@ impl HostPasswordManager {
             lockout_until_epoch_secs: 0,
             allow_remote_control: false,
             rotation_count: 0,
+            policy_revision: 0,
         };
         manager.rotate(now_epoch_secs);
         manager
@@ -148,10 +206,14 @@ impl HostPasswordManager {
     }
 
     pub const fn set_allow_remote_control(&mut self, allow: bool) {
-        self.allow_remote_control = allow;
+        if self.allow_remote_control != allow {
+            self.policy_revision = self.policy_revision.wrapping_add(1);
+            self.allow_remote_control = allow;
+        }
     }
 
     pub const fn toggle_allow_remote_control(&mut self) {
+        self.policy_revision = self.policy_revision.wrapping_add(1);
         self.allow_remote_control = !self.allow_remote_control;
     }
 
