@@ -527,6 +527,8 @@ impl DesktopHost {
         // Serialise proof attempts: concurrent GUI clicks must not spawn
         // overlapping password guesses or overwrite one another's result.
         if self.outbound_proof.is_some() {
+            self.shell.clear_remote_password();
+            self.shell.disconnect();
             self.shell.set_error(
                 "Encrypted authentication already running; finish or cancel this attempt",
             );
@@ -590,6 +592,11 @@ impl DesktopHost {
             return;
         };
         let tenant = std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
+        if self.shell.remote_password_input().is_empty() {
+            self.shell.disconnect();
+            self.shell.set_error("Please enter the enrolled host's temporary password");
+            return;
+        }
         let password = self.shell.remote_password_input().to_owned();
         // Immediately remove the operator's plaintext password from the
         // editable GUI. The one worker owns it until completion.
