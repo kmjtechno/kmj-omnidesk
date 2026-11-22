@@ -501,6 +501,111 @@ mod tests {
     use super::*;
 
     #[test]
+    fn host_proof_succeeds_once_and_replay_cannot_reauthorize() {
+        let now = 1_000;
+        let mut host = HostPasswordManager::new(now);
+        host.set_allow_remote_control(true);
+        let password = host.password().to_owned();
+        let mut challenge = host
+            .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now)
+            .expect("issue host challenge");
+        let proof = generate_password_proof(
+            &password,
+            challenge.host_device_id(),
+            challenge.session_id(),
+            challenge.nonce(),
+            challenge.client_public_key(),
+            challenge.host_public_key(),
+        );
+        assert_eq!(host.verify_proof_once(&mut challenge, &proof, now), Ok(()));
+        assert!(challenge.is_consumed());
+        assert_eq!(
+            host.verify_proof_once(&mut challenge, &proof, now),
+            Err(PasswordVerificationError::ChallengeConsumed)
+        );
+        let mut next = host
+            .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now)
+            .expect("new challenge");
+        assert_ne!(next.nonce(), challenge.nonce());
+        assert!(matches!(
+            host.verify_proof_once(&mut next, &proof, now),
+            Err(PasswordVerificationError::InvalidPassword { .. })
+        ));
+    }
+
+    #[test]
+    fn host_proof_expiry_rotation_and_toggle_revoke_pending_challenge() {
+        let now = 2_000;
+        let mut host = HostPasswordManager::new(now);
+        host.set_allow_remote_control(true);
+        let password = host.password().to_owned();
+        let mut expired = host
+            .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now)
+            .expect("issue");
+        let proof = generate_password_proof(
+            &password,
+            expired.host_device_id(),
+            expired.session_id(),
+            expired.nonce(),
+            expired.client_public_key(),
+            expired.host_public_key(),
+        );
+        assert_eq!(
+            host.verify_proof_once(&mut expired, &proof, now + 60),
+            Err(PasswordVerificationError::Expired)
+        );
+        let mut rotated = host
+            .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now)
+            .expect("issue");
+        host.rotate(now + 1);
+        assert_eq!(
+            host.verify_proof_once(&mut rotated, &proof, now + 1),
+            Err(PasswordVerificationError::Expired)
+        );
+        let mut policy = host
+            .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now + 1)
+            .expect("issue");
+        host.set_allow_remote_control(false);
+        host.set_allow_remote_control(true);
+        assert_eq!(
+            host.verify_proof_once(&mut policy, &proof, now + 2),
+            Err(PasswordVerificationError::Expired)
+        );
+    }
+
+    #[test]
+    fn wrong_host_proofs_consume_lockout_budget_across_fresh_challenges() {
+        let now = 3_000;
+        let mut host = HostPasswordManager::new(now);
+        host.set_allow_remote_control(true);
+        for attempt in 1..=MAX_FAILED_ATTEMPTS {
+            let mut challenge = host
+                .issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now)
+                .expect("fresh nonce");
+            let result = host.verify_proof_once(&mut challenge, &[0_u8; 32], now);
+            if attempt == MAX_FAILED_ATTEMPTS {
+                assert_eq!(
+                    result,
+                    Err(PasswordVerificationError::LockedOut {
+                        remaining_secs: LOCKOUT_DURATION_SECS
+                    })
+                );
+            } else {
+                assert_eq!(
+                    result,
+                    Err(PasswordVerificationError::InvalidPassword {
+                        remaining_attempts: MAX_FAILED_ATTEMPTS - attempt
+                    })
+                );
+            }
+        }
+        assert!(matches!(
+            host.issue_proof_challenge("host-p520", [3_u8; 32], [4_u8; 32], now),
+            Err(PasswordVerificationError::LockedOut { .. })
+        ));
+    }
+
+    #[test]
     fn host_password_generates_and_formats_cleanly() {
         let mgr = HostPasswordManager::new(1000);
         assert_eq!(mgr.password().len(), 8);
