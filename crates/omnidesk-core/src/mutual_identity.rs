@@ -1,9 +1,10 @@
-//! Peer and host *mutual identity only* challenge-response.
+//! Mutually verified client/host identities **bound to encrypted Noise NN**.
 //!
-//! This v2 handshake is separate from the legacy one-way, plaintext TCP
-//! handshake. It checks two pinned Ed25519 identities before reporting a
-//! receipt. It does NOT establish confidentiality or grant remote control.
-//! NEVER treat an `IdentityOnlyReceipt` as permission to move media/input.
+//! Each Ed25519 signature covers the *same* 32-byte Noise handshake hash
+//! plus both device keys/IDs, random nonces, tenant and sender role.
+//! This prevents active relay/MITM from splicing two unauthenticated NN
+//! channels. An identity-only receipt is still NOT attended password proof,
+//! user consent, media/input authorization or a commercial release.
 
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,7 @@ use crate::{
     PROTOCOL_VERSION,
     device_enrollment::generate_csprng_nonce,
     device_identity::DeviceIdentity,
+    noise_encrypted_transport::UnauthenticatedNoiseChannel,
     session::PeerIdentity,
     transport::{Transport, TransportError},
     trusted_device_store::TrustedDeviceStore,
@@ -39,7 +41,9 @@ impl From<TransportError> for MutualIdentityError {
     }
 }
 
-/// Receipt for **identity only**. No password proof or encrypted transport.
+/// Receipt for both pinned identities on one Noise encrypted transcript.
+    ///
+    /// This is not a password-proof or remote-control authorization token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityOnlyReceipt {
     pub peer_id: String,
@@ -116,6 +120,7 @@ fn require_pinned(
 }
 
 struct Transcript<'a> {
+    noise_hash: &'a [u8; 32],
     tenant: &'a str,
     client_id: &'a str,
     client_public_key: &'a [u8; 32],
@@ -135,6 +140,7 @@ fn signed_message(role: &[u8], transcript: &Transcript<'_>) -> Vec<u8> {
     let mut message = Vec::with_capacity(256);
     message.extend_from_slice(TRANSCRIPT_DOMAIN);
     message.extend_from_slice(&PROTOCOL_VERSION.to_be_bytes());
+    message.extend_from_slice(transcript.noise_hash);
     message.push(u8::try_from(role.len()).expect("short authentication role"));
     message.extend_from_slice(role);
     append_string(&mut message, transcript.tenant);
@@ -162,20 +168,21 @@ fn verify(
 /// Host-side handshake: verify the client's pinned signing key, then prove
 /// the host's pinned identity with two nonce-bound signed transcripts.
 ///
-/// The caller must CLOSE the raw transport on any error, and must not call
-/// `authorize_session` based on this identity-only result.
+/// The caller must CLOSE the encrypted channel on any error and must not
+/// authorize remote control until bound attended password proof + consent.
 ///
 /// # Errors
 /// Fails on any untrusted/mismatched identity, replayed transcript, invalid
 /// signature, wrong tenant or malformed wire frame.
 pub fn host_mutual_identity_handshake<T: Transport>(
-    transport: &mut T,
+    transport: &mut UnauthenticatedNoiseChannel<T>,
     identity: &DeviceIdentity,
     store: &TrustedDeviceStore,
     tenant: &str,
     now_epoch_secs: u64,
 ) -> Result<IdentityOnlyReceipt, MutualIdentityError> {
     valid_identity(tenant)?;
+    let noise_hash = *transport.handshake_hash();
     let Message::Hello {
         client_id,
         tenant: received_tenant,
@@ -197,6 +204,7 @@ pub fn host_mutual_identity_handshake<T: Transport>(
     let host_nonce = generate_csprng_nonce(now_epoch_secs);
     let host_public_key = identity.public_key_bytes();
     let transcript = Transcript {
+        noise_hash: &noise_hash,
         tenant,
         client_id: &client_id,
         client_public_key: &client_public_key,
@@ -237,14 +245,14 @@ pub fn host_mutual_identity_handshake<T: Transport>(
 /// Client-side handshake: first verify the remote host against a pinned
 /// trusted key and its signed challenge. Only then sign the client response.
 ///
-/// This is not a confidential channel. Treat the receipt as identity proof
-/// only and do NOT send credentials, remote media or input over raw TCP.
+/// This channel is encrypted, but ID proof is not host password proof or
+/// permission; caller MUST deny every privileged payload until both pass.
 ///
 /// # Errors
 /// Rejects untrusted host, incorrect tenant, mismatched host ID/key,
 /// invalid signed transcript or unauthenticated confirmation.
 pub fn client_mutual_identity_handshake<T: Transport>(
-    transport: &mut T,
+    transport: &mut UnauthenticatedNoiseChannel<T>,
     identity: &DeviceIdentity,
     store: &TrustedDeviceStore,
     expected_host_id: &str,
@@ -253,6 +261,7 @@ pub fn client_mutual_identity_handshake<T: Transport>(
 ) -> Result<IdentityOnlyReceipt, MutualIdentityError> {
     valid_identity(tenant)?;
     valid_identity(expected_host_id)?;
+    let noise_hash = *transport.handshake_hash();
     let client_id = identity.public_id();
     let client_public_key = identity.public_key_bytes();
     let client_nonce = generate_csprng_nonce(now_epoch_secs);
@@ -279,6 +288,7 @@ pub fn client_mutual_identity_handshake<T: Transport>(
     }
     require_pinned(store, &host_id, &host_public_key, now_epoch_secs)?;
     let transcript = Transcript {
+        noise_hash: &noise_hash,
         tenant,
         client_id,
         client_public_key: &client_public_key,
@@ -324,7 +334,9 @@ mod tests {
         let host_key = host.public_key_bytes();
         let client_nonce = [21_u8; 32];
         let host_nonce = [22_u8; 32];
+        let noise_hash = [31_u8; 32];
         let transcript = Transcript {
+            noise_hash: &noise_hash,
             tenant: "kmj-tenant",
             client_id: client.public_id(),
             client_public_key: &client_key,
@@ -343,6 +355,20 @@ mod tests {
                 &signature
             ),
             Err(MutualIdentityError::InvalidSignature)
+        );
+        let different_hash = [32_u8; 32];
+        let another_secure_channel = Transcript {
+            noise_hash: &different_hash,
+            ..transcript
+        };
+        assert_eq!(
+            verify(
+                &host_key,
+                &signed_message(b"host", &another_secure_channel),
+                &signature
+            ),
+            Err(MutualIdentityError::InvalidSignature),
+            "a signature on another Noise handshake must never authenticate this one"
         );
         let different_nonce = [23_u8; 32];
         let stale = Transcript {
