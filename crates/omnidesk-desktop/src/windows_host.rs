@@ -728,6 +728,9 @@ impl DesktopHost {
             if self.shell.begin_connect_remote_id().is_ok() {
                 self.try_connect_peer();
             }
+            // Failed early trust/endpoint/identity checks must not leave the
+            // operator's password in the editable UI buffer.
+            self.shell.clear_remote_password();
         } else {
             apply_action(&mut self.shell, DesktopAction::ConnectRemoteId);
             if self.session_adapter.is_none() && self.shell.selected_device().is_some() {
@@ -1079,8 +1082,18 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.poll_incoming();
+        if secure_proof_diagnostic_enabled() {
+            // A TCP listener runs on another thread. Without a wake event,
+            // winit's default Wait flow may sleep until the user moves the
+            // mouse, leaving an accepted peer stuck in the queue. Schedule
+            // four low-duty-cycle wakeups per second ONLY in opt-in probe
+            // mode; normal production UI retains its event-driven idle.
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+                std::time::Instant::now() + std::time::Duration::from_millis(250),
+            ));
+        }
     }
 }
 
