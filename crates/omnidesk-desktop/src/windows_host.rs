@@ -711,8 +711,9 @@ impl DesktopHost {
             // temporary password. Also covers keyboard/accessibility clicks.
             if !ATTENDED_PASSWORD_PROOF_TRANSPORT_READY {
                 self.shell.set_allow_remote_control(false);
-                self.shell
-                    .set_error("Remote sharing unavailable until secure password proof is verified");
+                self.shell.set_error(
+                    "Remote sharing unavailable until secure password proof is verified",
+                );
             } else {
                 apply_action(&mut self.shell, action);
             }
