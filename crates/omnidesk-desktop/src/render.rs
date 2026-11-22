@@ -2205,6 +2205,112 @@ fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) 
     clippy::suboptimal_flops,
     clippy::match_same_arms
 )]
+// Artwork only: approved V7 reference pixels are permitted exclusively
+// in immutable static UI regions. Never copy sample IDs, passwords, license
+// status, session data or relay health from the design mockup.
+fn approved_v7_static_chrome() -> Option<&'static crate::brand::BrandImage> {
+    static SKIN: OnceLock<Option<crate::brand::BrandImage>> = OnceLock::new();
+    SKIN.get_or_init(|| {
+        let art = image::load_from_memory(include_bytes!(
+            "../../../docs/design/OMNIDESK_ENTERPRISE_V7_APPROVED_MASTER.png"
+        ))
+        .ok()?
+        .into_rgba8();
+        let (width, height) = art.dimensions();
+        if (width, height) != (1672, 941) {
+            return None;
+        }
+        Some(crate::brand::BrandImage {
+            width,
+            height,
+            rgba: art.into_raw(),
+        })
+    })
+    .as_ref()
+}
+
+fn approved_v7_skin_allow(x: usize, y: usize) -> bool {
+    let in_rect =
+        |x1: usize, y1: usize, x2: usize, y2: usize| x >= x1 && x < x2 && y >= y1 && y < y2;
+    // Opaque, *fully safe* regions; never contain runtime sample identities.
+    if y < 70 || (x < 260 && (70..870).contains(&y)) {
+        return true;
+    }
+    if in_rect(258, 70, 1268, 249) || in_rect(280, 532, 1269, 635) {
+        return true;
+    }
+    // Full quick-action artwork is safe: no online state, sample peer or
+    // credential is present anywhere on this panel.
+    if in_rect(1284, 532, 1632, 843) {
+        return true;
+    }
+    // Keep red beveled card outlines without copying the source's example
+    // input contents. Only a 3px safe frame survives from each card.
+    for (x1, x2) in [(280, 776), (795, 1260)] {
+        if in_rect(x1, 249, x2, 516) && (x < x1 + 3 || x >= x2 - 3 || !(252..513).contains(&y)) {
+            return true;
+        }
+    }
+    for (x1, x2) in [(280, 780), (797, 1269)] {
+        if in_rect(x1, 648, x2, 844) && (x < x1 + 3 || x >= x2 - 3 || !(651..841).contains(&y)) {
+            return true;
+        }
+    }
+    // Never import the right-edge green strips of the source's fake
+    // Active/All Healthy status badges, even through a border falloff.
+    for (y1, y2) in [(101, 305), (321, 515)] {
+        if in_rect(1284, y1, 1632, y2) && (x < 1288 || y < y1 + 3 || y >= y2 - 4) {
+            return true;
+        }
+    }
+    // Source footer fake relay/latency/All Operational are always masked.
+    in_rect(280, 860, 1633, 920) && (x < 284 || !(864..916).contains(&y))
+}
+
+// Copy *only bright glyph/illustration pixels* from the reference in static
+// section-title zones, not the differently-colored card background. This
+// prevents sharp rectangular bands while preserving pixel-exact owner font
+// artwork. Lower title regions stop before fake (12) device count/View All.
+fn draw_approved_v7_static_chrome(canvas: &mut Canvas<'_>, presentation: &PresentationModel) {
+    use omnidesk_core::product_shell::{NavTab, PrimaryView};
+    if (canvas.width, canvas.height) != (1672, 941)
+        || presentation.primary_view != PrimaryView::Devices
+        || presentation.nav_tab != NavTab::Devices
+    {
+        return;
+    }
+    let Some(art) = approved_v7_static_chrome() else {
+        return;
+    };
+    for y in 0..canvas.height {
+        let row_offset = y * canvas.width;
+        for x in 0..canvas.width {
+            if !approved_v7_skin_allow(x, y) {
+                continue;
+            }
+            let pixel_index = row_offset + x;
+            let source_index = pixel_index * 4;
+            let alpha = art.rgba[source_index + 3];
+            if alpha == 0 {
+                continue;
+            }
+            let rgb = (u32::from(art.rgba[source_index]) << 16)
+                | (u32::from(art.rgba[source_index + 1]) << 8)
+                | u32::from(art.rgba[source_index + 2]);
+            if alpha == u8::MAX {
+                canvas.pixels[pixel_index] = rgb;
+            } else {
+                canvas.blend_coverage(
+                    i32::try_from(x).unwrap_or(i32::MAX),
+                    i32::try_from(y).unwrap_or(i32::MAX),
+                    rgb,
+                    f32::from(alpha) / 255.0,
+                );
+            }
+        }
+    }
+}
+
 fn draw_premium_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -3268,6 +3374,9 @@ pub fn render_shell(
     };
     if let Some(premium) = crate::PremiumDashboardLayout::for_window(width, height) {
         draw_premium_dashboard(&mut canvas, presentation, &premium, palette);
+        // Pixel-perfect static owner chrome over genuine, live-only
+        // native controls. Every demonstrative value is masked out.
+        draw_approved_v7_static_chrome(&mut canvas, presentation);
         return;
     }
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
@@ -3318,6 +3427,39 @@ mod tests {
             lower_pixels, upper_pixels,
             "lowercase navigation must remain lowercase"
         );
+    }
+
+    #[test]
+    fn approved_static_chrome_excludes_all_demo_values() {
+        let art = approved_v7_static_chrome().expect("owner approved PNG must decode");
+        assert_eq!((art.width, art.height), (1672, 941));
+        for (x, y) in [
+            (360, 357),  // demo local device ID
+            (361, 428),  // demo session password
+            (937, 357),  // remote device input
+            (939, 427),  // remote password input
+            (1030, 483), // active remote CTA label
+            (380, 713),  // demo device list
+            (1002, 713), // demo session history
+            (1554, 130), // false Active entitlement
+            (1557, 189), // fake seat count
+            (1551, 244), // fake expiry
+            (1565, 393), // false service health
+            (1553, 482), // false peer-to-peer readiness
+            (330, 890),  // false connected relay
+            (1495, 891), // false all-operational claim
+        ] {
+            assert!(
+                !approved_v7_skin_allow(x, y),
+                "demo status/data pixel must never be copied at ({x}, {y})"
+            );
+        }
+        assert!(approved_v7_skin_allow(42, 30));
+        assert!(approved_v7_skin_allow(932, 127));
+        assert!(approved_v7_skin_allow(55, 803));
+        assert!(!approved_v7_skin_allow(1629, 130));
+        assert!(!approved_v7_skin_allow(1629, 390));
+        assert!(!approved_v7_skin_allow(1629, 902));
     }
 
     #[test]
