@@ -274,12 +274,12 @@ pub fn generate_password_proof(
     client_public_key: &[u8; 32],
     host_public_key: &[u8; 32],
 ) -> [u8; 32] {
-    // Normalize password
-    let normalized: String = password
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .map(|c| c.to_ascii_uppercase())
-        .collect();
+    // A malformed client spelling must not silently become a valid proof
+    // after punctuation/Unicode stripping. The all-zero sentinel is always
+    // rejected against a real generated host password; no proof is issued.
+    let Some(normalized) = normalize_password_input(password) else {
+        return [0_u8; 32];
+    };
 
     let mut key_hasher = Sha256::new();
     key_hasher.update(b"KMJ_OMNIDESK_PROOF_KEY");
@@ -574,6 +574,11 @@ mod tests {
             &proof, password, "host", &session, &nonce, &client, &host
         ));
         for input in ["KMJ7-9421!", "KMJ7-9421💥", "KMJ7-9421\\n", "KMJ7-942"] {
+            assert_eq!(
+                generate_password_proof(input, "host", &session, &nonce, &client, &host),
+                [0_u8; 32],
+                "malformed client credentials must not produce a valid proof"
+            );
             assert!(!verify_password_proof(
                 &proof, input, "host", &session, &nonce, &client, &host
             ));
