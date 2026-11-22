@@ -261,6 +261,103 @@ struct IncomingPeer {
     peer_addr: std::net::SocketAddr,
 }
 
+// Host proof runs off the GUI thread. A single active job serialises password
+// guesses: its updated manager (including failed-attempt lockout) must be
+// restored BEFORE the next queued incoming peer may be processed.
+struct InboundProofRequest {
+    stream: std::net::TcpStream,
+    peer_addr: std::net::SocketAddr,
+    identity: DeviceIdentity,
+    store: TrustedDeviceStore,
+    manager: omnidesk_core::password_auth::HostPasswordManager,
+    tenant: String,
+}
+
+struct InboundProofOutcome {
+    manager: omnidesk_core::password_auth::HostPasswordManager,
+    result: Result<(), String>,
+    peer_addr: std::net::SocketAddr,
+}
+
+struct InboundProofJob {
+    result_rx: Receiver<InboundProofOutcome>,
+    cancelled: Arc<AtomicBool>,
+    original_generation: (u64, u64),
+}
+
+impl Drop for InboundProofJob {
+    fn drop(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+}
+
+impl InboundProofJob {
+    fn launch(request: InboundProofRequest) -> std::io::Result<Self> {
+        let original_generation = request.manager.approval_generation();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let (tx, result_rx) = mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("omnidesk-inbound-auth-probe".to_owned())
+            .spawn(move || {
+                let InboundProofRequest {
+                    stream,
+                    peer_addr,
+                    identity,
+                    store,
+                    mut manager,
+                    tenant,
+                } = request;
+                let result = if worker_cancelled.load(Ordering::Acquire) {
+                    Err("Host cancelled before inbound handshake".to_owned())
+                } else {
+                    match HostTransport::from_tcp_stream(stream) {
+                        Ok(transport) => match UnauthenticatedNoiseChannel::accept(transport) {
+                            Ok(mut encrypted) => {
+                                let verified = if worker_cancelled.load(Ordering::Acquire) {
+                                    Err("Host cancelled during Noise handshake".to_owned())
+                                } else {
+                                    let now = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map_or(0, |duration| duration.as_secs());
+                                    host_verify_attended_password(
+                                        &mut encrypted,
+                                        &identity,
+                                        &store,
+                                        &mut manager,
+                                        &tenant,
+                                        now,
+                                    )
+                                    .map_err(|err| format!("{err:?}"))
+                                };
+                                encrypted.close();
+                                verified
+                            }
+                            Err(err) => Err(format!("Noise handshake failed: {err:?}")),
+                        },
+                        Err(err) => Err(format!("Incoming TCP transport rejected: {err:?}")),
+                    }
+                };
+                // No session/capability/transport returned, only a redacted
+                // result and updated lockout state for the host GUI.
+                let _ = tx.send(InboundProofOutcome {
+                    manager,
+                    result,
+                    peer_addr,
+                });
+            })?;
+        Ok(Self {
+            result_rx,
+            cancelled,
+            original_generation,
+        })
+    }
+
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+}
+
 // Build the outbound request on the GUI thread, then move it into exactly
 // one bounded worker. Secrets are never included in Debug/status messages.
 struct OutboundProofRequest {
@@ -387,6 +484,7 @@ struct DesktopHost {
     cursor_position: Option<(usize, usize)>,
     frameless_premium: bool,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
+    inbound_proof: Option<InboundProofJob>,
     outbound_proof: Option<OutboundProofJob>,
 }
 
@@ -447,6 +545,10 @@ impl DesktopHost {
             shell.set_local_device_id("");
             shell.set_error("Device identity unavailable: cannot establish trusted sessions");
         }
+        // Generate exactly ONE authoritative OS-random temporary password
+        // on the real native host. Never present a random password created
+        // on a transient shell clone: the host would reject what it displays.
+        let _ = shell.host_password();
         let accessibility = accessibility_snapshot(&shell);
 
         // Production public listening stays disabled until authenticated
@@ -504,6 +606,7 @@ impl DesktopHost {
             cursor_position: None,
             frameless_premium: false,
             incoming_rx,
+            inbound_proof: None,
             outbound_proof: None,
         }
     }
@@ -730,73 +833,104 @@ impl DesktopHost {
     }
 
     fn poll_incoming(&mut self) {
-        if self.session_adapter.is_some() {
+        // Serialise host password guesses. The previous worker's updated
+        // lockout budget MUST be restored before accepting another peer.
+        if self.session_adapter.is_some() || self.inbound_proof.is_some() {
             return;
         }
-
-        while let Ok(incoming) = self.incoming_rx.try_recv() {
-            // Sharing permission is separate from peer identity; unaudited
-            // inbound attempts must never enable a control session.
-            if !self.shell.allow_remote_control() {
-                self.shell.set_error(format!(
-                    "Incoming peer {} rejected: host remote control is disabled",
-                    incoming.peer_addr
-                ));
-                self.refresh_presentation();
-                continue;
-            }
-            let Ok(mut transport) = HostTransport::from_tcp_stream(incoming.stream) else {
-                continue;
-            };
-            let tenant =
-                std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-            let Ok(store) = TrustedDeviceStore::load_or_create(&self.store_path) else {
-                transport.close();
-                self.shell
-                    .set_error("Incoming session rejected: trusted peer store missing");
-                self.refresh_presentation();
-                continue;
-            };
-            let Ok(identity) = DeviceIdentity::load_from_path(&self.identity_path) else {
-                transport.close();
-                self.shell
-                    .set_error("Incoming session rejected: local signing key missing");
-                self.refresh_presentation();
-                continue;
-            };
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-            let result = match UnauthenticatedNoiseChannel::accept(transport) {
-                Ok(mut encrypted) => {
-                    // Host-only challenge creation, lockout and expiration
-                    // are owned by the displayed local password manager.
-                    // The authenticated encrypted channel is always CLOSED
-                    // after this probe: consent and licensing are separate.
-                    let _ = self.shell.host_password();
-                    let verified = host_verify_attended_password(
-                        &mut encrypted,
-                        &identity,
-                        &store,
-                        self.shell.host_password_mut(),
-                        &tenant,
-                        now,
-                    );
-                    encrypted.close();
-                    verified.map_err(|err| format!("{err:?}"))
-                }
-                Err(err) => Err(format!("Noise handshake failed: {err:?}")),
-            };
-            self.shell.disconnect();
-            match result {
-                Ok(()) => self.shell.set_error(
-                    "Incoming encrypted peer and temporary password verified (diagnostic only); host has NOT authorized remote control",
-                ),
-                Err(err) => self
-                    .shell
-                    .set_error(format!("Incoming encrypted attended authentication rejected: {err}")),
-            }
+        let Ok(incoming) = self.incoming_rx.try_recv() else {
+            return;
+        };
+        if !secure_proof_diagnostic_enabled() || !self.shell.allow_remote_control() {
+            self.shell.set_error(format!(
+                "Incoming peer {} refused: encrypted host proof diagnostic disabled",
+                incoming.peer_addr
+            ));
             self.refresh_presentation();
+            return;
+        }
+        let Ok(store) = TrustedDeviceStore::load_or_create(&self.store_path) else {
+            self.shell
+                .set_error("Incoming proof refused: trusted peer store unavailable");
+            self.refresh_presentation();
+            return;
+        };
+        let Ok(identity) = DeviceIdentity::load_from_path(&self.identity_path) else {
+            self.shell
+                .set_error("Incoming proof refused: host signing identity unavailable");
+            self.refresh_presentation();
+            return;
+        };
+        let _ = self.shell.host_password();
+        let manager = self.shell.host_password_ref().clone();
+        let tenant = std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
+        match InboundProofJob::launch(InboundProofRequest {
+            stream: incoming.stream,
+            peer_addr: incoming.peer_addr,
+            identity,
+            store,
+            manager,
+            tenant,
+        }) {
+            Ok(job) => {
+                self.inbound_proof = Some(job);
+                self.shell.set_error(
+                    "Encrypted incoming password proof in progress; screen/input not shared",
+                );
+            }
+            Err(err) => self.shell.set_error(format!(
+                "Incoming authentication worker failed to start: {err}"
+            )),
+        }
+        self.refresh_presentation();
+    }
+
+    fn poll_inbound_proof(&mut self) {
+        let Some(job) = self.inbound_proof.as_ref() else {
+            return;
+        };
+        match job.result_rx.try_recv() {
+            Ok(outcome) => {
+                let cancelled = job.cancelled.load(Ordering::Acquire);
+                let generation_matches =
+                    self.shell.host_password_ref().approval_generation() == job.original_generation;
+                self.inbound_proof = None;
+                // Restore the worker's *authoritative* failed-attempt count
+                // before processing another TCP connection. UI credential
+                // rotation/policy changes must never be silently undone.
+                if generation_matches {
+                    *self.shell.host_password_mut() = outcome.manager;
+                }
+                self.shell.disconnect();
+                if cancelled || !generation_matches || !self.shell.allow_remote_control() {
+                    self.shell.set_allow_remote_control(false);
+                    self.shell.set_error(
+                        "Host proof cancelled or host policy changed; no session authorized",
+                    );
+                } else {
+                    match outcome.result {
+                        Ok(()) => self.shell.set_error(format!(
+                            "Encrypted password proof for {} verified (diagnostic only); screen/input NOT authorized",
+                            outcome.peer_addr
+                        )),
+                        Err(err) => self.shell.set_error(format!(
+                            "Incoming encrypted proof for {} rejected: {err}",
+                            outcome.peer_addr
+                        )),
+                    }
+                }
+                self.refresh_presentation();
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                self.inbound_proof = None;
+                self.shell.set_allow_remote_control(false);
+                self.shell.disconnect();
+                self.shell.set_error(
+                    "Host authentication worker disconnected; sharing disabled, no control authorized",
+                );
+                self.refresh_presentation();
+            }
         }
     }
 
@@ -887,7 +1021,28 @@ impl DesktopHost {
         }
     }
 
+    fn cancel_inbound_probe_for_policy_action(&mut self, action: DesktopAction) {
+        if matches!(
+            action,
+            DesktopAction::ToggleRemoteControl
+                | DesktopAction::RotateSessionPassword
+                | DesktopAction::Disconnect
+                | DesktopAction::DenyPermission
+        ) {
+            if let Some(job) = self.inbound_proof.as_ref() {
+                job.cancel();
+                if matches!(
+                    action,
+                    DesktopAction::Disconnect | DesktopAction::DenyPermission
+                ) {
+                    self.shell.set_allow_remote_control(false);
+                }
+            }
+        }
+    }
+
     fn dispatch_action(&mut self, action: DesktopAction) {
+        self.cancel_inbound_probe_for_policy_action(action);
         if action == DesktopAction::EnrollDevice {
             self.handle_enroll_device();
         } else if matches!(
@@ -1093,7 +1248,15 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
         }
 
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                if let Some(job) = self.inbound_proof.as_ref() {
+                    job.cancel();
+                }
+                if let Some(job) = self.outbound_proof.as_mut() {
+                    job.cancel();
+                }
+                event_loop.exit();
+            }
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::Resized(_) => {
                 self.update_accessibility_tree();
@@ -1234,6 +1397,7 @@ impl ApplicationHandler<AccessKitEvent> for DesktopHost {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.poll_inbound_proof();
         self.poll_outbound_proof();
         self.poll_incoming();
         if secure_proof_diagnostic_enabled() {
@@ -1279,6 +1443,99 @@ mod tests {
     };
     use crate::DesktopAction;
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
+
+    #[test]
+    fn native_inbound_worker_rejects_wrong_password_and_retains_host_attempt_budget() {
+        use omnidesk_core::{
+            attended_proof_wire::client_prove_attended_password,
+            device_identity::DeviceIdentity,
+            noise_encrypted_transport::UnauthenticatedNoiseChannel,
+            password_auth::{HostPasswordManager, PasswordVerificationError},
+            transport::{TcpLanTransport, Transport},
+            trusted_device_store::{
+                PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore,
+            },
+        };
+        use std::{
+            net::TcpListener,
+            thread,
+            time::{Duration, SystemTime, UNIX_EPOCH},
+        };
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_secs();
+        let client = DeviceIdentity::from_seed(&[0x9A; 32]);
+        let host = DeviceIdentity::from_seed(&[0x9B; 32]);
+        let host_id = host.public_id().to_owned();
+        let pin = |device: &DeviceIdentity| {
+            let mut store = TrustedDeviceStore::new();
+            store
+                .add(TrustedDeviceRecord {
+                    device_id: device.public_id().to_owned(),
+                    display_name: "Pinned QA Device".to_owned(),
+                    public_key: device.public_key_bytes(),
+                    enrolled_at_epoch_secs: now - 1,
+                    trust_expires_at_epoch_secs: now + 600,
+                    managed: false,
+                    revoked: false,
+                    status: PersistedDeviceStatus::Offline,
+                })
+                .expect("pin peer");
+            store
+        };
+        let host_store = pin(&client);
+        let client_store = pin(&host);
+        let mut manager = HostPasswordManager::new(now);
+        manager.set_allow_remote_control(true);
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("address");
+        let client_task = thread::spawn(move || {
+            let tcp = TcpLanTransport::connect(address, Duration::from_secs(2)).expect("connect");
+            let mut channel = UnauthenticatedNoiseChannel::connect(tcp).expect("Noise client");
+            let result = client_prove_attended_password(
+                &mut channel,
+                &client,
+                &client_store,
+                &host_id,
+                "kmj-tenant",
+                "WRONG999",
+                now,
+            );
+            channel.close();
+            assert!(result.is_err(), "incorrect password must be refused");
+        });
+        let (stream, peer_addr) = listener.accept().expect("accept");
+        let job = super::InboundProofJob::launch(super::InboundProofRequest {
+            stream,
+            peer_addr,
+            identity: host,
+            store: host_store,
+            manager,
+            tenant: "kmj-tenant".to_owned(),
+        })
+        .expect("native host worker");
+        let mut result = job
+            .result_rx
+            .recv_timeout(Duration::from_secs(12))
+            .expect("native worker result");
+        assert!(
+            result
+                .result
+                .as_ref()
+                .is_err_and(|error| error.contains("InvalidPassword")),
+            "host must reject encrypted wrong proof"
+        );
+        assert_eq!(
+            result.manager.verify_candidate("WRONG999", now),
+            Err(PasswordVerificationError::InvalidPassword {
+                remaining_attempts: 3
+            }),
+            "wrong password count must persist after worker returns"
+        );
+        client_task.join().expect("client");
+    }
 
     #[test]
     fn pending_outbound_probe_is_nonblocking_and_cancel_never_reports_authorized() {
