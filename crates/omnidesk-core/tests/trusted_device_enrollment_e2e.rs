@@ -227,6 +227,9 @@ fn negative_session_connect_failure_cases_fail_closed() {
 
     let trusted_key = SigningKey::from_bytes(&[0x33_u8; 32]);
     let trusted_pk = trusted_key.verifying_key().to_bytes();
+    let revoked_public_key = SigningKey::from_bytes(&[0x34_u8; 32])
+        .verifying_key()
+        .to_bytes();
 
     let mut store = TrustedDeviceStore::new();
     store
@@ -246,7 +249,7 @@ fn negative_session_connect_failure_cases_fail_closed() {
         .add(TrustedDeviceRecord {
             device_id: "revoked-dev".to_owned(),
             display_name: "Revoked Device".to_owned(),
-            public_key: trusted_pk,
+            public_key: revoked_public_key,
             enrolled_at_epoch_secs: now - 100,
             trust_expires_at_epoch_secs: now + 500,
             managed: true,
@@ -468,6 +471,52 @@ fn enrollment_coordinator_atomic_persistence_and_restart() {
     assert_eq!(loaded_rec.status, PersistedDeviceStatus::Offline);
 
     let _ = fs::remove_file(&path);
+}
+
+#[test]
+fn enrollment_persistence_failure_never_leaves_an_ephemeral_trusted_peer() {
+    let path = temp_store_path("failed-durable-save");
+    // A directory cannot be atomically replaced with a regular store file.
+    // This creates an OS-independent failing persistence destination.
+    fs::create_dir_all(&path).expect("create non-file target");
+    let now = 2_100_000_u64;
+
+    let mut coordinator = EnrollmentCoordinator::new();
+    let mut store = TrustedDeviceStore::new();
+    let challenge = coordinator.create_challenge(now).expect("issue challenge");
+    let signer = SigningKey::from_bytes(&[0x6C_u8; 32]);
+    let public_key = signer.verifying_key().to_bytes();
+    let enrollment_message = build_enrollment_message(
+        "new-peer-during-disk-failure",
+        &public_key,
+        &challenge.nonce,
+        now,
+    );
+    let request = EnrollmentRequest {
+        device_id: "new-peer-during-disk-failure".to_owned(),
+        display_name: "Denied Undurable Peer".to_owned(),
+        public_key,
+        nonce: challenge.nonce,
+        timestamp_epoch_secs: now,
+        signature: signer.sign(&enrollment_message).to_bytes(),
+    };
+
+    assert!(matches!(
+        coordinator.complete_enrollment(&request, &mut store, Some(&path), now),
+        Err(EnrollmentError::Store(DeviceStoreError::Io(_)))
+    ));
+    assert!(
+        store.is_empty(),
+        "failed disk save cannot publish live trust"
+    );
+    assert_eq!(coordinator.stage(), EnrollmentStage::Failed);
+    assert!(coordinator.active_nonce().is_none());
+    assert_eq!(
+        coordinator.complete_enrollment(&request, &mut store, None, now),
+        Err(EnrollmentError::ChallengeAlreadyConsumed)
+    );
+
+    fs::remove_dir_all(&path).expect("remove failing target");
 }
 
 #[test]

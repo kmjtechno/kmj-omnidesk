@@ -783,12 +783,18 @@ mod tests {
         ]);
 
         let mut store = TrustedDeviceStore::new();
-        let valid_pk = [0x55_u8; 32];
+        // Every enrolled device must have a distinct pinned Ed25519 key.
+        // Reusing one key for several IDs would violate production trust.
+        let key_for_seed = |seed: u8| {
+            ed25519_dalek::SigningKey::from_bytes(&[seed; 32])
+                .verifying_key()
+                .to_bytes()
+        };
         store
             .add(TrustedDeviceRecord {
                 device_id: "desk-trusted".to_owned(),
                 display_name: "Desk Trusted".to_owned(),
-                public_key: valid_pk,
+                public_key: key_for_seed(1),
                 enrolled_at_epoch_secs: 1000,
                 trust_expires_at_epoch_secs: 2000,
                 managed: true,
@@ -801,7 +807,7 @@ mod tests {
             .add(TrustedDeviceRecord {
                 device_id: "desk-revoked".to_owned(),
                 display_name: "Desk Revoked".to_owned(),
-                public_key: valid_pk,
+                public_key: key_for_seed(2),
                 enrolled_at_epoch_secs: 1000,
                 trust_expires_at_epoch_secs: 2000,
                 managed: true,
@@ -814,7 +820,7 @@ mod tests {
             .add(TrustedDeviceRecord {
                 device_id: "desk-expired".to_owned(),
                 display_name: "Desk Expired".to_owned(),
-                public_key: valid_pk,
+                public_key: key_for_seed(3),
                 enrolled_at_epoch_secs: 1000,
                 trust_expires_at_epoch_secs: 1500,
                 managed: true,
@@ -827,7 +833,7 @@ mod tests {
             .add(TrustedDeviceRecord {
                 device_id: "desk-offline".to_owned(),
                 display_name: "Desk Offline".to_owned(),
-                public_key: valid_pk,
+                public_key: key_for_seed(4),
                 enrolled_at_epoch_secs: 1000,
                 trust_expires_at_epoch_secs: 2000,
                 managed: true,

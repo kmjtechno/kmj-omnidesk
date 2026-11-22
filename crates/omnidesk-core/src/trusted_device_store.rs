@@ -220,7 +220,11 @@ impl TrustedDeviceStore {
         self.devices.iter().find(|d| &d.public_key == public_key)
     }
 
-    /// Adds or replaces a trusted device record after strict validation.
+    /// Enrolls a new device without ever replacing a pinned ID or public key.
+    ///
+    /// Changing a key or clearing revocation requires an explicit, audited
+    /// unenroll + fresh pairing; a duplicate remote enrollment cannot silently
+    /// retake an existing trusted identity.
     ///
     /// # Errors
     ///
@@ -228,13 +232,15 @@ impl TrustedDeviceStore {
     pub fn add(&mut self, record: TrustedDeviceRecord) -> Result<(), DeviceStoreError> {
         record.validate()?;
 
-        if let Some(pos) = self
-            .devices
-            .iter()
-            .position(|d| d.device_id == record.device_id)
-        {
-            self.devices[pos] = record;
-            return Ok(());
+        // Both an existing ID with a different key and a new ID with an
+        // existing key would break the unique trusted identity binding.
+        // Never replace a revoked record or silently re-enable trust.
+        if let Some(existing) = self.devices.iter().find(|device| {
+            device.device_id == record.device_id || device.public_key == record.public_key
+        }) {
+            return Err(DeviceStoreError::DeviceAlreadyExists(
+                existing.device_id.clone(),
+            ));
         }
 
         if self.devices.len() >= MAX_DEVICES_COUNT {
@@ -316,6 +322,12 @@ impl TrustedDeviceStore {
         let envelope: StoreEnvelope = serde_json::from_slice(&content)
             .map_err(|err| DeviceStoreError::Json(format!("cannot deserialize store: {err}")))?;
 
+        if envelope.schema_version != CURRENT_SCHEMA_VERSION {
+            return Err(DeviceStoreError::Json(
+                "unsupported trusted-device store schema version".to_owned(),
+            ));
+        }
+
         if envelope.devices.len() > MAX_DEVICES_COUNT {
             return Err(DeviceStoreError::DeviceCountExceeded {
                 count: envelope.devices.len(),
@@ -325,8 +337,9 @@ impl TrustedDeviceStore {
 
         let mut store = Self::new();
         for record in envelope.devices {
-            record.validate()?;
-            store.devices.push(record);
+            // Validate both the individual record and the unique ID/key
+            // invariant, including when a file was edited out-of-band.
+            store.add(record)?;
         }
 
         Ok(store)
@@ -526,6 +539,78 @@ mod tests {
         let summaries = store.to_device_summaries();
         assert_eq!(summaries.len(), 2);
         assert_eq!(summaries[1].status, DeviceStatus::Offline);
+    }
+
+    #[test]
+    fn pinned_device_id_and_key_cannot_be_reassigned_or_revocation_cleared() {
+        let mut store = TrustedDeviceStore::new();
+        let original = sample_record("pinned-host", 1);
+        store.add(original.clone()).expect("first enrollment");
+        assert!(store.revoke("pinned-host"));
+
+        // Same device ID, different valid signing key: never take over.
+        let replacement = sample_record("pinned-host", 2);
+        assert!(matches!(
+            store.add(replacement),
+            Err(DeviceStoreError::DeviceAlreadyExists(_))
+        ));
+
+        // Same key, different claimed device ID: never alias trust.
+        let alias = sample_record("spoofed-host", 1);
+        assert!(matches!(
+            store.add(alias),
+            Err(DeviceStoreError::DeviceAlreadyExists(_))
+        ));
+
+        // Even the same record must not silently undo a revocation.
+        assert!(matches!(
+            store.add(original.clone()),
+            Err(DeviceStoreError::DeviceAlreadyExists(_))
+        ));
+        assert_eq!(store.len(), 1);
+        let pinned = store.get("pinned-host").expect("original remains");
+        assert_eq!(pinned.public_key, original.public_key);
+        assert!(pinned.revoked);
+    }
+
+    #[test]
+    fn duplicate_or_unsupported_persisted_trust_store_fails_closed() {
+        let dir = TempTestDir::new("untrusted_duplicates");
+        let path = dir.path().join("trusted_devices.json");
+        let original = sample_record("known-host", 1);
+
+        let duplicate = StoreEnvelope {
+            schema_version: CURRENT_SCHEMA_VERSION,
+            devices: vec![original.clone(), sample_record("known-host", 2)],
+        };
+        std::fs::write(&path, serde_json::to_vec(&duplicate).expect("encode"))
+            .expect("write duplicate");
+        assert!(matches!(
+            TrustedDeviceStore::load_from_path(&path),
+            Err(DeviceStoreError::DeviceAlreadyExists(_))
+        ));
+
+        let duplicate_key = StoreEnvelope {
+            schema_version: CURRENT_SCHEMA_VERSION,
+            devices: vec![original.clone(), sample_record("alias-host", 1)],
+        };
+        std::fs::write(&path, serde_json::to_vec(&duplicate_key).expect("encode"))
+            .expect("write alias");
+        assert!(matches!(
+            TrustedDeviceStore::load_from_path(&path),
+            Err(DeviceStoreError::DeviceAlreadyExists(_))
+        ));
+
+        let unsupported = StoreEnvelope {
+            schema_version: CURRENT_SCHEMA_VERSION + 1,
+            devices: vec![original],
+        };
+        std::fs::write(&path, serde_json::to_vec(&unsupported).expect("encode"))
+            .expect("write schema");
+        assert!(matches!(
+            TrustedDeviceStore::load_from_path(&path),
+            Err(DeviceStoreError::Json(_))
+        ));
     }
 
     #[test]
