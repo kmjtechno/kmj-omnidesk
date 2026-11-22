@@ -20,12 +20,13 @@ use crate::{
 
 const MAX_ATTENDED_WIRE_BYTES: usize = 2048;
 
-/// Non-cloneable proof witnessed by the host only AFTER it has verified
-/// mutual pinned identities and a single-use password challenge inside
-/// the exact Noise session. Fields are private; callers cannot construct
-/// this receipt from a UI flag, socket address or untrusted claimed ID.
+/// Host-only, non-cloneable receipt of a verified encrypted password.
 ///
-/// The receipt by itself CANNOT authorize a transport, media or input.
+/// Issued only after pinned mutual identities and a single-use password
+/// challenge pass on the exact Noise session. Its fields are private; a UI
+/// flag, socket address or peer claim cannot fabricate this receipt.
+///
+/// This receipt alone never authorizes media, input or remote control.
 pub struct HostPasswordProofReceipt {
     peer_id: String,
     peer_public_key: [u8; 32],
