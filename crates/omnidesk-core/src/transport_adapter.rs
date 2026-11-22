@@ -121,8 +121,11 @@ impl<T: Transport> TransportSessionAdapter<T> {
         &self.transport
     }
 
-    /// Mutably accesses the underlying transport.
-    pub const fn transport_mut(&mut self) -> &mut T {
+    // Auth protocol frame I/O belongs to this module only. Exposing a public
+    // mutable raw transport lets any caller bypass send()/receive() control
+    // authorization and inject unaudited TCP payloads after authentication.
+    // Keep this accessor private even while handshake negotiation needs it.
+    const fn transport_mut(&mut self) -> &mut T {
         &mut self.transport
     }
 
