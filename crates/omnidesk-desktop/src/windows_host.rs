@@ -6,9 +6,11 @@ use accesskit::{Action, NodeId};
 use accesskit_winit::{Adapter, Event as AccessKitEvent, WindowEvent as AccessKitWindowEvent};
 use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
-    product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell},
-    transport::HostTransport,
-    transport_adapter::{TransportSessionAdapter, host_negotiate_and_authenticate_session},
+    device_identity::DeviceIdentity,
+    mutual_identity::{client_mutual_identity_handshake, host_mutual_identity_handshake},
+    product_shell::{DeviceStatus, PrimaryView, ProductShell},
+    transport::{HostTransport, Transport},
+    transport_adapter::TransportSessionAdapter,
     trusted_device_store::TrustedDeviceStore,
 };
 use softbuffer::{Context, Surface};
@@ -225,6 +227,7 @@ struct DesktopHost {
     shell: ProductShell,
     enrollment_coordinator: EnrollmentCoordinator,
     store_path: PathBuf,
+    identity_path: PathBuf,
     session_adapter: Option<TransportSessionAdapter<HostTransport>>,
     accessibility: Vec<AccessibilityNode>,
     accessibility_focus: Option<NodeId>,
@@ -282,10 +285,15 @@ impl DesktopHost {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
-        let identity =
-            omnidesk_core::device_identity::DeviceIdentity::load_or_create(&identity_path, now)
-                .unwrap_or_else(|_| omnidesk_core::device_identity::DeviceIdentity::generate(now));
-        shell.set_local_device_id(identity.public_id());
+        // A corrupted/unwritable persisted device identity is not permission
+        // to silently issue an unpinned ephemeral identity on every start.
+        match DeviceIdentity::load_or_create(&identity_path, now) {
+            Ok(identity) => shell.set_local_device_id(identity.public_id()),
+            Err(_) => {
+                shell.set_local_device_id("");
+                shell.set_error("Device identity unavailable: cannot establish trusted sessions");
+            }
+        }
         let accessibility = accessibility_snapshot(&shell);
 
         let (incoming_tx, incoming_rx) = std::sync::mpsc::channel::<IncomingPeer>();
@@ -322,6 +330,7 @@ impl DesktopHost {
             shell,
             enrollment_coordinator: EnrollmentCoordinator::new(),
             store_path,
+            identity_path,
             session_adapter: None,
             accessibility,
             accessibility_focus: None,
@@ -415,97 +424,79 @@ impl DesktopHost {
     }
 
     fn try_connect_peer(&mut self) {
-        let mut target_addr: Option<std::net::SocketAddr> = None;
-
-        if let Some(dev) = self.shell.selected_device() {
-            if let Ok(addr) = dev.parse::<std::net::SocketAddr>() {
-                target_addr = Some(addr);
+        // A local outbound connection is the CLIENT of the host's signed
+        // challenge, not a second host waiting for an inbound Hello.
+        let Some(expected_host_id) = self.shell.selected_device().map(str::to_owned) else {
+            self.shell.disconnect();
+            self.shell.set_error("Select a trusted host device before connecting");
+            return;
+        };
+        let store = match TrustedDeviceStore::load_or_create(&self.store_path) {
+            Ok(store) => store,
+            Err(_) => {
+                self.shell.disconnect();
+                self.shell.set_error("Trusted peer store unavailable; connection refused");
+                return;
             }
+        };
+        if store.get(&expected_host_id).is_none() {
+            self.shell.disconnect();
+            self.shell.set_error("Remote host ID is not enrolled; connection refused");
+            return;
         }
-
-        if target_addr.is_none() {
-            if let Ok(env_addr) = std::env::var("OMNIDESK_PEER_ADDR") {
-                if let Ok(addr) = env_addr.parse::<std::net::SocketAddr>() {
-                    target_addr = Some(addr);
-                }
+        let identity = match DeviceIdentity::load_from_path(&self.identity_path) {
+            Ok(identity) => identity,
+            Err(_) => {
+                self.shell.disconnect();
+                self.shell.set_error("Local signing identity unavailable; connection refused");
+                return;
             }
-        }
+        };
 
-        let Some(addr) = target_addr else {
+        let target_addr = expected_host_id.parse::<std::net::SocketAddr>().ok().or_else(|| {
+            std::env::var("OMNIDESK_PEER_ADDR")
+                .ok()
+                .and_then(|address| address.parse().ok())
+        });
+        let Some(address) = target_addr else {
             self.shell.disconnect();
             self.shell.set_error(
-                "Remote connection unavailable: enter remote IP:port (e.g. 192.168.1.50:21118) or set approved peer endpoint",
+                "No approved host endpoint: configure OMNIDESK_PEER_ADDR for the enrolled host",
             );
             return;
         };
-
-        match HostTransport::connect_tcp(addr, std::time::Duration::from_secs(2)) {
-            Ok(transport) => {
-                let tenant =
-                    std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-                let mut adapter = TransportSessionAdapter::new(transport, tenant);
-
-                let store = match TrustedDeviceStore::load_or_create(&self.store_path) {
-                    Ok(s) => s,
-                    Err(err) => {
-                        self.shell.disconnect();
-                        self.shell
-                            .set_error(format!("Trust store load failed: {err}"));
-                        return;
-                    }
-                };
-
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_secs());
-
-                match host_negotiate_and_authenticate_session(&mut adapter, &store, now) {
-                    Ok(record) => {
-                        // Peer key proof is not user permission. Keep the transport
-                        // AwaitingAuthorization until the user clicks Allow.
-                        let mut summaries = store.to_device_summaries();
-                        if !summaries.iter().any(|d| d.id == record.device_id) {
-                            summaries.push(DeviceSummary {
-                                id: record.device_id.clone(),
-                                display_name: record.display_name.clone(),
-                                status: DeviceStatus::Online,
-                            });
-                        }
-                        for device in &mut summaries {
-                            device.status = if device.id == record.device_id {
-                                DeviceStatus::Online
-                            } else {
-                                DeviceStatus::Offline
-                            };
-                        }
-                        self.shell.replace_devices(summaries);
-                        if self.shell.selected_device().is_none() {
-                            if let Err(err) =
-                                self.shell
-                                    .begin_connect_trusted(&record.device_id, &store, now)
-                            {
-                                adapter.close();
-                                self.shell.disconnect();
-                                self.shell
-                                    .set_error(format!("Connection preflight failed: {err:?}"));
-                                return;
-                            }
-                        }
-                        self.session_adapter = Some(adapter);
-                    }
-                    Err(err) => {
-                        adapter.close();
-                        self.session_adapter = None;
-                        self.shell.disconnect();
-                        self.shell
-                            .set_error(format!("Peer authentication failed: {err}"));
-                    }
+        let tenant =
+            std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
+            Ok(mut transport) => {
+                // Client first verifies the remote host's pinned public key
+                // before releasing the local Ed25519 challenge signature.
+                let result = client_mutual_identity_handshake(
+                    &mut transport,
+                    &identity,
+                    &store,
+                    &expected_host_id,
+                    &tenant,
+                    now,
+                );
+                transport.close();
+                self.shell.disconnect();
+                match result {
+                    Ok(_) => self.shell.set_error(
+                        "Mutual device identity verified; encrypted remote control and host password proof are not yet available",
+                    ),
+                    Err(err) => self
+                        .shell
+                        .set_error(format!("Mutual device authentication rejected: {err:?}")),
                 }
             }
             Err(err) => {
                 self.shell.disconnect();
                 self.shell
-                    .set_error(format!("Cannot connect to peer at {addr}: {err:?}"));
+                    .set_error(format!("Cannot reach enrolled host at {address}: {err:?}"));
             }
         }
     }
