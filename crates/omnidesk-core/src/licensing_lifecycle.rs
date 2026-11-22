@@ -694,8 +694,7 @@ impl LicensingManager {
             ));
         }
 
-        if now < lease.last_trusted_server_time
-            || resp.server_time < lease.last_trusted_server_time
+        if now < lease.last_trusted_server_time || resp.server_time < lease.last_trusted_server_time
         {
             return Err(LicensingClientError::ClockRollback {
                 now: now.min(resp.server_time),
@@ -709,7 +708,9 @@ impl LicensingManager {
             lease.last_trusted_server_time = resp.server_time;
             lease.known_revocation = RevocationState::ActivationRevoked;
             return Err(LicensingClientError::Revoked {
-                reason: resp.reason_code.or_else(|| resp.reason_codes.first().cloned()),
+                reason: resp
+                    .reason_code
+                    .or_else(|| resp.reason_codes.first().cloned()),
             });
         }
 
@@ -1385,7 +1386,10 @@ mod tests {
             manager.process_status_response(restricted, 1_001_000),
             Ok(LicenseState::Restricted)
         );
-        assert_eq!(manager.evaluate_state(1_001_050), Ok(LicenseState::Restricted));
+        assert_eq!(
+            manager.evaluate_state(1_001_050),
+            Ok(LicenseState::Restricted)
+        );
         assert!(manager.check_session_allowed(1_001_050, 0).is_err());
         assert_eq!(
             manager.handle_server_failure(1_001_050, ServerFailureReason::NetworkUnreachable),
@@ -1426,7 +1430,10 @@ mod tests {
                 LicenseError::ReplayOrStaleSequence
             ))
         );
-        assert_eq!(manager.evaluate_state(1_001_050), Ok(LicenseState::Restricted));
+        assert_eq!(
+            manager.evaluate_state(1_001_050),
+            Ok(LicenseState::Restricted)
+        );
 
         let backwards = br#"{"activation_id":"55555555-5555-4555-8555-555555555555","state":"ACTIVE","reason_codes":[],"current_sequence":1,"server_time":999999}"#;
         assert_eq!(
@@ -1436,17 +1443,17 @@ mod tests {
                 last_trusted_server_time: 1_000_000,
             })
         );
-        assert_eq!(manager.evaluate_state(1_001_100), Ok(LicenseState::Restricted));
+        assert_eq!(
+            manager.evaluate_state(1_001_100),
+            Ok(LicenseState::Restricted)
+        );
     }
 
     #[test]
     fn fail_closed_main_platform_error_response_needs_no_request_id() {
         let mut manager = activated_manager_for_status_tests();
         assert_eq!(
-            manager.process_status_response(
-                br#"{"error":"ISSUANCE_NOT_CONFIGURED"}"#,
-                1_001_000
-            ),
+            manager.process_status_response(br#"{"error":"ISSUANCE_NOT_CONFIGURED"}"#, 1_001_000),
             Err(LicensingClientError::ServerRejected {
                 error: "ISSUANCE_NOT_CONFIGURED".to_owned(),
                 request_id: String::new(),
