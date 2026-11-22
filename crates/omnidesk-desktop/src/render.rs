@@ -3319,6 +3319,35 @@ mod tests {
     }
 
     #[test]
+    fn premium_dashboard_never_fabricates_the_owners_demo_runtime_values() {
+        let source = include_str!("render.rs");
+        let premium = source
+            .split_once("fn draw_premium_dashboard(")
+            .and_then(|(_, remaining)| remaining.split_once("fn draw_locked_dashboard("))
+            .map(|(body, _)| body)
+            .expect("premium renderer source region");
+        for demo_value in [
+            "250 / 1,000",
+            "Dec 31, 2026",
+            "My Devices (12)",
+            "CLIENT-AV-01",
+            "KMJ-ELITE-SERVER",
+            "All Healthy",
+            "All Services Operational",
+            "42 ms",
+            "Connected to KMJ Cloud Relay (Asia)",
+            "\\"Completed\\"",
+        ] {
+            assert!(
+                !premium.contains(demo_value),
+                "demo status or device history must never be drawn: {demo_value}"
+            );
+        }
+        assert!(premium.contains("No verified session history"));
+        assert!(premium.contains("No verified Licensing Hub entitlement"));
+    }
+
+    #[test]
     fn approved_static_chrome_excludes_all_demo_values() {
         let art = approved_v7_static_chrome().expect("owner approved PNG must decode");
         assert_eq!((art.width, art.height), (1672, 941));
