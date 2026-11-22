@@ -563,6 +563,27 @@ pub fn action_at_point(
     x: usize,
     y: usize,
 ) -> Option<DesktopAction> {
+    // All V7 controls, including both password fields and the explicit
+    // attended-access toggle, share the renderer's inverse DPI transform.
+    // Never accept input in a letterbox margin or dispatch a click using
+    // the wrong physical window geometry.
+    if shell.primary_view() == PrimaryView::Devices && shell.nav_tab() == NavTab::Devices {
+        if let Some(fit) = crate::layout::PremiumViewportFit::for_window(width, height) {
+            let (art_x, art_y) = fit.artboard_point(x, y)?;
+            let premium = PremiumDashboardLayout::for_window(
+                crate::layout::V7_ART_WIDTH,
+                crate::layout::V7_ART_HEIGHT,
+            )?;
+            return premium_action_at_point(
+                shell,
+                crate::layout::V7_ART_WIDTH,
+                crate::layout::V7_ART_HEIGHT,
+                art_x,
+                art_y,
+                &premium,
+            );
+        }
+    }
     if let Some(premium) = PremiumDashboardLayout::for_window(width, height) {
         return premium_action_at_point(shell, width, height, x, y, &premium);
     }
@@ -942,6 +963,39 @@ pub const fn controls_for(view: PrimaryView) -> &'static [AccessibleControl] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fitted_v7_password_and_remote_id_clicks_match_actual_drawn_artboard() {
+        let shell = ProductShell::new();
+        let width = 1440;
+        let height = 900;
+        let fit = crate::layout::PremiumViewportFit::for_window(width, height).unwrap();
+        let art = PremiumDashboardLayout::for_window(1672, 941).unwrap();
+        let hit = |rect: DashboardRect| {
+            let px = fit.x + (rect.x + rect.width / 2) * fit.width / 1672;
+            let py = fit.y + (rect.y + rect.height / 2) * fit.height / 941;
+            action_at_point(&shell, width, height, px, py)
+        };
+        assert_eq!(hit(art.remote_id_input()), Some(DesktopAction::FocusRemoteIdInput));
+        assert_eq!(
+            hit(art.remote_password_input()),
+            Some(DesktopAction::FocusRemotePasswordInput)
+        );
+        assert_eq!(
+            hit(art.remote_control_toggle()),
+            Some(DesktopAction::ToggleRemoteControl)
+        );
+        assert_eq!(
+            hit(art.remote_connect_button()),
+            None,
+            "an empty or unauthenticated remote Connect cannot be enabled by DPI scaling"
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, 300, 0),
+            None,
+            "letterbox outside the approved artboard is not an input target"
+        );
+    }
 
     #[test]
     fn premium_v7_pointer_targets_match_visible_geometry() {
