@@ -411,28 +411,30 @@ pub struct PremiumDashboardLayout {
 impl PremiumDashboardLayout {
     #[must_use]
     pub fn for_window(width: usize, height: usize) -> Option<Self> {
-        if width < 1024 || height < 750 {
+        // The approved source is a 1672x941 artboard. Use the legacy
+        // responsive layout when there is insufficient usable space.
+        // Retain the V7 hierarchy on standard 1440x900 laptop viewports.
+        // Truly compact windows still use the existing readable fallback.
+        if width < 1420 || height < 850 {
             return None;
         }
-        let navigation_width = if width >= 1400 {
-            (width * 15 / 100).clamp(232, 260)
-        } else {
-            (width * 16 / 100).clamp(180, 230)
-        };
-        let right_width = if width >= 1400 {
-            325
-        } else {
-            (width * 22 / 100).clamp(240, 310)
-        };
-        let side_gap = if width >= 1400 { 16 } else { 12 };
-        let main_x = navigation_width + 18;
-        let right_x = width.saturating_sub(right_width + 17);
-        let main_width = right_x.saturating_sub(main_x + side_gap);
-        if main_width < 450 {
+        // At 1672x941 the owner reference has a 260px navigation rail,
+        // a 348px right inspector and workflow cards beginning at x=280.
+        // Pointer hitboxes and renderer share these exact rectangles.
+        let navigation_width = (width * 16 / 100).clamp(240, 260);
+        let right_width = (width * 21 / 100).clamp(315, 348);
+        let right_margin = width.div_ceil(42).clamp(28, 40);
+        let main_x = navigation_width + 20;
+        let right_x = width.saturating_sub(right_width + right_margin);
+        let main_width = right_x.saturating_sub(main_x + 16);
+        if main_width < 780 {
             return None;
         }
-        let main_half = (main_width.saturating_sub(side_gap)) / 2;
-        let lower_height = height.saturating_sub(649 + 55).max(180);
+        let main_half = main_width / 2;
+        let second_x = main_x + main_half + 22;
+        let second_width = main_width.saturating_sub(main_half + 32);
+        let footer_y = height.saturating_sub(79);
+        let lower_height = footer_y.saturating_sub(649 + 17);
         let rect = |x, y, width, height| DashboardRect {
             x,
             y,
@@ -441,36 +443,23 @@ impl PremiumDashboardLayout {
         };
         Some(Self {
             header_height: 70,
-            navigation: rect(0, 70, navigation_width, height.saturating_sub(115)),
-            hero: rect(main_x, 81, main_width, 162),
-            share: rect(main_x, 255, main_half, 267),
-            connect: rect(
-                main_x + main_half + side_gap,
-                255,
-                main_width.saturating_sub(main_half + side_gap),
-                267,
-            ),
-            features: rect(main_x, 535, main_width, 101),
+            navigation: rect(0, 70, navigation_width, height.saturating_sub(70)),
+            hero: rect(navigation_width.saturating_sub(2), 70, main_width + 40, 178),
+            share: rect(main_x, 249, main_half, 266),
+            connect: rect(second_x, 249, second_width, 266),
+            features: rect(main_x, 533, main_width, 98),
             devices: rect(main_x, 649, main_half, lower_height),
-            sessions: rect(
-                main_x + main_half + side_gap,
-                649,
-                main_width.saturating_sub(main_half + side_gap),
-                lower_height,
-            ),
-            license: rect(right_x, 91, right_width, 223),
-            health: rect(right_x, 330, right_width, 196),
-            quick_actions: rect(
-                right_x,
-                539,
-                right_width,
-                height.saturating_sub(539 + 55).max(300),
-            ),
+            sessions: rect(second_x, 649, second_width, lower_height),
+            license: rect(right_x, 101, right_width, 204),
+            health: rect(right_x, 321, right_width, 194),
+            quick_actions: rect(right_x, 533, right_width, footer_y.saturating_sub(533 + 18)),
+            // The approved status surface is inset from both app edges,
+            // rather than painting a full-width flat strip.
             footer: rect(
-                navigation_width,
-                height.saturating_sub(45),
-                width.saturating_sub(navigation_width),
-                45,
+                navigation_width + 20,
+                footer_y,
+                width.saturating_sub(navigation_width + 20 + right_margin),
+                60,
             ),
         })
     }
@@ -641,8 +630,20 @@ mod premium_v7_tests {
     fn owner_artboard_geometry_is_nonoverlapping() {
         let premium = PremiumDashboardLayout::for_window(1672, 941).expect("V7 desktop");
         assert_eq!(premium.header_height, 70);
-        assert_eq!(premium.hero.y, 81);
-        assert!(premium.navigation.width < premium.hero.x);
+        assert_eq!(premium.hero.y, 70);
+        assert_eq!(premium.navigation.width, 260);
+        assert_eq!(premium.hero.x, 258);
+        assert_eq!(premium.hero.height, 178);
+        assert_eq!(premium.share.x, 280);
+        assert_eq!(premium.license.x, 1284);
+        assert_eq!(premium.share.width, 494);
+        assert_eq!(premium.connect.x, 796);
+        assert_eq!(premium.connect.width, 462);
+        assert_eq!(premium.footer.x, 280);
+        assert_eq!(premium.footer.width, 1352);
+        // The decorative hero underlaps the 260px sidebar edge by 2px.
+        // Active card controls remain entirely outside the nav column.
+        assert_eq!(premium.hero.x + 2, premium.navigation.width);
         assert_eq!(premium.share.y, premium.connect.y);
         assert!(premium.share.x + premium.share.width < premium.connect.x);
         assert!(premium.connect.x + premium.connect.width < premium.license.x);
@@ -654,12 +655,13 @@ mod premium_v7_tests {
             premium.local_id_copy().x + 12,
             premium.local_id_copy().y + 12,
         ));
-        assert!(PremiumDashboardLayout::for_window(1672, 941).is_some());
-        assert!(PremiumDashboardLayout::for_window(1440, 900).is_some());
-        assert!(PremiumDashboardLayout::for_window(1280, 800).is_some());
-        assert!(PremiumDashboardLayout::for_window(1024, 768).is_some());
-        assert!(PremiumDashboardLayout::for_window(1419, 611).is_none());
-        assert!(PremiumDashboardLayout::for_window(800, 500).is_none());
+        assert!(PremiumDashboardLayout::for_window(1280, 720).is_none());
+        let laptop = PremiumDashboardLayout::for_window(1440, 900)
+            .expect("laptop must retain V7 rather than legacy four-column UI");
+        assert!(laptop.share.x + laptop.share.width < laptop.connect.x);
+        assert!(laptop.connect.x + laptop.connect.width < laptop.license.x);
+        assert!(laptop.share.y + laptop.share.height < laptop.features.y);
+        assert!(laptop.devices.y + laptop.devices.height < laptop.footer.y);
     }
 }
 
