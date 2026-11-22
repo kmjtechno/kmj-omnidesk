@@ -51,6 +51,11 @@ enum PremiumCaptionAction {
 // Never replace this guard with "password input is nonempty".
 const ATTENDED_PASSWORD_PROOF_TRANSPORT_READY: bool = false;
 
+// Compile-time refusal: an unaudited change enabling native remote control
+// fails test compilation rather than silently skipping the gate.
+#[cfg(test)]
+const _: () = assert!(!ATTENDED_PASSWORD_PROOF_TRANSPORT_READY);
+
 // Pre-release operator opt-in for authentication QA only. Unlike the future
 // remote-control listener, this accepts only explicit loopback/RFC1918/ULA
 // addresses and ALWAYS closes after verifying the password; no mouse/screen
@@ -1102,7 +1107,7 @@ pub fn run() -> Result<(), winit::error::EventLoopError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ATTENDED_PASSWORD_PROOF_TRANSPORT_READY, MAX_PIXEL_OFFSET, PremiumCaptionAction,
+        MAX_PIXEL_OFFSET, PremiumCaptionAction,
         PremiumViewportFit, allowed_proof_diagnostic_bind, consent_matches_peer,
         premium_caption_action, premium_frameless_on_monitor, refuse_unverified_session_action,
         to_pixel, verified_attended_session_authorization,
@@ -1113,7 +1118,6 @@ mod tests {
 
     #[test]
     fn pre_release_proof_probe_rejects_public_and_wildcard_network_listening() {
-        assert!(!ATTENDED_PASSWORD_PROOF_TRANSPORT_READY);
         for addr in [
             "0.0.0.0:21118",
             "[::]:21118",
