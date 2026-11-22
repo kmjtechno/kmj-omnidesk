@@ -387,7 +387,11 @@ impl ProductShell {
     }
 
     pub fn decide_permission(&mut self, decision: PermissionDecision) {
-        if self.selected_device.is_none()
+        // A host-visible incoming proof prompt is NOT the legacy local
+        // "session authorized" shell transition. Only native GUI logic may
+        // consume its sealed receipt, and signed licensing is mandatory.
+        if self.host_consent_pending
+            || self.selected_device.is_none()
             || self.security_state != SecurityState::AuthorizationRequired
         {
             return;
@@ -643,6 +647,9 @@ mod tests {
         assert_eq!(shell.selected_device(), Some("enrolled-client"));
         assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
         assert_eq!(shell.security_state(), SecurityState::AuthorizationRequired);
+        shell.decide_permission(PermissionDecision::Allow);
+        assert_eq!(shell.primary_view(), PrimaryView::PermissionPrompt);
+        assert_ne!(shell.security_state(), SecurityState::Authorized);
         shell.disconnect();
         assert!(!shell.host_consent_pending());
         assert_eq!(shell.primary_view(), PrimaryView::Devices);
