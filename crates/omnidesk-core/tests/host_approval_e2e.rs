@@ -86,7 +86,7 @@ fn signed_test_lease(
     (canonical, signature, verifier, payload)
 }
 
-fn context<'a>(payload: &'a SignedEntitlementPayload, now: u64) -> VerificationContext<'a> {
+fn context(payload: &SignedEntitlementPayload, now: u64) -> VerificationContext<'_> {
     VerificationContext {
         binding: DeviceBinding {
             activation_id: &payload.activation_id,
