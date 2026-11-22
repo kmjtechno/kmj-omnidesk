@@ -11,6 +11,24 @@ pub const MAX_FAILED_ATTEMPTS: u32 = 5;
 pub const LOCKOUT_DURATION_SECS: u64 = 300; // 5 minutes
 const CHARSET: &[u8] = b"23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
+// Never silently strip arbitrary punctuation, control codes, or Unicode from
+// an attended credential. Only the displayed hyphen/space separators are
+// allowed. A malformed attempt must still consume the host's attempt budget.
+fn normalize_password_input(candidate: &str) -> Option<String> {
+    if !candidate
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == ' ')
+    {
+        return None;
+    }
+    let normalized: String = candidate
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    (normalized.len() == 8).then_some(normalized)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PasswordVerificationError {
     RemoteControlDisabled,
@@ -139,7 +157,7 @@ impl HostPasswordManager {
 
     #[must_use]
     pub const fn is_expired(&self, now_epoch_secs: u64) -> bool {
-        now_epoch_secs > self.expires_at_epoch_secs
+        now_epoch_secs >= self.expires_at_epoch_secs
     }
 
     #[must_use]
@@ -205,15 +223,12 @@ impl HostPasswordManager {
             return Err(PasswordVerificationError::Expired);
         }
 
-        // Normalize candidate (remove hyphens, spaces, uppercase)
-        let normalized: String = candidate
-            .chars()
-            .filter(char::is_ascii_alphanumeric)
-            .map(|c| c.to_ascii_uppercase())
-            .collect();
-
-        let candidate_hash = compute_password_hash(&normalized, &self.salt);
-        if constant_time_eq_32(&candidate_hash, &self.hash) {
+        // Hash even malformed attempts so they cannot sidestep the
+        // brute-force counter. An empty normalized string never matches the
+        // host's generated eight-character password.
+        let normalized = normalize_password_input(candidate);
+        let candidate_hash = compute_password_hash(normalized.as_deref().unwrap_or(""), &self.salt);
+        if normalized.is_some() && constant_time_eq_32(&candidate_hash, &self.hash) {
             self.failed_attempts = 0;
             Ok(())
         } else {
@@ -259,12 +274,12 @@ pub fn generate_password_proof(
     client_public_key: &[u8; 32],
     host_public_key: &[u8; 32],
 ) -> [u8; 32] {
-    // Normalize password
-    let normalized: String = password
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .map(|c| c.to_ascii_uppercase())
-        .collect();
+    // A malformed client spelling must not silently become a valid proof
+    // after punctuation/Unicode stripping. The all-zero sentinel is always
+    // rejected against a real generated host password; no proof is issued.
+    let Some(normalized) = normalize_password_input(password) else {
+        return [0_u8; 32];
+    };
 
     let mut key_hasher = Sha256::new();
     key_hasher.update(b"KMJ_OMNIDESK_PROOF_KEY");
@@ -296,6 +311,9 @@ pub fn verify_password_proof(
     client_public_key: &[u8; 32],
     host_public_key: &[u8; 32],
 ) -> bool {
+    if normalize_password_input(expected_password).is_none() {
+        return false;
+    }
     let expected = generate_password_proof(
         expected_password,
         host_device_id,
@@ -497,5 +515,73 @@ mod tests {
             &other_client,
             &host_pub
         ));
+    }
+    #[test]
+    fn password_is_rejected_at_exact_expiry_instant() {
+        let mut manager = HostPasswordManager::new(1000);
+        manager.set_allow_remote_control(true);
+        let secret = manager.password().to_owned();
+        let expires = manager.expires_at_epoch_secs();
+        assert!(!manager.is_expired(expires - 1));
+        assert!(manager.verify_candidate(&secret, expires - 1).is_ok());
+        assert!(manager.is_expired(expires));
+        assert_eq!(
+            manager.verify_candidate(&secret, expires),
+            Err(PasswordVerificationError::Expired)
+        );
+    }
+
+    #[test]
+    fn malformed_pasted_credentials_are_counted_and_never_silently_normalized() {
+        let mut manager = HostPasswordManager::new(2000);
+        manager.set_allow_remote_control(true);
+        let secret = manager.password().to_owned();
+        let malformed = [
+            format!("{secret}!"),
+            format!("{secret}\\n"),
+            format!("{secret}💥"),
+            secret[..7].to_owned(),
+        ];
+        for (index, input) in malformed.iter().enumerate() {
+            assert_eq!(
+                manager.verify_candidate(input, 2001),
+                Err(PasswordVerificationError::InvalidPassword {
+                    remaining_attempts: 4 - u32::try_from(index).unwrap()
+                })
+            );
+        }
+        assert_eq!(
+            manager.verify_candidate(&format!("{secret}#"), 2001),
+            Err(PasswordVerificationError::LockedOut {
+                remaining_secs: LOCKOUT_DURATION_SECS
+            })
+        );
+        assert!(matches!(
+            manager.verify_candidate(&secret, 2002),
+            Err(PasswordVerificationError::LockedOut { .. })
+        ));
+    }
+
+    #[test]
+    fn proof_verifier_rejects_malformed_credential_spellings() {
+        let password = "KMJ7-9421";
+        let session = [1_u8; 16];
+        let nonce = [2_u8; 32];
+        let client = [3_u8; 32];
+        let host = [4_u8; 32];
+        let proof = generate_password_proof(password, "host", &session, &nonce, &client, &host);
+        assert!(verify_password_proof(
+            &proof, password, "host", &session, &nonce, &client, &host
+        ));
+        for input in ["KMJ7-9421!", "KMJ7-9421💥", "KMJ7-9421\\n", "KMJ7-942"] {
+            assert_eq!(
+                generate_password_proof(input, "host", &session, &nonce, &client, &host),
+                [0_u8; 32],
+                "malformed client credentials must not produce a valid proof"
+            );
+            assert!(!verify_password_proof(
+                &proof, input, "host", &session, &nonce, &client, &host
+            ));
+        }
     }
 }
