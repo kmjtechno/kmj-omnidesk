@@ -77,7 +77,7 @@ pub struct HostProofChallenge {
     host_public_key: [u8; 32],
     issued_at: u64,
     expires_at: u64,
-    password_revision: u64,
+    rotation_count: u64,
     policy_revision: u64,
     consumed: bool,
 }
@@ -301,7 +301,7 @@ impl HostPasswordManager {
             host_public_key,
             issued_at: now_epoch_secs,
             expires_at: now_epoch_secs.saturating_add(60),
-            password_revision: self.rotation_count,
+            rotation_count: self.rotation_count,
             policy_revision: self.policy_revision,
             consumed: false,
         })
@@ -329,7 +329,7 @@ impl HostPasswordManager {
         self.ensure_password_usable(now_epoch_secs)?;
         if now_epoch_secs < challenge.issued_at
             || now_epoch_secs >= challenge.expires_at
-            || challenge.password_revision != self.rotation_count
+            || challenge.rotation_count != self.rotation_count
             || challenge.policy_revision != self.policy_revision
         {
             return Err(PasswordVerificationError::Expired);
@@ -350,7 +350,7 @@ impl HostPasswordManager {
         }
     }
 
-    fn ensure_password_usable(&self, now_epoch_secs: u64) -> Result<(), PasswordVerificationError> {
+    const fn ensure_password_usable(&self, now_epoch_secs: u64) -> Result<(), PasswordVerificationError> {
         if !self.allow_remote_control {
             return Err(PasswordVerificationError::RemoteControlDisabled);
         }
@@ -365,7 +365,7 @@ impl HostPasswordManager {
         Ok(())
     }
 
-    fn record_failed_attempt(&mut self, now_epoch_secs: u64) -> PasswordVerificationError {
+    const fn record_failed_attempt(&mut self, now_epoch_secs: u64) -> PasswordVerificationError {
         self.failed_attempts = self.failed_attempts.saturating_add(1);
         if self.failed_attempts >= MAX_FAILED_ATTEMPTS {
             self.lockout_until_epoch_secs = now_epoch_secs.saturating_add(LOCKOUT_DURATION_SECS);
