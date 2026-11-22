@@ -114,7 +114,8 @@ pub fn host_verify_attended_password<T: Transport>(
         host_key,
         now_epoch_secs,
     )?;
-    challenge.bind_noise_hash(channel.handshake_hash())?;
+    let noise_hash = *channel.handshake_hash();
+    challenge.bind_noise_hash(&noise_hash)?;
     send(
         channel,
         &Wire::Challenge {
@@ -123,7 +124,7 @@ pub fn host_verify_attended_password<T: Transport>(
             nonce: *challenge.nonce(),
             client_key: *challenge.client_public_key(),
             host_key: *challenge.host_public_key(),
-            noise_hash: *channel.handshake_hash(),
+            noise_hash,
         },
     )?;
     let Wire::Proof { digest } = receive(channel)? else {
