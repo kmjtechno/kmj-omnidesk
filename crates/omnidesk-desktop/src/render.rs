@@ -2829,13 +2829,13 @@ fn draw_premium_dashboard(
     // 5. Seven Capability Action Tiles
     let feature = layout.features;
     let tiles = [
-        ("Remote Control", "Full device access"),
-        ("File Transfer", "Send & receive files"),
-        ("Multi-Monitor", "View multiple displays"),
-        ("Audio & Voice", "Remote audio & call"),
-        ("Clipboard Sync", "Copy & paste securely"),
-        ("Session Record", "Record & replay"),
-        ("Unattended Access", "Always available"),
+        ("Remote Control", "Verification required"),
+        ("File Transfer", "Verified session only"),
+        ("Multi-Monitor", "Session required"),
+        ("Audio & Voice", "Session required"),
+        ("Clipboard Sync", "Session required"),
+        ("Session Record", "Session required"),
+        ("Unattended Access", "Policy required"),
     ];
     let tile_width = feature.width / tiles.len();
     for (i, (title, subtitle)) in tiles.iter().enumerate() {
@@ -2845,7 +2845,8 @@ fn draw_premium_dashboard(
             width: tile_width.saturating_sub(4),
             height: feature.height,
         };
-        let is_active = i == 0;
+        // A feature tile is a capability description, not proof of runtime access.
+        let is_active = false;
         canvas.rounded_panel(
             rect.x,
             rect.y,
@@ -3132,15 +3133,19 @@ fn draw_premium_dashboard(
         let y = quick.y + 48 + row * 82;
         let cell_w = cell_width.saturating_sub(8);
         canvas.rounded_panel(x, y, cell_w, 72, 6, 0x18_1c_2b, 0x2e_38_4e);
+        // Only New Session and Send File have real non-network navigation
+        // handlers. Inert power/command/log/invite tiles must look disabled.
+        let supported = matches!(i, 0 | 3);
         let icon_x = x + cell_w / 2 - 7;
         let icon_y = y + 14;
+        let tint = if supported { 0xf7_19_3b } else { 0x72_7a_89 };
         match i {
-            0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, 0xf7_19_3b),
-            1 => draw_power_icon(canvas, icon_x, icon_y, 0xf7_19_3b),
-            2 => draw_terminal_icon(canvas, icon_x, icon_y, 0x42_99_e1),
-            3 => draw_upload_icon(canvas, icon_x, icon_y, 0x48_bb_78),
-            4 => draw_document_icon(canvas, icon_x, icon_y, 0xa0_ae_c0),
-            _ => draw_user_plus_icon(canvas, icon_x, icon_y, 0x38_b2_ac),
+            0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, tint),
+            1 => draw_power_icon(canvas, icon_x, icon_y, tint),
+            2 => draw_terminal_icon(canvas, icon_x, icon_y, tint),
+            3 => draw_upload_icon(canvas, icon_x, icon_y, tint),
+            4 => draw_document_icon(canvas, icon_x, icon_y, tint),
+            _ => draw_user_plus_icon(canvas, icon_x, icon_y, tint),
         }
         canvas.text_clipped(
             x + 4,
@@ -3148,7 +3153,7 @@ fn draw_premium_dashboard(
             action,
             1,
             cell_w.saturating_sub(8),
-            p.foreground,
+            if supported { p.foreground } else { 0x7f_88_99 },
         );
     }
 
@@ -3356,6 +3361,7 @@ mod tests {
             "All Services Operational",
             "42 ms",
             "Connected to KMJ Cloud Relay (Asia)",
+            "Always available",
             r#""Completed""#,
         ] {
             assert!(
