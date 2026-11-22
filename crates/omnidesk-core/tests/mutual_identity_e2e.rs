@@ -1,5 +1,5 @@
-//! Real loopback-LAN socket integration for mutual **identity-only** proof.
-//! Even a successful signed handshake does not enable remote desktop.
+//! Encrypted loopback-LAN + mutually pinned identity channel binding.
+//! Even a successful signed and encrypted handshake does not enable control.
 
 use std::{
     net::{TcpListener, TcpStream},
@@ -11,6 +11,7 @@ use omnidesk_core::{
     mutual_identity::{
         MutualIdentityError, client_mutual_identity_handshake, host_mutual_identity_handshake,
     },
+    noise_encrypted_transport::UnauthenticatedNoiseChannel,
     transport::{HostTransport, Transport},
     trusted_device_store::{PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore},
 };
@@ -45,7 +46,8 @@ fn tcp_mutual_identity_verifies_both_pinned_keys_without_authorizing_control() {
     let addr = listener.local_addr().expect("address");
     let handle = thread::spawn(move || {
         let (stream, _) = listener.accept().expect("accept");
-        let mut transport = HostTransport::from_tcp_stream(stream).expect("transport");
+        let tcp = HostTransport::from_tcp_stream(stream).expect("transport");
+        let mut transport = UnauthenticatedNoiseChannel::accept(tcp).expect("Noise handshake");
         let receipt =
             host_mutual_identity_handshake(&mut transport, &host, &host_store, "kmj-tenant", now)
                 .expect("signed host and trusted client");
@@ -53,7 +55,8 @@ fn tcp_mutual_identity_verifies_both_pinned_keys_without_authorizing_control() {
         transport.close();
     });
     let stream = TcpStream::connect(addr).expect("connect");
-    let mut transport = HostTransport::from_tcp_stream(stream).expect("transport");
+    let tcp = HostTransport::from_tcp_stream(stream).expect("transport");
+    let mut transport = UnauthenticatedNoiseChannel::connect(tcp).expect("Noise handshake");
     let receipt = client_mutual_identity_handshake(
         &mut transport,
         &client,
@@ -64,8 +67,8 @@ fn tcp_mutual_identity_verifies_both_pinned_keys_without_authorizing_control() {
     )
     .expect("verified host");
     assert_eq!(receipt.peer_id, expected_host_id);
-    // No adapter authorization: this receipt cannot make the encrypted-
-    // transport and attended-password release gates true.
+    // Pinned identity and confidentiality are NOT attended password proof,
+    // visible host consent, or remote input authorization.
     transport.close();
     handle.join().expect("host");
 }
@@ -83,7 +86,8 @@ fn tcp_mutual_identity_rejects_impostor_host_key_before_client_proof() {
     let addr = listener.local_addr().expect("address");
     let handle = thread::spawn(move || {
         let (stream, _) = listener.accept().expect("accept");
-        let mut transport = HostTransport::from_tcp_stream(stream).expect("transport");
+        let tcp = HostTransport::from_tcp_stream(stream).expect("transport");
+        let mut transport = UnauthenticatedNoiseChannel::accept(tcp).expect("Noise handshake");
         let result = host_mutual_identity_handshake(
             &mut transport,
             &impostor,
@@ -94,8 +98,9 @@ fn tcp_mutual_identity_rejects_impostor_host_key_before_client_proof() {
         assert!(result.is_err(), "client must refuse impostor");
         transport.close();
     });
-    let mut transport = HostTransport::from_tcp_stream(TcpStream::connect(addr).expect("connect"))
+    let tcp = HostTransport::from_tcp_stream(TcpStream::connect(addr).expect("connect"))
         .expect("transport");
+    let mut transport = UnauthenticatedNoiseChannel::connect(tcp).expect("Noise handshake");
     assert_eq!(
         client_mutual_identity_handshake(
             &mut transport,
@@ -123,15 +128,17 @@ fn tcp_mutual_identity_rejects_revoked_client_before_host_challenge() {
     let addr = listener.local_addr().expect("address");
     let handle = thread::spawn(move || {
         let (stream, _) = listener.accept().expect("accept");
-        let mut transport = HostTransport::from_tcp_stream(stream).expect("transport");
+        let tcp = HostTransport::from_tcp_stream(stream).expect("transport");
+        let mut transport = UnauthenticatedNoiseChannel::accept(tcp).expect("Noise handshake");
         assert_eq!(
             host_mutual_identity_handshake(&mut transport, &host, &host_store, "kmj-tenant", now),
             Err(MutualIdentityError::Revoked)
         );
         transport.close();
     });
-    let mut transport = HostTransport::from_tcp_stream(TcpStream::connect(addr).expect("connect"))
+    let tcp = HostTransport::from_tcp_stream(TcpStream::connect(addr).expect("connect"))
         .expect("transport");
+    let mut transport = UnauthenticatedNoiseChannel::connect(tcp).expect("Noise handshake");
     let result = client_mutual_identity_handshake(
         &mut transport,
         &client,

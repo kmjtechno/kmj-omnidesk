@@ -8,6 +8,7 @@ use omnidesk_core::{
     device_enrollment::EnrollmentCoordinator,
     device_identity::DeviceIdentity,
     mutual_identity::{client_mutual_identity_handshake, host_mutual_identity_handshake},
+    noise_encrypted_transport::UnauthenticatedNoiseChannel,
     product_shell::{DeviceStatus, PrimaryView, ProductShell},
     transport::{HostTransport, Transport},
     transport_adapter::TransportSessionAdapter,
@@ -474,26 +475,33 @@ impl DesktopHost {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
-            Ok(mut transport) => {
-                // Client first verifies the remote host's pinned public key
-                // before releasing the local Ed25519 challenge signature.
-                let result = client_mutual_identity_handshake(
-                    &mut transport,
-                    &identity,
-                    &store,
-                    &expected_host_id,
-                    &tenant,
-                    now,
-                );
-                transport.close();
+            Ok(transport) => {
+                // Require a real Noise AEAD handshake BEFORE Ed25519 identity
+                // signatures, then sign the exact handshake hash to prevent
+                // active MITM from splicing two distinct encrypted sessions.
+                let result = match UnauthenticatedNoiseChannel::connect(transport) {
+                    Ok(mut encrypted) => {
+                        let verified = client_mutual_identity_handshake(
+                            &mut encrypted,
+                            &identity,
+                            &store,
+                            &expected_host_id,
+                            &tenant,
+                            now,
+                        );
+                        encrypted.close();
+                        verified.map_err(|err| format!("{err:?}"))
+                    }
+                    Err(err) => Err(format!("Noise handshake failed: {err:?}")),
+                };
                 self.shell.disconnect();
                 match result {
                     Ok(_) => self.shell.set_error(
-                        "Mutual device identity verified; encrypted remote control and host password proof are not yet available",
+                        "Encrypted mutual device identity verified; attended password proof and remote control remain unavailable",
                     ),
                     Err(err) => self
                         .shell
-                        .set_error(format!("Mutual device authentication rejected: {err:?}")),
+                        .set_error(format!("Encrypted peer authentication rejected: {err}")),
                 }
             }
             Err(err) => {
@@ -566,17 +574,28 @@ impl DesktopHost {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs());
-            let result =
-                host_mutual_identity_handshake(&mut transport, &identity, &store, &tenant, now);
-            transport.close();
+            let result = match UnauthenticatedNoiseChannel::accept(transport) {
+                Ok(mut encrypted) => {
+                    let verified = host_mutual_identity_handshake(
+                        &mut encrypted,
+                        &identity,
+                        &store,
+                        &tenant,
+                        now,
+                    );
+                    encrypted.close();
+                    verified.map_err(|err| format!("{err:?}"))
+                }
+                Err(err) => Err(format!("Noise handshake failed: {err:?}")),
+            };
             self.shell.disconnect();
             match result {
                 Ok(_) => self.shell.set_error(
-                    "Incoming peer identity verified only; encrypted media, remote input and password proof remain unavailable",
+                    "Incoming encrypted identity verified only; host password proof and remote control remain unavailable",
                 ),
                 Err(err) => self
                     .shell
-                    .set_error(format!("Incoming peer identity rejected: {err:?}")),
+                    .set_error(format!("Incoming encrypted peer authentication rejected: {err}")),
             }
             self.refresh_presentation();
         }
