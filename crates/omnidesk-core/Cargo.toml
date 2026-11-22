@@ -13,6 +13,7 @@ omnidesk-protocol = { path = "../omnidesk-protocol" }
 ed25519-dalek = "2"
 getrandom = "0.3"
 sha2 = "0.10"
+snow = "=0.10.0" # Audited Noise NN/ChaChaPoly/SHA256 encrypted-channel building block
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
