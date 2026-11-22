@@ -261,6 +261,103 @@ struct IncomingPeer {
     peer_addr: std::net::SocketAddr,
 }
 
+// Host proof runs off the GUI thread. A single active job serialises password
+// guesses: its updated manager (including failed-attempt lockout) must be
+// restored BEFORE the next queued incoming peer may be processed.
+struct InboundProofRequest {
+    stream: std::net::TcpStream,
+    peer_addr: std::net::SocketAddr,
+    identity: DeviceIdentity,
+    store: TrustedDeviceStore,
+    manager: omnidesk_core::password_auth::HostPasswordManager,
+    tenant: String,
+}
+
+struct InboundProofOutcome {
+    manager: omnidesk_core::password_auth::HostPasswordManager,
+    result: Result<(), String>,
+    peer_addr: std::net::SocketAddr,
+}
+
+struct InboundProofJob {
+    result_rx: Receiver<InboundProofOutcome>,
+    cancelled: Arc<AtomicBool>,
+    original_generation: (u64, u64),
+}
+
+impl Drop for InboundProofJob {
+    fn drop(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+}
+
+impl InboundProofJob {
+    fn launch(request: InboundProofRequest) -> std::io::Result<Self> {
+        let original_generation = request.manager.approval_generation();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let (tx, result_rx) = mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("omnidesk-inbound-auth-probe".to_owned())
+            .spawn(move || {
+                let InboundProofRequest {
+                    stream,
+                    peer_addr,
+                    identity,
+                    store,
+                    mut manager,
+                    tenant,
+                } = request;
+                let result = if worker_cancelled.load(Ordering::Acquire) {
+                    Err("Host cancelled before inbound handshake".to_owned())
+                } else {
+                    match HostTransport::from_tcp_stream(stream) {
+                        Ok(transport) => match UnauthenticatedNoiseChannel::accept(transport) {
+                            Ok(mut encrypted) => {
+                                let verified = if worker_cancelled.load(Ordering::Acquire) {
+                                    Err("Host cancelled during Noise handshake".to_owned())
+                                } else {
+                                    let now = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map_or(0, |duration| duration.as_secs());
+                                    host_verify_attended_password(
+                                        &mut encrypted,
+                                        &identity,
+                                        &store,
+                                        &mut manager,
+                                        &tenant,
+                                        now,
+                                    )
+                                    .map_err(|err| format!("{err:?}"))
+                                };
+                                encrypted.close();
+                                verified
+                            }
+                            Err(err) => Err(format!("Noise handshake failed: {err:?}")),
+                        },
+                        Err(err) => Err(format!("Incoming TCP transport rejected: {err:?}")),
+                    }
+                };
+                // No session/capability/transport returned, only a redacted
+                // result and updated lockout state for the host GUI.
+                let _ = tx.send(InboundProofOutcome {
+                    manager,
+                    result,
+                    peer_addr,
+                });
+            })?;
+        Ok(Self {
+            result_rx,
+            cancelled,
+            original_generation,
+        })
+    }
+
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+}
+
 // Build the outbound request on the GUI thread, then move it into exactly
 // one bounded worker. Secrets are never included in Debug/status messages.
 struct OutboundProofRequest {
@@ -387,6 +484,7 @@ struct DesktopHost {
     cursor_position: Option<(usize, usize)>,
     frameless_premium: bool,
     incoming_rx: std::sync::mpsc::Receiver<IncomingPeer>,
+    inbound_proof: Option<InboundProofJob>,
     outbound_proof: Option<OutboundProofJob>,
 }
 
@@ -504,6 +602,7 @@ impl DesktopHost {
             cursor_position: None,
             frameless_premium: false,
             incoming_rx,
+            inbound_proof: None,
             outbound_proof: None,
         }
     }
