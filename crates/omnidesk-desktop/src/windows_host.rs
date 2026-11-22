@@ -1433,6 +1433,75 @@ mod tests {
     use omnidesk_core::product_shell::{DeviceStatus, DeviceSummary, PrimaryView, ProductShell};
 
     #[test]
+    fn native_inbound_worker_rejects_wrong_password_and_retains_host_attempt_budget() {
+        use std::{net::TcpListener, thread, time::{Duration, SystemTime, UNIX_EPOCH}};
+        use omnidesk_core::{
+            attended_proof_wire::client_prove_attended_password,
+            device_identity::DeviceIdentity,
+            noise_encrypted_transport::UnauthenticatedNoiseChannel,
+            password_auth::{HostPasswordManager, PasswordVerificationError},
+            transport::{TcpLanTransport, Transport},
+            trusted_device_store::{PersistedDeviceStatus, TrustedDeviceRecord, TrustedDeviceStore},
+        };
+
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("time").as_secs();
+        let client = DeviceIdentity::from_seed(&[0x9A; 32]);
+        let host = DeviceIdentity::from_seed(&[0x9B; 32]);
+        let host_id = host.public_id().to_owned();
+        let pin = |device: &DeviceIdentity| {
+            let mut store = TrustedDeviceStore::new();
+            store.add(TrustedDeviceRecord {
+                device_id: device.public_id().to_owned(),
+                display_name: "Pinned QA Device".to_owned(),
+                public_key: device.public_key_bytes(),
+                enrolled_at_epoch_secs: now - 1,
+                trust_expires_at_epoch_secs: now + 600,
+                managed: false,
+                revoked: false,
+                status: PersistedDeviceStatus::Offline,
+            }).expect("pin peer");
+            store
+        };
+        let host_store = pin(&client);
+        let client_store = pin(&host);
+        let mut manager = HostPasswordManager::new(now);
+        manager.set_allow_remote_control(true);
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("address");
+        let client_task = thread::spawn(move || {
+            let tcp = TcpLanTransport::connect(address, Duration::from_secs(2)).expect("connect");
+            let mut channel = UnauthenticatedNoiseChannel::connect(tcp).expect("Noise client");
+            let result = client_prove_attended_password(
+                &mut channel, &client, &client_store, &host_id,
+                "kmj-tenant", "WRONG999", now,
+            );
+            channel.close();
+            assert!(result.is_err(), "incorrect password must be refused");
+        });
+        let (stream, peer_addr) = listener.accept().expect("accept");
+        let job = super::InboundProofJob::launch(super::InboundProofRequest {
+            stream,
+            peer_addr,
+            identity: host,
+            store: host_store,
+            manager,
+            tenant: "kmj-tenant".to_owned(),
+        }).expect("native host worker");
+        let mut result = job.result_rx.recv_timeout(Duration::from_secs(12))
+            .expect("native worker result");
+        assert!(
+            result.result.as_ref().is_err_and(|error| error.contains("InvalidPassword")),
+            "host must reject encrypted wrong proof"
+        );
+        assert_eq!(
+            result.manager.verify_candidate("WRONG999", now),
+            Err(PasswordVerificationError::InvalidPassword { remaining_attempts: 3 }),
+            "wrong password count must persist after worker returns"
+        );
+        client_task.join().expect("client");
+    }
+
+    #[test]
     fn pending_outbound_probe_is_nonblocking_and_cancel_never_reports_authorized() {
         use std::sync::{
             Arc,
