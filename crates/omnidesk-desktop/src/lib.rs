@@ -971,7 +971,7 @@ mod tests {
         let height = 900;
         let fit = crate::layout::PremiumViewportFit::for_window(width, height).unwrap();
         let art = PremiumDashboardLayout::for_window(1672, 941).unwrap();
-        let hit = |rect: DashboardRect| {
+        let hit = |rect: crate::layout::DashboardRect| {
             let px = fit.x + (rect.x + rect.width / 2) * fit.width / 1672;
             let py = fit.y + (rect.y + rect.height / 2) * fit.height / 941;
             action_at_point(&shell, width, height, px, py)
