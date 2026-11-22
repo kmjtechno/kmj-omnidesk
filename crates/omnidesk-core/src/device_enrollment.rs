@@ -401,8 +401,7 @@ pub enum EnrollmentStage {
 pub fn generate_csprng_nonce(_now_epoch_secs: u64) -> [u8; 32] {
     let mut nonce = [0_u8; 32];
     loop {
-        getrandom::fill(&mut nonce)
-            .expect("OS CSPRNG unavailable: refusing enrollment challenge");
+        getrandom::fill(&mut nonce).expect("OS CSPRNG unavailable: refusing enrollment challenge");
         if nonce != [0_u8; 32] {
             return nonce;
         }
