@@ -220,7 +220,11 @@ impl TrustedDeviceStore {
         self.devices.iter().find(|d| &d.public_key == public_key)
     }
 
-    /// Adds or replaces a trusted device record after strict validation.
+    /// Enrolls a new device without ever replacing a pinned ID or public key.
+    ///
+    /// Changing a key or clearing revocation requires an explicit, audited
+    /// unenroll + fresh pairing; a duplicate remote enrollment cannot silently
+    /// retake an existing trusted identity.
     ///
     /// # Errors
     ///
@@ -228,13 +232,15 @@ impl TrustedDeviceStore {
     pub fn add(&mut self, record: TrustedDeviceRecord) -> Result<(), DeviceStoreError> {
         record.validate()?;
 
-        if let Some(pos) = self
-            .devices
-            .iter()
-            .position(|d| d.device_id == record.device_id)
-        {
-            self.devices[pos] = record;
-            return Ok(());
+        // Both an existing ID with a different key and a new ID with an
+        // existing key would break the unique trusted identity binding.
+        // Never replace a revoked record or silently re-enable trust.
+        if let Some(existing) = self.devices.iter().find(|device| {
+            device.device_id == record.device_id || device.public_key == record.public_key
+        }) {
+            return Err(DeviceStoreError::DeviceAlreadyExists(
+                existing.device_id.clone(),
+            ));
         }
 
         if self.devices.len() >= MAX_DEVICES_COUNT {
@@ -316,6 +322,12 @@ impl TrustedDeviceStore {
         let envelope: StoreEnvelope = serde_json::from_slice(&content)
             .map_err(|err| DeviceStoreError::Json(format!("cannot deserialize store: {err}")))?;
 
+        if envelope.schema_version != CURRENT_SCHEMA_VERSION {
+            return Err(DeviceStoreError::Json(
+                "unsupported trusted-device store schema version".to_owned(),
+            ));
+        }
+
         if envelope.devices.len() > MAX_DEVICES_COUNT {
             return Err(DeviceStoreError::DeviceCountExceeded {
                 count: envelope.devices.len(),
@@ -325,8 +337,9 @@ impl TrustedDeviceStore {
 
         let mut store = Self::new();
         for record in envelope.devices {
-            record.validate()?;
-            store.devices.push(record);
+            // Validate both the individual record and the unique ID/key
+            // invariant, including when a file was edited out-of-band.
+            store.add(record)?;
         }
 
         Ok(store)
