@@ -535,9 +535,7 @@ fn premium_action_at_point(
         let stride = (quick.width.saturating_sub(32)) / 3;
         let left = quick.x + 16;
         let top = quick.y + 48;
-        if (left..left + stride.saturating_sub(8)).contains(&x)
-            && (top..top + 72).contains(&y)
-        {
+        if (left..left + stride.saturating_sub(8)).contains(&x) && (top..top + 72).contains(&y) {
             return Some(DesktopAction::FocusRemoteIdInput);
         }
         if (left..left + stride.saturating_sub(8)).contains(&x)
