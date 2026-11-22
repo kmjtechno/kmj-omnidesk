@@ -531,6 +531,8 @@ impl DesktopHost {
         }
 
         while let Ok(incoming) = self.incoming_rx.try_recv() {
+            // Sharing permission is separate from peer identity; unaudited
+            // inbound attempts must never enable a control session.
             if !self.shell.allow_remote_control() {
                 self.shell.set_error(format!(
                     "Incoming peer {} rejected: host remote control is disabled",
@@ -539,61 +541,50 @@ impl DesktopHost {
                 self.refresh_presentation();
                 continue;
             }
-            let Ok(transport) = HostTransport::from_tcp_stream(incoming.stream) else {
+            let Ok(mut transport) = HostTransport::from_tcp_stream(incoming.stream) else {
                 continue;
             };
             let tenant =
                 std::env::var("OMNIDESK_TENANT").unwrap_or_else(|_| "kmj-omnidesk".to_owned());
-            let mut adapter = TransportSessionAdapter::new(transport, tenant);
-            let Ok(store) = TrustedDeviceStore::load_or_create(&self.store_path) else {
-                continue;
+            let store = match TrustedDeviceStore::load_or_create(&self.store_path) {
+                Ok(store) => store,
+                Err(_) => {
+                    transport.close();
+                    self.shell.set_error("Incoming session rejected: trusted peer store missing");
+                    self.refresh_presentation();
+                    continue;
+                }
+            };
+            let identity = match DeviceIdentity::load_from_path(&self.identity_path) {
+                Ok(identity) => identity,
+                Err(_) => {
+                    transport.close();
+                    self.shell.set_error("Incoming session rejected: local signing key missing");
+                    self.refresh_presentation();
+                    continue;
+                }
             };
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs());
-
-            if let Ok(record) = host_negotiate_and_authenticate_session(&mut adapter, &store, now) {
-                let mut summaries = store.to_device_summaries();
-                if !summaries.iter().any(|d| d.id == record.device_id) {
-                    summaries.push(DeviceSummary {
-                        id: record.device_id.clone(),
-                        display_name: record.display_name.clone(),
-                        status: DeviceStatus::Online,
-                    });
-                }
-                for device in &mut summaries {
-                    device.status = if device.id == record.device_id {
-                        DeviceStatus::Online
-                    } else {
-                        DeviceStatus::Offline
-                    };
-                }
-                self.shell.replace_devices(summaries);
-                if let Err(err) = self
+            let result = host_mutual_identity_handshake(
+                &mut transport,
+                &identity,
+                &store,
+                &tenant,
+                now,
+            );
+            transport.close();
+            self.shell.disconnect();
+            match result {
+                Ok(_) => self.shell.set_error(
+                    "Incoming peer identity verified only; encrypted media, remote input and password proof remain unavailable",
+                ),
+                Err(err) => self
                     .shell
-                    .begin_connect_trusted(&record.device_id, &store, now)
-                {
-                    adapter.close();
-                    self.shell.disconnect();
-                    self.shell
-                        .set_error(format!("Authenticated incoming peer rejected: {err:?}"));
-                    self.refresh_presentation();
-                    continue;
-                }
-            } else {
-                // Authentication failure cannot create an Online device,
-                // display a permission prompt, or retain the failed adapter.
-                adapter.close();
-                self.shell.set_error(format!(
-                    "Incoming peer {} rejected: authentication failed",
-                    incoming.peer_addr
-                ));
-                self.refresh_presentation();
-                continue;
+                    .set_error(format!("Incoming peer identity rejected: {err:?}")),
             }
-            self.session_adapter = Some(adapter);
             self.refresh_presentation();
-            break;
         }
     }
 
