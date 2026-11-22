@@ -261,6 +261,18 @@ struct IncomingPeer {
     peer_addr: std::net::SocketAddr,
 }
 
+// Build the outbound request on the GUI thread, then move it into exactly
+// one bounded worker. Secrets are never included in Debug/status messages.
+struct OutboundProofRequest {
+    address: std::net::SocketAddr,
+    expected_host_id: String,
+    identity: DeviceIdentity,
+    store: TrustedDeviceStore,
+    tenant: String,
+    password: String,
+    now: u64,
+}
+
 /// One in-flight, password-only diagnostic. It MUST NOT carry a control
 /// capability or be used to display a remote-control permission prompt.
 struct OutboundProofJob {
@@ -277,6 +289,62 @@ impl Drop for OutboundProofJob {
 }
 
 impl OutboundProofJob {
+    fn launch(request: OutboundProofRequest) -> std::io::Result<Self> {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let (tx, result_rx) = mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("omnidesk-outbound-auth-probe".to_owned())
+            .spawn(move || {
+                let OutboundProofRequest {
+                    address,
+                    expected_host_id,
+                    identity,
+                    store,
+                    tenant,
+                    password,
+                    now,
+                } = request;
+                let result = if worker_cancelled.load(Ordering::Acquire) {
+                    Err("Operator cancelled before connect".to_owned())
+                } else {
+                    match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
+                        Ok(transport) => match UnauthenticatedNoiseChannel::connect(transport) {
+                            Ok(mut encrypted) => {
+                                // Refuse to send the password proof if the
+                                // operator cancelled during Noise negotiation.
+                                let verified = if worker_cancelled.load(Ordering::Acquire) {
+                                    Err("Operator cancelled during Noise handshake".to_owned())
+                                } else {
+                                    client_prove_attended_password(
+                                        &mut encrypted,
+                                        &identity,
+                                        &store,
+                                        &expected_host_id,
+                                        &tenant,
+                                        &password,
+                                        now,
+                                    )
+                                    .map_err(|err| format!("{err:?}"))
+                                };
+                                encrypted.close();
+                                verified
+                            }
+                            Err(err) => Err(format!("Noise handshake rejected: {err:?}")),
+                        },
+                        Err(err) => Err(format!("TCP connection rejected: {err:?}")),
+                    }
+                };
+                // Never return the plaintext password to the UI or logs.
+                let _ = tx.send(result);
+            })?;
+        Ok(Self {
+            result_rx,
+            cancelled,
+            operator_cancelled: false,
+        })
+    }
+
     fn cancel(&mut self) {
         self.operator_cancelled = true;
         self.cancelled.store(true, Ordering::Release);
@@ -603,53 +671,17 @@ impl DesktopHost {
         // editable GUI. The one worker owns it until completion.
         self.shell.clear_remote_password();
         self.shell.disconnect();
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let worker_cancelled = Arc::clone(&cancelled);
-        let (tx, result_rx) = mpsc::sync_channel(1);
-        let thread = std::thread::Builder::new()
-            .name("omnidesk-outbound-auth-probe".to_owned())
-            .spawn(move || {
-                let result = if worker_cancelled.load(Ordering::Acquire) {
-                    Err("Operator cancelled before connect".to_owned())
-                } else {
-                    match HostTransport::connect_tcp(address, std::time::Duration::from_secs(2)) {
-                        Ok(transport) => match UnauthenticatedNoiseChannel::connect(transport) {
-                            Ok(mut encrypted) => {
-                                // On a cancel while negotiating Noise, refuse
-                                // to send any credential proof if possible.
-                                let verified = if worker_cancelled.load(Ordering::Acquire) {
-                                    Err("Operator cancelled during Noise handshake".to_owned())
-                                } else {
-                                    client_prove_attended_password(
-                                        &mut encrypted,
-                                        &identity,
-                                        &store,
-                                        &expected_host_id,
-                                        &tenant,
-                                        &password,
-                                        now,
-                                    )
-                                    .map_err(|err| format!("{err:?}"))
-                                };
-                                encrypted.close();
-                                verified
-                            }
-                            Err(err) => Err(format!("Noise handshake rejected: {err:?}")),
-                        },
-                        Err(err) => Err(format!("TCP connection rejected: {err:?}")),
-                    }
-                };
-                // The result contains no credential. The original password
-                // remains solely inside this bounded worker until it exits.
-                let _ = tx.send(result);
-            });
-        match thread {
-            Ok(_) => {
-                self.outbound_proof = Some(OutboundProofJob {
-                    result_rx,
-                    cancelled,
-                    operator_cancelled: false,
-                });
+        match OutboundProofJob::launch(OutboundProofRequest {
+            address,
+            expected_host_id,
+            identity,
+            store,
+            tenant,
+            password,
+            now,
+        }) {
+            Ok(job) => {
+                self.outbound_proof = Some(job);
                 self.shell
                     .set_error("Encrypted password authentication in progress (no remote control)");
             }
