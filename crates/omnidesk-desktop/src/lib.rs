@@ -516,7 +516,35 @@ fn premium_action_at_point(
             return tab.map(DesktopAction::SelectNav);
         }
     }
+    // A painted help/settings glyph is a real control, not a mockup.
+    // Notification bell remains inert until a verified source exists.
+    if y < premium.header_height && width == 1672 && height == 941 {
+        if (1356..1396).contains(&x) {
+            return Some(DesktopAction::ToggleHelp);
+        }
+        if (1416..1458).contains(&x) {
+            return Some(DesktopAction::OpenSettings);
+        }
+    }
     if shell.nav_tab() == NavTab::Devices && shell.primary_view() == PrimaryView::Devices {
+        // Quick-action tiles use the exact same 3-column native rectangles
+        // drawn by the renderer (top=48px, 82px row pitch, 72px height).
+        // Only backed workflows are clickable; all unsupported actions
+        // remain fail-closed and cannot issue network commands.
+        let quick = premium.quick_actions;
+        let stride = (quick.width.saturating_sub(32)) / 3;
+        let left = quick.x + 16;
+        let top = quick.y + 48;
+        if (left..left + stride.saturating_sub(8)).contains(&x)
+            && (top..top + 72).contains(&y)
+        {
+            return Some(DesktopAction::FocusRemoteIdInput);
+        }
+        if (left..left + stride.saturating_sub(8)).contains(&x)
+            && (top + 82..top + 154).contains(&y)
+        {
+            return Some(DesktopAction::SelectNav(NavTab::FileTransfer));
+        }
         if !shell.local_device_id().is_empty() && premium.local_id_copy().contains(x, y) {
             return Some(DesktopAction::CopyYourId);
         }
@@ -963,6 +991,46 @@ pub const fn controls_for(view: PrimaryView) -> &'static [AccessibleControl] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn approved_header_and_quick_actions_only_dispatch_existing_workflows() {
+        let shell = ProductShell::new();
+        let width = 1672;
+        let height = 941;
+        let layout = PremiumDashboardLayout::for_window(width, height).unwrap();
+        let quick = layout.quick_actions;
+        let tile_width = (quick.width.saturating_sub(32)) / 3;
+        let left = quick.x + 16;
+        let top = quick.y + 48;
+        assert_eq!(
+            action_at_point(&shell, width, height, 1375, 30),
+            Some(DesktopAction::ToggleHelp)
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, 1432, 30),
+            Some(DesktopAction::OpenSettings)
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, left + 20, top + 25),
+            Some(DesktopAction::FocusRemoteIdInput)
+        );
+        assert_eq!(
+            action_at_point(&shell, width, height, left + 20, top + 82 + 25),
+            Some(DesktopAction::SelectNav(NavTab::FileTransfer))
+        );
+        for (x, y) in [
+            (left + tile_width + 20, top + 25),
+            (left + 2 * tile_width + 20, top + 25),
+            (left + tile_width + 20, top + 82 + 25),
+            (left + 2 * tile_width + 20, top + 82 + 25),
+        ] {
+            assert_eq!(
+                action_at_point(&shell, width, height, x, y),
+                None,
+                "unimplemented Wake LAN, CMD, Logs, Invite must not dispatch"
+            );
+        }
+    }
 
     #[test]
     fn fitted_v7_password_and_remote_id_clicks_match_actual_drawn_artboard() {
