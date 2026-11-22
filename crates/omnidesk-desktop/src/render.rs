@@ -319,6 +319,38 @@ impl Canvas<'_> {
         self.stroke_rect(x, y, w, h, 1, border);
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    fn soft_glow(&mut self, cx: usize, cy: usize, rx: usize, ry: usize, color: u32, alpha: f32) {
+        if rx == 0 || ry == 0 {
+            return;
+        }
+        let x_min = cx.saturating_sub(rx);
+        let x_max = cx.saturating_add(rx).min(self.width);
+        let y_min = cy.saturating_sub(ry);
+        let y_max = cy.saturating_add(ry).min(self.height);
+        for y in y_min..y_max {
+            let dy = (y as f32 - cy as f32) / ry as f32;
+            for x in x_min..x_max {
+                let dx = (x as f32 - cx as f32) / rx as f32;
+                let rad2 = dx.mul_add(dx, dy * dy);
+                if rad2 < 1.0 {
+                    let falloff = (1.0 - rad2).powi(3);
+                    self.blend_coverage(
+                        i32::try_from(x).unwrap_or(i32::MAX),
+                        i32::try_from(y).unwrap_or(i32::MAX),
+                        color,
+                        falloff * alpha,
+                    );
+                }
+            }
+        }
+    }
+
     fn stroke_rect(
         &mut self,
         x: usize,
