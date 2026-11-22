@@ -128,6 +128,20 @@ impl TcpLanTransport {
         })
     }
 
+    /// Keep handshake and password proof reads bounded to the short default
+    /// deadline. It must not be raised for unauthenticated connections.
+    ///
+    /// # Errors
+    /// Fails closed when the underlying socket cannot be configured.
+    pub fn configure_attended_auth_timeout(&self) -> Result<(), TransportError> {
+        self.stream
+            .set_read_timeout(Some(TCP_IO_TIMEOUT))
+            .map_err(|error| io_error(&error))?;
+        self.stream
+            .set_write_timeout(Some(TCP_IO_TIMEOUT))
+            .map_err(|error| io_error(&error))
+    }
+
     /// Increase the read deadline for ONE explicitly enabled, diagnostic
     /// attended-host consent exchange. The default TCP policy remains 5s.
     ///
@@ -236,6 +250,18 @@ impl HostTransport {
     /// Returns [`TransportError`] on socket configuration error.
     pub fn from_tcp_stream(stream: TcpStream) -> Result<Self, TransportError> {
         TcpLanTransport::from_stream(stream).map(Self::Tcp)
+    }
+
+    /// Preserve the five-second deadline while peer identity and host
+    /// temporary-password proof are still unauthenticated.
+    ///
+    /// # Errors
+    /// Fails closed on a TCP socket policy error.
+    pub fn configure_attended_auth_timeout(&self) -> Result<(), TransportError> {
+        match self {
+            Self::Tcp(transport) => transport.configure_attended_auth_timeout(),
+            Self::Loopback(_) => Ok(()),
+        }
     }
 
     /// Configure a bounded 35-second read deadline only for opt-in host
@@ -369,6 +395,27 @@ mod tests {
         );
         assert_eq!(
             transport.stream.write_timeout().expect("write timeout"),
+            Some(TCP_IO_TIMEOUT)
+        );
+        transport
+            .configure_attended_auth_timeout()
+            .expect("short proof deadline");
+        assert_eq!(
+            transport.stream.read_timeout().expect("proof read timeout"),
+            Some(TCP_IO_TIMEOUT)
+        );
+        transport
+            .configure_attended_consent_timeout()
+            .expect("post-proof consent deadline");
+        assert_eq!(
+            transport.stream.read_timeout().expect("consent read timeout"),
+            Some(TCP_CONSENT_IO_TIMEOUT)
+        );
+        transport
+            .configure_attended_auth_timeout()
+            .expect("reset to short deadline");
+        assert_eq!(
+            transport.stream.read_timeout().expect("restored read timeout"),
             Some(TCP_IO_TIMEOUT)
         );
     }
