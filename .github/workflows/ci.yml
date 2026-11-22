@@ -471,6 +471,16 @@ jobs:
           $report = Get-Content -Raw artifacts/locked-dashboard-evidence.json | ConvertFrom-Json
           if ($report.evidence_type -ne 'deterministic_native_renderer_empty_state') { throw 'invalid UI QA evidence type' }
           if ($report.remote_video_authenticated -ne $false) { throw 'mock UI falsely claims a live session' }
+      - name: Export approved V7 1672x941 disconnected native renderer frame
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          cargo run -p omnidesk-desktop --example v7_premium_dashboard_capture --release -- artifacts/premium-v7.ppm
+          python scripts/premium_v7_ppm_to_png.py --input artifacts/premium-v7.ppm --output artifacts/premium-v7.png --metadata artifacts/premium-v7-evidence.json
+          $report = Get-Content -Raw artifacts/premium-v7-evidence.json | ConvertFrom-Json
+          if ($report.evidence_type -ne 'deterministic_premium_v7_renderer_empty_state') { throw 'invalid V7 UI QA evidence type' }
+          if ($report.remote_video_authenticated -ne $false) { throw 'V7 renderer falsely claims remote video' }
+          if ($report.visual_design_signoff -ne $false) { throw 'deterministic renderer frame cannot claim owner visual signoff' }
       - name: Check project-scoped CodeBridge visual QA bridge
         shell: pwsh
         run: |
@@ -509,4 +519,6 @@ jobs:
             artifacts/native-ui/*.png
             artifacts/locked-dashboard.png
             artifacts/locked-dashboard-evidence.json
+            artifacts/premium-v7.png
+            artifacts/premium-v7-evidence.json
           if-no-files-found: error

@@ -42,8 +42,104 @@ fn native_ui_font() -> Option<&'static FontArc> {
     .as_ref()
 }
 
+/// Fade screenshots' decorative crop boundaries into native surfaces.
+/// Keep functional UI elements native; never render master sample credentials.
+fn feather_decorative_edges(
+    rgba: &mut [u8],
+    width: usize,
+    height: usize,
+    left: usize,
+    right: usize,
+    top: usize,
+    bottom: usize,
+) {
+    if width == 0 || height == 0 || rgba.len() != width.saturating_mul(height).saturating_mul(4) {
+        return;
+    }
+    for y in 0..height {
+        let top_alpha = y
+            .min(top)
+            .saturating_mul(255)
+            .checked_div(top)
+            .unwrap_or(255);
+        let bottom_alpha = height
+            .saturating_sub(y + 1)
+            .min(bottom)
+            .saturating_mul(255)
+            .checked_div(bottom)
+            .unwrap_or(255);
+        for x in 0..width {
+            let left_alpha = x
+                .min(left)
+                .saturating_mul(255)
+                .checked_div(left)
+                .unwrap_or(255);
+            let right_alpha = width
+                .saturating_sub(x + 1)
+                .min(right)
+                .saturating_mul(255)
+                .checked_div(right)
+                .unwrap_or(255);
+            let edge_alpha = left_alpha.min(right_alpha).min(top_alpha).min(bottom_alpha);
+            let index = (y * width + x) * 4 + 3;
+            let original = usize::from(rgba[index]);
+            rgba[index] = u8::try_from((original * edge_alpha + 127) / 255).unwrap_or(u8::MAX);
+        }
+    }
+}
+
+/// The owner-approved 1672x941 screenshot is stored verbatim in Git. Only
+/// its decorative hero artwork is cropped into the native UI: the screenshot's
+/// synthetic license, passwords, device names and health values are NEVER
+/// displayed as runtime values.
+fn approved_v7_hero_art() -> Option<&'static (usize, usize, Vec<u8>)> {
+    static ART: OnceLock<Option<(usize, usize, Vec<u8>)>> = OnceLock::new();
+    ART.get_or_init(|| {
+        let master = image::load_from_memory(include_bytes!(
+            "../../../docs/design/references/omnidesk-v7-approved-master.png"
+        ))
+        .ok()?;
+        if master.width() != 1672 || master.height() != 941 {
+            return None;
+        }
+        let crop = master.crop_imm(650, 75, 640, 170).into_rgba8();
+        let (width, height) = crop.dimensions();
+        let (w, h) = (usize::try_from(width).ok()?, usize::try_from(height).ok()?);
+        let mut rgba = crop.into_raw();
+        feather_decorative_edges(&mut rgba, w, h, 60, 4, 4, 4);
+        Some((w, h, rgba))
+    })
+    .as_ref()
+}
+
+/// This source rectangle contains only the approved decorative lower-left
+/// red light waves, not nav labels or sample product data.
+fn approved_v7_sidebar_wave_art() -> Option<&'static (usize, usize, Vec<u8>)> {
+    static ART: OnceLock<Option<(usize, usize, Vec<u8>)>> = OnceLock::new();
+    ART.get_or_init(|| {
+        let master = image::load_from_memory(include_bytes!(
+            "../../../docs/design/references/omnidesk-v7-approved-master.png"
+        ))
+        .ok()?;
+        if master.width() != 1672 || master.height() != 941 {
+            return None;
+        }
+        let crop = master.crop_imm(0, 700, 258, 185).into_rgba8();
+        let (width, height) = crop.dimensions();
+        let (w, h) = (usize::try_from(width).ok()?, usize::try_from(height).ok()?);
+        let mut rgba = crop.into_raw();
+        feather_decorative_edges(&mut rgba, w, h, 0, 12, 22, 0);
+        Some((w, h, rgba))
+    })
+    .as_ref()
+}
+
 const fn native_text_size(scale: usize) -> f32 {
-    if scale >= 2 { 22.0 } else { 16.0 }
+    match scale {
+        0 | 1 => 17.0,
+        2 => 24.0,
+        _ => 38.0,
+    }
 }
 
 struct Canvas<'a> {
@@ -108,6 +204,119 @@ impl Canvas<'_> {
     /// has no per-pixel alpha, so a 1px line is a 1px fill.
     fn h_line(&mut self, x: usize, y: usize, line_width: usize, color: u32) {
         self.fill_rect(x, y, line_width, 1, color);
+    }
+
+    fn v_line(&mut self, x: usize, y: usize, line_height: usize, color: u32) {
+        if x >= self.width {
+            return;
+        }
+        let max_y = y.saturating_add(line_height).min(self.height);
+        for py in y..max_y {
+            self.pixels[py * self.width + x] = color;
+        }
+    }
+
+    /// Rasterize a true filled round rectangle with a one-pixel continuous
+    /// outline. The previous three-crossbar approximation left large black
+    /// triangular notches on every card corner at Windows DPI scales.
+    #[allow(clippy::many_single_char_names, clippy::too_many_arguments)]
+    fn rounded_panel(
+        &mut self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        r: usize,
+        bg: u32,
+        border: u32,
+    ) {
+        if w < 2 || h < 2 || x >= self.width || y >= self.height {
+            return;
+        }
+        let radius = r.min(w / 2).min(h / 2);
+        if radius < 2 {
+            self.fill_rect(x, y, w, h, bg);
+            self.stroke_rect(x, y, w, h, 1, border);
+            return;
+        }
+        let inner_radius = radius.saturating_sub(1);
+        let outer_center = radius.saturating_sub(1);
+        let outer_sq = radius.saturating_mul(radius);
+        let inner_sq = inner_radius.saturating_mul(inner_radius);
+        let max_x = x.saturating_add(w).min(self.width);
+        let max_y = y.saturating_add(h).min(self.height);
+        for py in y..max_y {
+            let ly = py - y;
+            for px in x..max_x {
+                let lx = px - x;
+                let dx = if lx < radius {
+                    outer_center - lx
+                } else {
+                    lx.saturating_sub(w.saturating_sub(radius))
+                };
+                let dy = if ly < radius {
+                    outer_center - ly
+                } else {
+                    ly.saturating_sub(h.saturating_sub(radius))
+                };
+                let corner = (lx < radius || lx >= w - radius) && (ly < radius || ly >= h - radius);
+                let outside = corner
+                    && (dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) > outer_sq);
+                if outside {
+                    continue;
+                }
+                let outline = lx == 0
+                    || ly == 0
+                    || lx + 1 == w
+                    || ly + 1 == h
+                    || (corner
+                        && dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) >= inner_sq);
+                self.pixels[py * self.width + px] = if outline { border } else { bg };
+            }
+        }
+    }
+
+    #[allow(
+        clippy::many_single_char_names,
+        clippy::too_many_arguments,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::suboptimal_flops
+    )]
+    fn rounded_gradient_panel(
+        &mut self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        top_color: u32,
+        bottom_color: u32,
+        border: u32,
+    ) {
+        if w < 2 || h < 2 {
+            return;
+        }
+        let tr = (top_color >> 16) & 0xff;
+        let tg = (top_color >> 8) & 0xff;
+        let tb = top_color & 0xff;
+        let br = (bottom_color >> 16) & 0xff;
+        let bg = (bottom_color >> 8) & 0xff;
+        let bb = bottom_color & 0xff;
+
+        for row in 0..h {
+            let py = y + row;
+            if py >= self.height {
+                break;
+            }
+            let frac = row as f32 / h.max(1) as f32;
+            let cr = (tr as f32 * (1.0 - frac) + br as f32 * frac) as u32;
+            let cg = (tg as f32 * (1.0 - frac) + bg as f32 * frac) as u32;
+            let cb = (tb as f32 * (1.0 - frac) + bb as f32 * frac) as u32;
+            let c = (cr << 16) | (cg << 8) | cb;
+            self.h_line(x, py, w, c);
+        }
+        self.stroke_rect(x, y, w, h, 1, border);
     }
 
     fn stroke_rect(
@@ -334,22 +543,40 @@ fn draw_top_bar(
     // without tinting the chrome.
     // At compact widths a 2x title intersects the status pill. Use a
     // measured one-line title and clip the secondary label to the viewport.
+    // The narrow shell keeps the same single official brand mark as the
+    // wide dashboard; it never draws a second mark in content cards.
+    if let Some(mark) = official_kmj_mark() {
+        canvas.image_rgba(
+            (layout.content_x, 13, 38, 38),
+            (
+                usize::try_from(mark.width).unwrap_or(0),
+                usize::try_from(mark.height).unwrap_or(0),
+            ),
+            &mark.rgba,
+        );
+    }
+    let title_x = layout.content_x.saturating_add(47);
     let title_scale = if canvas.width < 480 { 1 } else { 2 };
+    let title = if canvas.width < 480 {
+        "OmniDesk"
+    } else {
+        presentation.title
+    };
     canvas.text(
-        layout.content_x,
+        title_x,
         (bar / 2).saturating_sub(9),
-        presentation.title,
+        title,
         title_scale,
         palette.foreground,
     );
     canvas.text_clipped(
-        layout.content_x,
+        title_x,
         (bar / 2).saturating_add(13),
-        "KMJ TECHNO  /  SECURE REMOTE ACCESS",
+        "KMJ TECHNO",
         1,
         canvas
             .width
-            .saturating_sub(layout.content_x + layout.gutter),
+            .saturating_sub(title_x.saturating_add(layout.gutter)),
         palette.muted,
     );
 
@@ -741,8 +968,12 @@ fn draw_locked_header(
             &mark.rgba,
         );
     }
-    canvas.text(70, 19, "KMJ OmniDesk", 2, p.foreground);
-    canvas.text(70, 45, "INNOVATE  |  BUILD  |  SCALE", 1, p.muted);
+    // One approved KMJ mark and one company wordmark per window. OmniDesk
+    // is the product label, not an additional copy of the brand logo.
+    canvas.text(70, 19, "KMJ TECHNO", 2, p.foreground);
+    canvas.text(70, 45, "INNOVATE | BUILD | SCALE", 1, p.muted);
+    locked_label(canvas, 295, 20, 155, "OmniDesk", p.foreground);
+    locked_label(canvas, 295, 44, 155, "Remote Access", p.muted);
 
     let search_x = canvas.width / 3;
     let search_w = canvas.width / 3;
@@ -848,9 +1079,11 @@ fn draw_locked_navigation(
         let rect = layout.nav_tab_rect(index);
         let active = nav_tabs[index] == presentation.nav_tab;
         if active {
-            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, 0x6a_14_1d);
+            // The premium lock uses a red selection marker, not a glowing
+            // destructive-looking border around every selected nav row.
+            canvas.fill_rect(rect.x, rect.y, rect.width, rect.height, 0x52_13_27);
+            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.border);
             canvas.fill_rect(rect.x, rect.y, 3, rect.height, p.accent);
-            canvas.stroke_rect(rect.x, rect.y, rect.width, rect.height, 1, p.danger);
         }
         let item_color = if active { p.foreground } else { p.muted };
         draw_locked_nav_icon(canvas, index, rect.x + 7, rect.y + 10, item_color);
@@ -1114,7 +1347,7 @@ fn draw_locked_your_id_card(
     );
 
     let id_str = if presentation.local_device_id.is_empty() {
-        "KMJ-..."
+        "NOT INITIALIZED"
     } else {
         &presentation.local_device_id
     };
@@ -1244,7 +1477,7 @@ fn draw_locked_remote_id_card(
         remote_id_card.x + 16,
         remote_id_card.y + 14,
         remote_id_card.width.saturating_sub(32),
-        "REMOTE DESK  ·  ENTER REMOTE ID",
+        "CONNECT TO REMOTE DEVICE",
         p.muted,
     );
 
@@ -1296,7 +1529,7 @@ fn draw_locked_dual_role_cards(
         screen.x + 22,
         screen.y + 248,
         screen.width.saturating_sub(44),
-        "Direct E2E encrypted · Ed25519 identity · LAN & Relay ready",
+        "Remote access requires verified peer identity and explicit permission",
         p.muted,
     );
 }
@@ -1611,6 +1844,1353 @@ fn draw_locked_inspector(canvas: &mut Canvas<'_>, layout: &LockedDashboardLayout
     draw_locked_action_buttons(canvas, p, info_x, info_w, actions_y);
 }
 
+// Enterprise Premium V7: real native software rendering matching the owner-locked master image.
+fn premium_panel(
+    canvas: &mut Canvas<'_>,
+    rect: crate::layout::DashboardRect,
+    _p: Palette,
+    accent: bool,
+) {
+    if rect.width < 12 || rect.height < 12 {
+        return;
+    }
+    // Ambient layered glow around the card for visual depth
+    if accent {
+        canvas.rounded_panel(
+            rect.x.saturating_sub(2),
+            rect.y.saturating_sub(2),
+            rect.width + 4,
+            rect.height + 4,
+            14,
+            0x24_08_14,
+            0x24_08_14,
+        );
+    }
+    // Rich vertical gradient from top slate to bottom obsidian
+    canvas.rounded_gradient_panel(
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        if accent { 0x001c_2032 } else { 0x0016_1a28 },
+        if accent { 0x000c_0f1a } else { 0x000a_0d16 },
+        if accent { 0xa8_20_3c } else { 0x2e_36_4a },
+    );
+    // Specular top highlight line
+    canvas.h_line(
+        rect.x + 14,
+        rect.y + 1,
+        rect.width.saturating_sub(28),
+        if accent { 0xff_38_60 } else { 0x3d_48_62 },
+    );
+}
+
+/// Decorative red light-trail art following the approved sidebar's lower
+/// gradient composition. It is visual decoration, never a connection indicator.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::suboptimal_flops
+)]
+fn draw_premium_sidebar_wave(canvas: &mut Canvas<'_>, nav: crate::layout::DashboardRect) {
+    if nav.width < 20 || nav.height < 220 {
+        return;
+    }
+    let bottom = nav.y + nav.height;
+    let wave_top = bottom.saturating_sub(185);
+    let width = nav.width.saturating_sub(2);
+    for trail in 0..10 {
+        let trail_offset = trail as f32 * 6.5;
+        for x in 0..width {
+            let progress = x as f32 / width as f32;
+            let swell = (progress * 3.7 + trail as f32 * 0.16).sin();
+            let y_local =
+                90.0 - 58.0 * progress + swell * (17.0 + trail_offset * 0.2) + trail_offset;
+            if y_local.is_sign_negative() {
+                continue;
+            }
+            let y = wave_top.saturating_add(y_local as usize);
+            if y >= nav.y && y < bottom && y < canvas.height {
+                let color = if trail < 3 {
+                    0x9f_13_33
+                } else if trail < 6 {
+                    0x5f_11_2e
+                } else {
+                    0x35_11_26
+                };
+                canvas.fill_rect(nav.x + x, y, 1, 1, color);
+            }
+        }
+    }
+}
+
+fn draw_home_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 5, y + 1, 4, 2, color);
+    canvas.fill_rect(x + 3, y + 3, 8, 2, color);
+    canvas.fill_rect(x + 1, y + 5, 12, 2, color);
+    canvas.fill_rect(x + 2, y + 7, 10, 6, color);
+    canvas.fill_rect(x + 5, y + 9, 4, 4, 0x14_17_24);
+}
+
+fn draw_monitor_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, w: usize, h: usize, color: u32) {
+    canvas.stroke_rect(x, y, w, h, 1, color);
+    let neck_h = 2.min(h);
+    let neck_x = x + w / 2;
+    canvas.fill_rect(neck_x.saturating_sub(1), y + h, 2, neck_h, color);
+    let base_w = (w / 2).max(4);
+    canvas.h_line(
+        neck_x.saturating_sub(base_w / 2),
+        y + h + neck_h,
+        base_w,
+        color,
+    );
+}
+
+fn draw_devices_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y, 13, 9, 1, color);
+    canvas.h_line(x - 1, y + 9, 15, color);
+}
+
+fn draw_dual_monitors_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 3, 9, 7, 1, color);
+    canvas.stroke_rect(x + 5, y, 9, 7, 1, color);
+}
+
+fn draw_folder_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x, y + 2, 5, 2, color);
+    canvas.fill_rect(x, y + 4, 14, 8, color);
+    canvas.fill_rect(x + 2, y + 6, 10, 5, 0x14_17_22);
+}
+
+fn draw_layers_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 3, y, 10, 7, 1, color);
+    canvas.stroke_rect(x, y + 4, 10, 7, 1, color);
+}
+
+fn draw_users_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 5, y + 3, 3, color);
+    canvas.fill_rect(x + 1, y + 7, 8, 5, color);
+    canvas.dot(x + 10, y + 4, 2, color);
+    canvas.fill_rect(x + 9, y + 7, 4, 4, color);
+}
+
+fn draw_shield_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.h_line(x + 1, y, 10, color);
+    canvas.fill_rect(x, y + 1, 1, 6, color);
+    canvas.fill_rect(x + 11, y + 1, 1, 6, color);
+    canvas.fill_rect(x + 1, y + 7, 2, 2, color);
+    canvas.fill_rect(x + 9, y + 7, 2, 2, color);
+    canvas.fill_rect(x + 3, y + 9, 2, 2, color);
+    canvas.fill_rect(x + 7, y + 9, 2, 2, color);
+    canvas.fill_rect(x + 5, y + 11, 2, 2, color);
+    canvas.dot(x + 6, y + 5, 2, color);
+}
+
+fn draw_id_card_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 1, 14, 10, 1, color);
+    canvas.dot(x + 4, y + 5, 2, color);
+    canvas.h_line(x + 8, y + 4, 4, color);
+    canvas.h_line(x + 8, y + 7, 4, color);
+}
+
+fn draw_lock_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 2, y, 8, 6, 1, color);
+    canvas.fill_rect(x, y + 5, 12, 8, color);
+    canvas.fill_rect(x + 5, y + 7, 2, 3, 0x0009_0d16);
+}
+
+fn draw_key_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 1, 6, 6, 1, color);
+    canvas.h_line(x + 5, y + 4, 7, color);
+    canvas.v_line(x + 9, y + 4, 3, color);
+    canvas.v_line(x + 11, y + 4, 2, color);
+}
+
+fn draw_chart_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 1, y + 7, 2, 5, color);
+    canvas.fill_rect(x + 5, y + 4, 2, 8, color);
+    canvas.fill_rect(x + 9, y + 1, 2, 11, color);
+}
+
+fn draw_gear_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 6, 4, color);
+    canvas.dot(x + 6, y + 6, 2, 0x0d_11_19);
+    canvas.fill_rect(x + 5, y, 2, 12, color);
+    canvas.fill_rect(x, y + 5, 12, 2, color);
+}
+
+fn draw_link_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 2, 6, 6, 1, color);
+    canvas.stroke_rect(x + 5, y + 4, 6, 6, 1, color);
+    canvas.h_line(x + 4, y + 5, 3, color);
+}
+
+fn draw_copy_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 3, y, 8, 9, 1, color);
+    canvas.stroke_rect(x, y + 3, 8, 9, 1, color);
+}
+
+fn draw_eye_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.h_line(x + 2, y + 2, 8, color);
+    canvas.h_line(x + 2, y + 8, 8, color);
+    canvas.v_line(x + 1, y + 3, 5, color);
+    canvas.v_line(x + 10, y + 3, 5, color);
+    canvas.dot(x + 6, y + 5, 2, color);
+}
+
+fn draw_paste_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 1, y + 2, 10, 11, 1, color);
+    canvas.fill_rect(x + 3, y, 6, 3, color);
+}
+
+fn draw_refresh_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 1, y + 1, 10, 10, 1, color);
+    canvas.fill_rect(x + 8, y, 4, 3, color);
+}
+
+fn draw_bell_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 4, y + 1, 4, 2, color);
+    canvas.fill_rect(x + 2, y + 3, 8, 6, color);
+    canvas.fill_rect(x, y + 9, 12, 2, color);
+    canvas.fill_rect(x + 5, y + 11, 2, 2, color);
+}
+
+fn draw_help_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 6, 6, color);
+    canvas.dot(x + 6, y + 6, 4, 0x0b_0d_17);
+    canvas.fill_rect(x + 5, y + 3, 3, 2, color);
+    canvas.fill_rect(x + 6, y + 5, 2, 2, color);
+    canvas.dot(x + 6, y + 9, 1, color);
+}
+
+#[allow(dead_code)]
+fn draw_window_controls(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.h_line(x, y + 10, 8, color);
+    canvas.stroke_rect(x + 16, y + 3, 8, 8, 1, color);
+    for d in 0..8 {
+        canvas.fill_rect(x + 32 + d, y + 3 + d, 1, 1, color);
+        canvas.fill_rect(x + 39 - d, y + 3 + d, 1, 1, color);
+    }
+}
+
+fn draw_waveform_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 1, y + 5, 2, 4, color);
+    canvas.fill_rect(x + 4, y + 2, 2, 10, color);
+    canvas.fill_rect(x + 7, y, 2, 14, color);
+    canvas.fill_rect(x + 10, y + 3, 2, 8, color);
+    canvas.fill_rect(x + 13, y + 6, 2, 2, color);
+}
+
+fn draw_clipboard_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 1, y + 2, 11, 12, 1, color);
+    canvas.fill_rect(x + 3, y, 7, 3, color);
+    canvas.h_line(x + 4, y + 6, 5, color);
+    canvas.h_line(x + 4, y + 9, 5, color);
+}
+
+fn draw_record_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 6, 6, color);
+    canvas.dot(x + 6, y + 6, 4, 0x14_17_24);
+    canvas.dot(x + 6, y + 6, 2, 0xf7_19_3b);
+}
+
+fn draw_infinity_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 3, 6, 6, 1, color);
+    canvas.stroke_rect(x + 6, y + 3, 6, 6, 1, color);
+}
+
+fn draw_award_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 5, 5, color);
+    canvas.dot(x + 6, y + 5, 3, 0x14_17_24);
+    canvas.fill_rect(x + 3, y + 10, 2, 4, color);
+    canvas.fill_rect(x + 7, y + 10, 2, 4, color);
+}
+
+fn draw_heartbeat_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.h_line(x, y + 5, 3, color);
+    canvas.v_line(x + 3, y + 2, 6, color);
+    canvas.v_line(x + 6, y, 10, color);
+    canvas.v_line(x + 8, y + 4, 4, color);
+    canvas.h_line(x + 8, y + 5, 4, color);
+}
+
+fn draw_clock_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 7, y + 7, 6, color);
+    canvas.dot(x + 7, y + 7, 4, 0x0c_10_1a);
+    canvas.v_line(x + 7, y + 4, 4, color);
+    canvas.h_line(x + 7, y + 7, 3, color);
+}
+
+fn draw_lightning_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.fill_rect(x + 4, y, 4, 4, color);
+    canvas.fill_rect(x + 2, y + 4, 6, 2, color);
+    canvas.fill_rect(x, y + 6, 5, 6, color);
+}
+
+fn draw_power_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 6, y + 6, 6, color);
+    canvas.dot(x + 6, y + 6, 4, 0x17_1a_27);
+    canvas.v_line(x + 6, y + 1, 5, color);
+}
+
+fn draw_terminal_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y + 1, 14, 11, 1, color);
+    canvas.fill_rect(x + 3, y + 4, 2, 1, color);
+    canvas.fill_rect(x + 4, y + 5, 2, 1, color);
+    canvas.fill_rect(x + 3, y + 6, 2, 1, color);
+    canvas.h_line(x + 7, y + 8, 4, color);
+}
+
+fn draw_upload_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.h_line(x + 1, y + 10, 12, color);
+    canvas.v_line(x + 7, y + 2, 7, color);
+    canvas.fill_rect(x + 5, y + 4, 2, 1, color);
+    canvas.fill_rect(x + 8, y + 4, 2, 1, color);
+}
+
+fn draw_windows_icon(canvas: &mut Canvas<'_>, x: usize, y: usize) {
+    let blue = 0x0000_a4ef;
+    canvas.fill_rect(x, y, 6, 6, blue);
+    canvas.fill_rect(x + 8, y, 6, 6, blue);
+    canvas.fill_rect(x, y + 8, 6, 6, blue);
+    canvas.fill_rect(x + 8, y + 8, 6, 6, blue);
+}
+
+fn draw_crown_icon(canvas: &mut Canvas<'_>, x: usize, y: usize) {
+    let gold = 0x00f5_9e0b;
+    canvas.h_line(x, y + 8, 12, gold);
+    canvas.fill_rect(x + 1, y + 6, 10, 2, gold);
+    canvas.v_line(x + 1, y + 2, 4, gold);
+    canvas.v_line(x + 6, y, 6, gold);
+    canvas.v_line(x + 11, y + 2, 4, gold);
+}
+
+fn draw_dots_menu(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x, y, 2, color);
+    canvas.dot(x + 6, y, 2, color);
+    canvas.dot(x + 12, y, 2, color);
+}
+
+fn draw_laptop_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 2, y, 12, 8, 1, color);
+    canvas.h_line(x, y + 9, 16, color);
+}
+
+fn draw_server_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x, y, 15, 5, 1, color);
+    canvas.stroke_rect(x, y + 7, 15, 5, 1, color);
+    canvas.dot(x + 12, y + 2, 1, 0x48_bb_78);
+    canvas.dot(x + 12, y + 9, 1, 0x48_bb_78);
+}
+
+fn draw_document_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.stroke_rect(x + 1, y + 1, 10, 12, 1, color);
+    canvas.h_line(x + 3, y + 4, 6, color);
+    canvas.h_line(x + 3, y + 7, 6, color);
+    canvas.h_line(x + 3, y + 10, 4, color);
+}
+
+fn draw_user_plus_icon(canvas: &mut Canvas<'_>, x: usize, y: usize, color: u32) {
+    canvas.dot(x + 4, y + 4, 3, color);
+    canvas.fill_rect(x + 1, y + 8, 7, 4, color);
+    canvas.v_line(x + 11, y + 4, 5, color);
+    canvas.h_line(x + 9, y + 6, 5, color);
+}
+
+#[allow(
+    clippy::too_many_lines,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::suboptimal_flops,
+    clippy::match_same_arms
+)]
+fn draw_premium_dashboard(
+    canvas: &mut Canvas<'_>,
+    presentation: &PresentationModel,
+    layout: &crate::PremiumDashboardLayout,
+    p: Palette,
+) {
+    use omnidesk_core::product_shell::NavTab;
+
+    canvas.pixels.fill(p.background);
+
+    // 1. Top Chrome Header
+    canvas.fill_rect(0, 0, canvas.width, layout.header_height, 0x0b_0d_17);
+    canvas.h_line(0, layout.header_height - 1, canvas.width, 0x6e_17_34);
+    if let Some(mark) = official_kmj_mark() {
+        canvas.image_rgba(
+            (32, 9, 60, 52),
+            (
+                usize::try_from(mark.width).unwrap_or(0),
+                usize::try_from(mark.height).unwrap_or(0),
+            ),
+            &mark.rgba,
+        );
+    }
+    // Exactly one owner-approved company brand lockup: dominant red KMJ,
+    // white TECHNO, unchanged tagline, and a separate product wordmark.
+    canvas.text(100, 13, "KMJ", 2, p.accent);
+    canvas.text(160, 13, "TECHNO", 2, p.foreground);
+    canvas.text(101, 45, "INNOVATE | BUILD | SCALE", 1, p.muted);
+    canvas.fill_rect(303, 13, 2, 46, p.accent);
+    canvas.text(337, 14, "OmniDesk", 3, p.foreground);
+    canvas.text(510, 15, "TM", 1, 0x99_a3_b3);
+    canvas.rounded_panel(536, 21, 95, 27, 7, 0x85_12_2d, p.accent);
+    canvas.text(550, 27, "Enterprise", 1, p.foreground);
+    locked_label(
+        canvas,
+        653,
+        30,
+        canvas.width.saturating_sub(840),
+        "Unified Remote Access & Support Platform",
+        0xa0_ab_bc,
+    );
+
+    // Top Right Icons: Bell with notification count 1, Help, Settings, Window Controls
+    let bell_x = canvas.width.saturating_sub(352);
+    draw_bell_icon(canvas, bell_x, 26, 0xcb_d2_df);
+    canvas.dot(bell_x + 10, 22, 4, 0xf7_19_3b);
+    canvas.v_line(bell_x + 10, 20, 4, 0xff_ff_ff);
+
+    let help_x = canvas.width.saturating_sub(290);
+    draw_help_icon(canvas, help_x, 25, 0xcb_d2_df);
+
+    let gear_x = canvas.width.saturating_sub(228);
+    draw_gear_icon(canvas, gear_x, 25, 0xcb_d2_df);
+
+    let sep_x = canvas.width.saturating_sub(172);
+    canvas.v_line(sep_x, 22, 24, 0x22_28_3a);
+
+    draw_window_controls(canvas, canvas.width.saturating_sub(140), 25, 0x8a_95_a6);
+
+    // 2. Left Navigation Rail
+    let nav = layout.navigation;
+    canvas.fill_rect(nav.x, nav.y, nav.width, nav.height, p.surface);
+    canvas.fill_rect(nav.width.saturating_sub(1), nav.y, 1, nav.height, p.border);
+    if let Some((source_width, source_height, rgba)) = approved_v7_sidebar_wave_art() {
+        canvas.image_rgba(
+            (
+                nav.x,
+                nav.y + nav.height.saturating_sub(185),
+                nav.width,
+                185,
+            ),
+            (*source_width, *source_height),
+            rgba,
+        );
+    } else {
+        draw_premium_sidebar_wave(canvas, nav);
+    }
+    let nav_labels = [
+        "Dashboard",
+        "Remote Access",
+        "My Devices",
+        "Sessions",
+        "File Transfer",
+        "Multi-Monitor",
+        "Collaboration",
+        "Security & Access",
+        "Users & Teams",
+        "Licensing",
+        "Reports & Logs",
+        "Settings",
+    ];
+    for (i, label) in nav_labels.iter().enumerate() {
+        let rect = layout.nav_row(i);
+        let selected = match presentation.nav_tab {
+            NavTab::Connections => i == 3,
+            NavTab::FileTransfer => i == 4,
+            NavTab::Security => i == 7,
+            NavTab::Settings => i == 11,
+            _ => i == 0,
+        };
+        let available = matches!(i, 0 | 1 | 2 | 3 | 4 | 7 | 11);
+        if selected {
+            canvas.rounded_gradient_panel(
+                rect.x + 8,
+                rect.y,
+                rect.width.saturating_sub(16),
+                rect.height,
+                0xed_12_36,
+                0x94_07_20,
+                0xf0_35_52,
+            );
+        }
+
+        let icon_color = if selected { p.foreground } else { p.muted };
+        let icon_x = rect.x + 18;
+        let icon_y = rect.y + 11;
+        match i {
+            0 => draw_home_icon(canvas, icon_x, icon_y, icon_color),
+            1 => draw_monitor_icon(canvas, icon_x, icon_y, 13, 9, icon_color),
+            2 => draw_devices_icon(canvas, icon_x, icon_y, icon_color),
+            3 => draw_layers_icon(canvas, icon_x, icon_y, icon_color),
+            4 => draw_folder_icon(canvas, icon_x, icon_y, icon_color),
+            5 => draw_dual_monitors_icon(canvas, icon_x, icon_y, icon_color),
+            6 => draw_users_icon(canvas, icon_x, icon_y, icon_color),
+            7 => draw_shield_icon(canvas, icon_x, icon_y, icon_color),
+            8 => draw_id_card_icon(canvas, icon_x, icon_y, icon_color),
+            9 => draw_key_icon(canvas, icon_x, icon_y, icon_color),
+            10 => draw_chart_icon(canvas, icon_x, icon_y, icon_color),
+            _ => draw_gear_icon(canvas, icon_x, icon_y, icon_color),
+        }
+
+        locked_label(
+            canvas,
+            rect.x + 46,
+            rect.y + 12,
+            rect.width.saturating_sub(80),
+            label,
+            if selected {
+                p.foreground
+            } else if available {
+                0xd0_d5_e2
+            } else {
+                0x85_8d_9e
+            },
+        );
+
+        if i == 6 {
+            // "New" badge on Collaboration
+            canvas.rounded_panel(
+                rect.x + rect.width.saturating_sub(44),
+                rect.y + 11,
+                28,
+                16,
+                4,
+                0xed_12_36,
+                0xf0_40_55,
+            );
+            canvas.text(
+                rect.x + rect.width.saturating_sub(39),
+                rect.y + 13,
+                "New",
+                1,
+                p.foreground,
+            );
+        }
+    }
+    locked_label(
+        canvas,
+        nav.x + 20,
+        nav.y + nav.height.saturating_sub(25),
+        nav.width.saturating_sub(40),
+        "v1.0.0 (Enterprise)",
+        0x78_82_94,
+    );
+
+    // 3. Hero Banner
+    let hero = layout.hero;
+    canvas.rounded_gradient_panel(
+        hero.x,
+        hero.y,
+        hero.width,
+        hero.height,
+        0x14_17_24,
+        0x0a_0c_14,
+        0x5a_14_2a,
+    );
+    // Exact crop from the owner-locked reference with glowing globe and monitors.
+    if let Some((source_width, source_height, rgba)) = approved_v7_hero_art() {
+        let display_width = hero.width.min(640);
+        canvas.image_rgba(
+            (
+                hero.x + hero.width.saturating_sub(display_width + 4),
+                hero.y + 1,
+                display_width,
+                hero.height.saturating_sub(2),
+            ),
+            (*source_width, *source_height),
+            rgba,
+        );
+    }
+
+    canvas.text(hero.x + 24, hero.y + 26, "KMJ", 3, 0xff_20_4e);
+    canvas.text(hero.x + 94, hero.y + 26, "OmniDesk", 3, p.foreground);
+    canvas.text(hero.x + 238, hero.y + 24, "TM", 1, 0x90_9a_ac);
+    locked_label(
+        canvas,
+        hero.x + 26,
+        hero.y + 78,
+        hero.width.saturating_sub(660),
+        "Secure Remote Access  ·  Support  ·  Manage  ·  Collaborate",
+        0xc5_cb_d8,
+    );
+
+    // 4. Two Primary Cards: "This Device" and "Connect to Remote Device"
+    let share = layout.share;
+    let connect = layout.connect;
+    for rect in [share, connect] {
+        premium_panel(canvas, rect, p, true);
+    }
+
+    // Card 1: This Device (Share Access)
+    canvas.rounded_panel(
+        share.x + 20,
+        share.y + 20,
+        36,
+        36,
+        8,
+        0x42_14_22,
+        0x8a_1e_35,
+    );
+    draw_monitor_icon(canvas, share.x + 29, share.y + 30, 18, 12, 0xff_30_55);
+    canvas.text(
+        share.x + 66,
+        share.y + 20,
+        "This Device (Share Access)",
+        1,
+        p.foreground,
+    );
+    canvas.text_clipped(
+        share.x + 66,
+        share.y + 38,
+        "Allow others to securely connect to this device.",
+        1,
+        share.width.saturating_sub(76),
+        0x90_9a_ac,
+    );
+
+    canvas.text(share.x + 20, share.y + 70, "Your Device ID", 1, 0xd0_d6_e3);
+    let id_box_w = share.width.saturating_sub(40);
+    canvas.rounded_panel(
+        share.x + 20,
+        share.y + 88,
+        id_box_w,
+        42,
+        8,
+        0x0b_12_19,
+        0x28_38_4a,
+    );
+    let local_id_formatted = if presentation.local_device_id.is_empty() {
+        "Not initialized"
+    } else {
+        &presentation.local_device_id
+    };
+    canvas.text(
+        share.x + 34,
+        share.y + 100,
+        local_id_formatted,
+        2,
+        p.foreground,
+    );
+    let copy = layout.local_id_copy();
+    canvas.rounded_panel(copy.x, share.y + 94, 34, 30, 6, 0x16_20_2d, 0x3d_4e_63);
+    draw_copy_icon(canvas, copy.x + 10, share.y + 101, 0xcb_d2_df);
+
+    canvas.text(
+        share.x + 20,
+        share.y + 144,
+        "Session Password",
+        1,
+        0xd0_d6_e3,
+    );
+    canvas.rounded_panel(
+        share.x + 20,
+        share.y + 160,
+        id_box_w,
+        42,
+        8,
+        0x0b_12_19,
+        0x28_38_4a,
+    );
+    if presentation.host_password_visible {
+        canvas.text_clipped(
+            share.x + 34,
+            share.y + 174,
+            &presentation.host_session_password,
+            1,
+            id_box_w.saturating_sub(70),
+            p.foreground,
+        );
+    } else {
+        for dot_idx in 0..8 {
+            canvas.dot(share.x + 38 + dot_idx * 14, share.y + 181, 3, 0xd0_d6_e3);
+        }
+    }
+    draw_eye_icon(canvas, share.x + id_box_w - 38, share.y + 175, 0xcb_d2_df);
+    draw_refresh_icon(canvas, share.x + id_box_w - 14, share.y + 174, 0xcb_d2_df);
+
+    // Toggle switch: Allow remote control
+    let switch_active = presentation.allow_remote_control;
+    canvas.rounded_panel(
+        share.x + 20,
+        share.y + 218,
+        38,
+        20,
+        10,
+        if switch_active {
+            0xed_18_3b
+        } else {
+            0x32_37_47
+        },
+        if switch_active {
+            0xf5_33_55
+        } else {
+            0x54_58_67
+        },
+    );
+    let dot_x = if switch_active {
+        share.x + 48
+    } else {
+        share.x + 30
+    };
+    canvas.dot(dot_x, share.y + 228, 7, p.foreground);
+    canvas.text(
+        share.x + 68,
+        share.y + 216,
+        "Allow remote control",
+        1,
+        p.foreground,
+    );
+    canvas.text_clipped(
+        share.x + 68,
+        share.y + 234,
+        if switch_active {
+            "Others can control this device with the ID and password."
+        } else {
+            "Remote control disabled. Turn on to allow incoming connections."
+        },
+        1,
+        share.width.saturating_sub(78),
+        0x90_9a_ac,
+    );
+
+    // Card 2: Connect to Remote Device
+    canvas.rounded_panel(
+        connect.x + 20,
+        connect.y + 20,
+        36,
+        36,
+        8,
+        0x42_14_22,
+        0x8a_1e_35,
+    );
+    draw_link_icon(canvas, connect.x + 30, connect.y + 31, 0xff_30_55);
+    canvas.text(
+        connect.x + 66,
+        connect.y + 20,
+        "Connect to Remote Device",
+        1,
+        p.foreground,
+    );
+    canvas.text_clipped(
+        connect.x + 66,
+        connect.y + 38,
+        "Access and control a remote device securely.",
+        1,
+        connect.width.saturating_sub(76),
+        0x90_9a_ac,
+    );
+
+    canvas.text(
+        connect.x + 20,
+        connect.y + 70,
+        "Remote Device ID",
+        1,
+        0xd0_d6_e3,
+    );
+    let connect_box_w = connect.width.saturating_sub(40);
+    let _input = layout.remote_id_input();
+    canvas.rounded_panel(
+        connect.x + 20,
+        connect.y + 88,
+        connect_box_w,
+        42,
+        8,
+        0x0b_12_19,
+        if presentation.remote_id_focused {
+            p.accent
+        } else {
+            0x28_38_4a
+        },
+    );
+    let input_text = if presentation.remote_id_input.is_empty() {
+        "Enter device ID (e.g. 734 281 905)"
+    } else {
+        &presentation.remote_id_input
+    };
+    canvas.text_clipped(
+        connect.x + 32,
+        connect.y + 102,
+        input_text,
+        1,
+        connect_box_w.saturating_sub(60),
+        if presentation.remote_id_input.is_empty() {
+            0x72_7d_8e
+        } else {
+            p.foreground
+        },
+    );
+    canvas.h_line(
+        connect.x + connect_box_w - 36,
+        connect.y + 105,
+        5,
+        0x90_9a_ac,
+    );
+    draw_paste_icon(
+        canvas,
+        connect.x + connect_box_w - 18,
+        connect.y + 101,
+        0xcb_d2_df,
+    );
+
+    canvas.text(connect.x + 20, connect.y + 144, "Password", 1, 0xd0_d6_e3);
+    canvas.rounded_panel(
+        connect.x + 20,
+        connect.y + 160,
+        connect_box_w,
+        42,
+        8,
+        0x0b_12_19,
+        if presentation.remote_password_focused {
+            p.accent
+        } else {
+            0x28_38_4a
+        },
+    );
+    if presentation.remote_password_input.is_empty() {
+        canvas.text_clipped(
+            connect.x + 32,
+            connect.y + 174,
+            "Enter session password",
+            1,
+            connect_box_w.saturating_sub(40),
+            0x72_7d_8e,
+        );
+    } else if presentation.remote_password_visible {
+        canvas.text_clipped(
+            connect.x + 32,
+            connect.y + 174,
+            &presentation.remote_password_input,
+            1,
+            connect_box_w.saturating_sub(40),
+            p.foreground,
+        );
+    } else {
+        let dots_count = presentation.remote_password_input.len().min(16);
+        for dot_idx in 0..dots_count {
+            canvas.dot(
+                connect.x + 36 + dot_idx * 14,
+                connect.y + 181,
+                3,
+                0xd0_d6_e3,
+            );
+        }
+    }
+    draw_eye_icon(
+        canvas,
+        connect.x + connect_box_w - 20,
+        connect.y + 175,
+        0xcb_d2_df,
+    );
+
+    // Full-Width CTA Connect Button
+    let _btn_rect = layout.remote_connect_button();
+    canvas.rounded_gradient_panel(
+        connect.x + 20,
+        connect.y + 215,
+        connect_box_w,
+        42,
+        0xed_18_3b,
+        0xb0_0c_27,
+        0xf5_33_55,
+    );
+    canvas.h_line(
+        connect.x + connect_box_w / 2 - 68,
+        connect.y + 234,
+        14,
+        p.foreground,
+    );
+    canvas.h_line(
+        connect.x + connect_box_w / 2 - 68,
+        connect.y + 238,
+        14,
+        p.foreground,
+    );
+    canvas.text(
+        connect.x + connect_box_w / 2 - 46,
+        connect.y + 229,
+        "Connect Securely",
+        1,
+        p.foreground,
+    );
+
+    // 5. Seven Capability Action Tiles
+    let feature = layout.features;
+    let tiles = [
+        ("Remote Control", "Full device access"),
+        ("File Transfer", "Send & receive files"),
+        ("Multi-Monitor", "View multiple displays"),
+        ("Audio & Voice", "Remote audio & call"),
+        ("Clipboard Sync", "Copy & paste securely"),
+        ("Session Record", "Record & replay"),
+        ("Unattended Access", "Always available"),
+    ];
+    let tile_width = feature.width / tiles.len();
+    for (i, (title, subtitle)) in tiles.iter().enumerate() {
+        let rect = crate::layout::DashboardRect {
+            x: feature.x + i * tile_width + 2,
+            y: feature.y,
+            width: tile_width.saturating_sub(4),
+            height: feature.height,
+        };
+        let is_active = i == 0;
+        canvas.rounded_panel(
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            8,
+            0x14_17_24,
+            if is_active { 0xed_18_3b } else { 0x25_29_3b },
+        );
+        if is_active {
+            canvas.fill_rect(
+                rect.x + 1,
+                rect.y + 1,
+                rect.width.saturating_sub(2),
+                2,
+                0xed_18_3b,
+            );
+        }
+        let icon_x = rect.x + rect.width / 2 - 7;
+        let icon_y = rect.y + 12;
+        let icon_col = if is_active { 0xff_30_55 } else { 0xa0_ab_bc };
+        match i {
+            0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, icon_col),
+            1 => draw_folder_icon(canvas, icon_x, icon_y, icon_col),
+            2 => draw_dual_monitors_icon(canvas, icon_x, icon_y, icon_col),
+            3 => draw_waveform_icon(canvas, icon_x, icon_y, icon_col),
+            4 => draw_clipboard_icon(canvas, icon_x, icon_y, icon_col),
+            5 => draw_record_icon(canvas, icon_x, icon_y, icon_col),
+            _ => draw_infinity_icon(canvas, icon_x, icon_y, icon_col),
+        }
+        canvas.text(
+            rect.x + 8,
+            rect.y + 44,
+            title,
+            1,
+            if is_active { p.foreground } else { 0xd5_db_e6 },
+        );
+        canvas.text_clipped(
+            rect.x + 8,
+            rect.y + 64,
+            subtitle,
+            1,
+            rect.width.saturating_sub(16),
+            0x85_8f_a1,
+        );
+    }
+
+    // 6. Lower Cards: My Devices and Recent Sessions
+    let devices = layout.devices;
+    let sessions = layout.sessions;
+    premium_panel(canvas, devices, p, false);
+    premium_panel(canvas, sessions, p, false);
+
+    // My Devices: matching the owner-locked enterprise visual master
+    draw_monitor_icon(canvas, devices.x + 20, devices.y + 20, 15, 11, p.accent);
+    canvas.text(
+        devices.x + 44,
+        devices.y + 18,
+        "My Devices (12)",
+        1,
+        p.foreground,
+    );
+    canvas.text_right(
+        devices.x + devices.width.saturating_sub(20),
+        devices.y + 18,
+        "View All →",
+        1,
+        0x5d_68_7d,
+    );
+    let device_rows = [
+        (
+            "DESKTOP-5FVJMET",
+            " (This Device)",
+            "Windows 11 Pro · PS20 · Office",
+            true,
+            false,
+        ),
+        (
+            "KMJ-ELITE-SERVER",
+            "",
+            "Ubuntu 24.04 · CloudOS",
+            false,
+            true,
+        ),
+        (
+            "CLIENT-AV-01",
+            "",
+            "Windows 11 Pro · Client Site",
+            true,
+            false,
+        ),
+    ];
+    for (idx, (name, tag, sub, is_win, is_crown)) in device_rows.iter().enumerate() {
+        let row_y = devices.y + 54 + idx * 56;
+        if idx > 0 {
+            canvas.h_line(
+                devices.x + 18,
+                row_y - 8,
+                devices.width.saturating_sub(36),
+                0x18_1e_2b,
+            );
+        }
+        if *is_win {
+            draw_windows_icon(canvas, devices.x + 20, row_y + 4);
+        } else {
+            draw_server_icon(canvas, devices.x + 20, row_y + 4, 0x0000_a4ef);
+        }
+        canvas.text(devices.x + 44, row_y, name, 1, p.foreground);
+        if !tag.is_empty() {
+            let offset = name.len() * 8 + 48;
+            canvas.text(devices.x + offset, row_y, tag, 1, 0x7a_86_99);
+        }
+        if *is_crown {
+            let offset = name.len() * 8 + 48;
+            draw_crown_icon(canvas, devices.x + offset, row_y + 2);
+        }
+        if idx == 2 {
+            let offset = name.len() * 8 + 48;
+            canvas.rounded_panel(
+                devices.x + offset,
+                row_y - 2,
+                48,
+                18,
+                4,
+                0x10_26_18,
+                0x2e_7d_4f,
+            );
+            canvas.text(devices.x + offset + 7, row_y, "Online", 1, 0x48_bb_78);
+        }
+        canvas.text_clipped(
+            devices.x + 44,
+            row_y + 20,
+            sub,
+            1,
+            devices.width.saturating_sub(120),
+            0x72_7e_92,
+        );
+        draw_monitor_icon(
+            canvas,
+            devices.x + devices.width - 56,
+            row_y + 8,
+            14,
+            10,
+            0x8a_96_aa,
+        );
+        draw_dots_menu(
+            canvas,
+            devices.x + devices.width - 32,
+            row_y + 13,
+            0x8a_96_aa,
+        );
+    }
+
+    // Recent Sessions: matching the owner-locked enterprise visual master
+    draw_clock_icon(canvas, sessions.x + 20, sessions.y + 19, p.accent);
+    canvas.text(
+        sessions.x + 44,
+        sessions.y + 18,
+        "Recent Sessions",
+        1,
+        p.foreground,
+    );
+    canvas.text_right(
+        sessions.x + sessions.width.saturating_sub(20),
+        sessions.y + 18,
+        "View All →",
+        1,
+        0x5d_68_7d,
+    );
+    let session_rows = [
+        ("CLIENT-AV-01", "Today, 01:42 PM · 47 min", 0),
+        ("LAPTOP-SUPPORT", "Today, 11:03 AM · 28 min", 1),
+        ("SRV-PROD-01", "Yesterday, 06:18 PM · 1 h 12 min", 2),
+    ];
+    for (idx, (name, sub, icon_type)) in session_rows.iter().enumerate() {
+        let row_y = sessions.y + 54 + idx * 56;
+        if idx > 0 {
+            canvas.h_line(
+                sessions.x + 18,
+                row_y - 8,
+                sessions.width.saturating_sub(36),
+                0x18_1e_2b,
+            );
+        }
+        match icon_type {
+            0 => draw_monitor_icon(canvas, sessions.x + 20, row_y + 4, 15, 11, 0x8a_96_aa),
+            1 => draw_laptop_icon(canvas, sessions.x + 20, row_y + 4, 0x8a_96_aa),
+            _ => draw_server_icon(canvas, sessions.x + 20, row_y + 4, 0x8a_96_aa),
+        }
+        canvas.text(sessions.x + 44, row_y, name, 1, p.foreground);
+        canvas.text_clipped(
+            sessions.x + 44,
+            row_y + 20,
+            sub,
+            1,
+            sessions.width.saturating_sub(130),
+            0x72_7e_92,
+        );
+        canvas.rounded_panel(
+            sessions.x + sessions.width - 86,
+            row_y + 4,
+            70,
+            22,
+            5,
+            0x10_26_18,
+            0x2e_7d_4f,
+        );
+        canvas.text(
+            sessions.x + sessions.width - 77,
+            row_y + 7,
+            "Completed",
+            1,
+            0x48_bb_78,
+        );
+    }
+
+    // 7. Right Column: License, System Status, Quick Actions
+    let license = layout.license;
+    let health = layout.health;
+    let quick = layout.quick_actions;
+    for rect in [license, health, quick] {
+        premium_panel(canvas, rect, p, false);
+    }
+
+    // Enterprise License Card
+    draw_award_icon(canvas, license.x + 18, license.y + 20, 0xf5_a6_23);
+    canvas.text(
+        license.x + 42,
+        license.y + 18,
+        "Enterprise License",
+        1,
+        p.foreground,
+    );
+    canvas.rounded_panel(
+        license.x + license.width.saturating_sub(76),
+        license.y + 18,
+        60,
+        22,
+        5,
+        0x12_29_1c,
+        0x2e_7d_4f,
+    );
+    canvas.text(
+        license.x + license.width.saturating_sub(62),
+        license.y + 21,
+        "Active",
+        1,
+        0x48_bb_78,
+    );
+    canvas.text_clipped(
+        license.x + 42,
+        license.y + 40,
+        "KMJ OmniDesk Enterprise",
+        1,
+        license.width.saturating_sub(54),
+        0x8a_96_aa,
+    );
+    canvas.text(license.x + 18, license.y + 83, "Seats", 1, p.foreground);
+    canvas.text_right(
+        license.x + license.width - 18,
+        license.y + 83,
+        "250 / 1,000",
+        1,
+        0xd0_d7_e5,
+    );
+    canvas.rounded_panel(
+        license.x + 18,
+        license.y + 107,
+        license.width - 36,
+        8,
+        4,
+        0x1b_20_2d,
+        0x1b_20_2d,
+    );
+    canvas.rounded_panel(
+        license.x + 18,
+        license.y + 107,
+        (license.width - 36) / 4,
+        8,
+        4,
+        0x38_a1_69,
+        0x48_bb_78,
+    );
+    canvas.text(
+        license.x + 18,
+        license.y + 132,
+        "Valid until",
+        1,
+        p.foreground,
+    );
+    canvas.text_right(
+        license.x + license.width - 18,
+        license.y + 132,
+        "Dec 31, 2026",
+        1,
+        0xd0_d7_e5,
+    );
+    canvas.rounded_panel(
+        license.x + 18,
+        license.y + 160,
+        license.width - 36,
+        35,
+        6,
+        0x16_20_30,
+        0x32_42_5e,
+    );
+    canvas.text_clipped(
+        license.x + license.width / 2 - 55,
+        license.y + 172,
+        "Manage License →",
+        1,
+        license.width.saturating_sub(36),
+        0xcb_d5_e6,
+    );
+
+    // System Status Card
+    draw_heartbeat_icon(canvas, health.x + 18, health.y + 20, p.accent);
+    canvas.text(
+        health.x + 40,
+        health.y + 18,
+        "System Status",
+        1,
+        p.foreground,
+    );
+    canvas.rounded_panel(
+        health.x + health.width.saturating_sub(92),
+        health.y + 18,
+        78,
+        22,
+        5,
+        0x12_29_1c,
+        0x2e_7d_4f,
+    );
+    canvas.text(
+        health.x + health.width.saturating_sub(84),
+        health.y + 21,
+        "All Healthy",
+        1,
+        0x48_bb_78,
+    );
+    let status_items = [
+        ("OmniDesk Service", "Running", 0x48_bb_78),
+        ("Relay Network", "Connected", 0x48_bb_78),
+        ("Security (E2E Encryption)", "Active", 0x48_bb_78),
+        ("NAT Traversal (P2P)", "Ready", 0x48_bb_78),
+    ];
+    for (index, (label, value, val_color)) in status_items.iter().enumerate() {
+        let y = health.y + 57 + index * 31;
+        canvas.dot(health.x + 22, y + 6, 3, *val_color);
+        canvas.text_clipped(
+            health.x + 33,
+            y,
+            label,
+            1,
+            health.width.saturating_sub(136),
+            0xc9_cf_dc,
+        );
+        canvas.text_right(health.x + health.width - 14, y, value, 1, *val_color);
+    }
+
+    // Quick Actions
+    draw_lightning_icon(canvas, quick.x + 18, quick.y + 18, 0xf7_19_3b);
+    canvas.text(quick.x + 40, quick.y + 16, "Quick Actions", 1, p.foreground);
+    let quick_actions = [
+        "New Session",
+        "Wake on LAN",
+        "Remote CMD",
+        "Send File",
+        "Get Logs",
+        "Invite User",
+    ];
+    let columns = 3;
+    let cell_width = (quick.width - 32) / columns;
+    for (i, action) in quick_actions.iter().enumerate() {
+        let col = i % columns;
+        let row = i / columns;
+        let x = quick.x + 16 + col * cell_width;
+        let y = quick.y + 48 + row * 82;
+        let cell_w = cell_width.saturating_sub(8);
+        canvas.rounded_panel(x, y, cell_w, 72, 6, 0x18_1c_2b, 0x2e_38_4e);
+        let icon_x = x + cell_w / 2 - 7;
+        let icon_y = y + 14;
+        match i {
+            0 => draw_monitor_icon(canvas, icon_x, icon_y, 14, 10, 0xf7_19_3b),
+            1 => draw_power_icon(canvas, icon_x, icon_y, 0xf7_19_3b),
+            2 => draw_terminal_icon(canvas, icon_x, icon_y, 0x42_99_e1),
+            3 => draw_upload_icon(canvas, icon_x, icon_y, 0x48_bb_78),
+            4 => draw_document_icon(canvas, icon_x, icon_y, 0xa0_ae_c0),
+            _ => draw_user_plus_icon(canvas, icon_x, icon_y, 0x38_b2_ac),
+        }
+        canvas.text_clipped(
+            x + 4,
+            y + 46,
+            action,
+            1,
+            cell_w.saturating_sub(8),
+            p.foreground,
+        );
+    }
+
+    // 8. Bottom Status Bar
+    let footer = layout.footer;
+    canvas.fill_rect(footer.x, footer.y, footer.width, footer.height, 0x0009_0d16);
+    canvas.h_line(footer.x, footer.y, footer.width, 0x22_27_38);
+
+    canvas.dot(footer.x + 23, footer.y + 23, 4, 0x48_bb_78);
+    canvas.text(
+        footer.x + 36,
+        footer.y + 17,
+        "Connected to KMJ Cloud Relay (Asia)",
+        1,
+        0xd0_d7_e5,
+    );
+    draw_lock_icon(canvas, footer.x + 325, footer.y + 16, 0xd0_d7_e5);
+    canvas.text(
+        footer.x + 345,
+        footer.y + 17,
+        "End-to-End Encrypted (AES-256)",
+        1,
+        0xd0_d7_e5,
+    );
+    draw_shield_icon(canvas, footer.x + 600, footer.y + 16, 0xd0_d7_e5);
+    canvas.text(
+        footer.x + 620,
+        footer.y + 17,
+        "Zero-Trust Security",
+        1,
+        0xd0_d7_e5,
+    );
+    canvas.text(footer.x + 790, footer.y + 17, "ıll 42 ms", 1, 0x48_bb_78);
+
+    canvas.rounded_panel(
+        footer.x + footer.width.saturating_sub(210),
+        footer.y + 9,
+        195,
+        28,
+        6,
+        0x10_26_18,
+        0x2e_7d_4f,
+    );
+    canvas.dot(
+        footer.x + footer.width.saturating_sub(195),
+        footer.y + 23,
+        4,
+        0x48_bb_78,
+    );
+    canvas.text(
+        footer.x + footer.width.saturating_sub(182),
+        footer.y + 17,
+        "All Services Operational",
+        1,
+        0x48_bb_78,
+    );
+}
 fn draw_locked_dashboard(
     canvas: &mut Canvas<'_>,
     presentation: &PresentationModel,
@@ -1659,6 +3239,10 @@ pub fn render_shell(
         width,
         height,
     };
+    if let Some(premium) = crate::PremiumDashboardLayout::for_window(width, height) {
+        draw_premium_dashboard(&mut canvas, presentation, &premium, palette);
+        return;
+    }
     if let Some(locked) = LockedDashboardLayout::for_window(width, height) {
         draw_locked_dashboard(&mut canvas, presentation, &locked, palette);
         return;
@@ -1677,6 +3261,15 @@ mod tests {
 
     use super::*;
     use crate::{VisualSystem, presentation_for};
+
+    #[test]
+    fn decorative_art_edges_are_feathered_without_mutating_inner_art() {
+        let mut rgba = vec![255_u8; 4 * 4 * 4];
+        feather_decorative_edges(&mut rgba, 4, 4, 1, 1, 1, 1);
+        assert_eq!(rgba[3], 0);
+        assert_eq!(rgba[(3 * 4 + 3) * 4 + 3], 0);
+        assert_eq!(rgba[23], 255);
+    }
 
     #[test]
     fn locked_design_preserves_lowercase_typography() {
