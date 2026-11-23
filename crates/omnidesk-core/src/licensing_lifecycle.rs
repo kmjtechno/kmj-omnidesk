@@ -704,6 +704,21 @@ impl LicensingManager {
             ));
         }
 
+        // Terminal revocation takes precedence over clock diagnostics. A valid
+        // revocation response cannot be forgotten just because the local
+        // clock or the server timestamp moved backwards. Never lower the
+        // already-trusted time floor while persisting that revocation.
+        if resp.state == "REVOKED" {
+            lease.last_trusted_server_time =
+                lease.last_trusted_server_time.max(resp.server_time);
+            lease.known_revocation = RevocationState::ActivationRevoked;
+            return Err(LicensingClientError::Revoked {
+                reason: resp
+                    .reason_code
+                    .or_else(|| resp.reason_codes.first().cloned()),
+            });
+        }
+
         if now < lease.last_trusted_server_time || resp.server_time < lease.last_trusted_server_time
         {
             // A backward server time cannot re-open a previously verified
@@ -712,18 +727,6 @@ impl LicensingManager {
             return Err(LicensingClientError::ClockRollback {
                 now: now.min(resp.server_time),
                 last_trusted_server_time: lease.last_trusted_server_time,
-            });
-        }
-
-        // A trusted explicit revocation overrides every cached offline lease.
-        // It cannot be cleared by a later status reply or server outage.
-        if resp.state == "REVOKED" {
-            lease.last_trusted_server_time = resp.server_time;
-            lease.known_revocation = RevocationState::ActivationRevoked;
-            return Err(LicensingClientError::Revoked {
-                reason: resp
-                    .reason_code
-                    .or_else(|| resp.reason_codes.first().cloned()),
             });
         }
 
@@ -1503,6 +1506,44 @@ mod tests {
             manager.evaluate_state(1_001_150),
             Ok(LicenseState::Restricted)
         );
+    }
+
+    #[test]
+    fn revocation_remains_terminal_even_when_local_or_server_clock_rolls_back() {
+        for (now, server_time) in [(999_999_u64, 1_001_000_u64), (1_001_000, 999_999)] {
+            let mut manager = activated_manager_for_status_tests();
+            let response = serde_json::to_vec(&ActivationStatusResponse {
+                activation_id: "55555555-5555-4555-8555-555555555555".to_owned(),
+                state: "REVOKED".to_owned(),
+                sequence: 1,
+                reason_code: None,
+                reason_codes: vec!["ACTIVATION_REVOKED".to_owned()],
+                revoked_at: None,
+                server_time,
+            })
+            .unwrap();
+
+            assert_eq!(
+                manager.process_status_response(&response, now),
+                Err(LicensingClientError::Revoked {
+                    reason: Some("ACTIVATION_REVOKED".to_owned()),
+                })
+            );
+            let cached = manager.active_lease().expect("activated test lease");
+            assert_eq!(
+                cached.last_trusted_server_time,
+                1_000_000_u64.max(server_time)
+            );
+            assert!(matches!(
+                manager.evaluate_state(1_001_200),
+                Err(LicensingClientError::Revoked { .. })
+            ));
+            assert!(matches!(
+                manager.handle_server_failure(1_001_200, ServerFailureReason::NetworkUnreachable),
+                Err(LicensingClientError::Revoked { .. })
+            ));
+            assert!(manager.check_session_allowed(1_001_200, 0).is_err());
+        }
     }
 
     #[test]
