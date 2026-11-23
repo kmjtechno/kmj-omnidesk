@@ -709,8 +709,7 @@ impl LicensingManager {
         // clock or the server timestamp moved backwards. Never lower the
         // already-trusted time floor while persisting that revocation.
         if resp.state == "REVOKED" {
-            lease.last_trusted_server_time =
-                lease.last_trusted_server_time.max(resp.server_time);
+            lease.last_trusted_server_time = lease.last_trusted_server_time.max(resp.server_time);
             lease.known_revocation = RevocationState::ActivationRevoked;
             return Err(LicensingClientError::Revoked {
                 reason: resp
