@@ -688,9 +688,10 @@ impl LicensingManager {
             });
         }
 
-        let resp: ActivationStatusResponse = match serde_json::from_slice(response_bytes) {
-            Ok(response) => response,
-            Err(_) => {
+        let resp: ActivationStatusResponse =
+            if let Ok(response) = serde_json::from_slice(response_bytes) {
+            response
+        } else {
                 // A malformed status is not a transient network outage.
                 // A cached lease cannot remain usable after an unexpected,
                 // incomplete or contradictory response from its status API.
@@ -700,7 +701,6 @@ impl LicensingManager {
                 return Err(LicensingClientError::InvalidResponseFormat(
                     "malformed ActivationStatusResponse",
                 ));
-            }
         };
 
         let lease = self
