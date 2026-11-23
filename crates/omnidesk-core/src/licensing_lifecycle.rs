@@ -681,6 +681,12 @@ impl LicensingManager {
         now: u64,
     ) -> Result<LicenseState, LicensingClientError> {
         if let Ok(error_resp) = serde_json::from_slice::<LicensingErrorResponse>(response_bytes) {
+            // A structured rejection of a status check is not an offline
+            // transport failure. Retain the fail-closed state across later
+            // cached-lease evaluation and network retry fallback.
+            if let Some(lease) = self.active_lease.as_mut() {
+                lease.server_restricted = true;
+            }
             return Err(LicensingClientError::ServerRejected {
                 error: error_resp.error,
                 request_id: error_resp.request_id,
@@ -1623,6 +1629,29 @@ mod tests {
             manager.evaluate_state(1_001_050),
             Ok(LicenseState::Restricted)
         );
+    }
+
+    #[test]
+    fn structured_status_rejection_cannot_reopen_cached_active_permission() {
+        for response in [
+            br#"{"error":"ACTIVATION_REVOKED","request_id":"req-123456","message":"Denied"}"#.as_slice(),
+            br#"{"error":"ISSUANCE_NOT_CONFIGURED"}"#.as_slice(),
+        ] {
+            let mut manager = activated_manager_for_status_tests();
+            assert!(matches!(
+                manager.process_status_response(response, 1_001_000),
+                Err(LicensingClientError::ServerRejected { .. })
+            ));
+            assert_eq!(
+                manager.evaluate_state(1_001_050),
+                Ok(LicenseState::Restricted)
+            );
+            assert_eq!(
+                manager.handle_server_failure(1_001_050, ServerFailureReason::NetworkUnreachable),
+                Ok(LicenseState::Restricted)
+            );
+            assert!(manager.check_session_allowed(1_001_050, 0).is_err());
+        }
     }
 
     #[test]
