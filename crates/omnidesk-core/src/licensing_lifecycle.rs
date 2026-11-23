@@ -1634,7 +1634,8 @@ mod tests {
     #[test]
     fn structured_status_rejection_cannot_reopen_cached_active_permission() {
         for response in [
-            br#"{"error":"ACTIVATION_REVOKED","request_id":"req-123456","message":"Denied"}"#.as_slice(),
+            br#"{"error":"ACTIVATION_REVOKED","request_id":"req-123456","message":"Denied"}"#
+                .as_slice(),
             br#"{"error":"ISSUANCE_NOT_CONFIGURED"}"#.as_slice(),
         ] {
             let mut manager = activated_manager_for_status_tests();
