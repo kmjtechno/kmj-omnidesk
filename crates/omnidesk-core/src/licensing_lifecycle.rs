@@ -699,6 +699,10 @@ impl LicensingManager {
             .ok_or(LicensingClientError::MissingActiveLease)?;
 
         if resp.activation_id != lease.activation_id {
+            // A structurally valid status for another activation is a
+            // binding violation, not an outage eligible for offline grace.
+            // Keep denying until a newly verified signed lease is accepted.
+            lease.server_restricted = true;
             return Err(LicensingClientError::Verification(
                 LicenseError::DeviceBindingMismatch,
             ));
@@ -1505,6 +1509,27 @@ mod tests {
             manager.evaluate_state(1_001_150),
             Ok(LicenseState::Restricted)
         );
+    }
+
+    #[test]
+    fn wrong_activation_status_cannot_leave_cached_permission_active() {
+        let mut manager = activated_manager_for_status_tests();
+        let mismatched = br#"{"activation_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","state":"ACTIVE","reason_codes":[],"current_sequence":1,"server_time":1001000}"#;
+        assert_eq!(
+            manager.process_status_response(mismatched, 1_001_000),
+            Err(LicensingClientError::Verification(
+                LicenseError::DeviceBindingMismatch
+            ))
+        );
+        assert_eq!(
+            manager.evaluate_state(1_001_100),
+            Ok(LicenseState::Restricted)
+        );
+        assert_eq!(
+            manager.handle_server_failure(1_001_100, ServerFailureReason::NetworkUnreachable),
+            Ok(LicenseState::Restricted)
+        );
+        assert!(manager.check_session_allowed(1_001_100, 0).is_err());
     }
 
     #[test]
