@@ -681,6 +681,12 @@ impl LicensingManager {
         now: u64,
     ) -> Result<LicenseState, LicensingClientError> {
         if let Ok(error_resp) = serde_json::from_slice::<LicensingErrorResponse>(response_bytes) {
+            // A structured rejection of a status check is not an offline
+            // transport failure. Retain the fail-closed state across later
+            // cached-lease evaluation and network retry fallback.
+            if let Some(lease) = self.active_lease.as_mut() {
+                lease.server_restricted = true;
+            }
             return Err(LicensingClientError::ServerRejected {
                 error: error_resp.error,
                 request_id: error_resp.request_id,
@@ -689,9 +695,19 @@ impl LicensingManager {
         }
 
         let resp: ActivationStatusResponse =
-            serde_json::from_slice(response_bytes).map_err(|_| {
-                LicensingClientError::InvalidResponseFormat("malformed ActivationStatusResponse")
-            })?;
+            if let Ok(response) = serde_json::from_slice(response_bytes) {
+                response
+            } else {
+                // A malformed status is not a transient network outage.
+                // A cached lease cannot remain usable after an unexpected,
+                // incomplete or contradictory response from its status API.
+                if let Some(lease) = self.active_lease.as_mut() {
+                    lease.server_restricted = true;
+                }
+                return Err(LicensingClientError::InvalidResponseFormat(
+                    "malformed ActivationStatusResponse",
+                ));
+            };
 
         let lease = self
             .active_lease
@@ -699,9 +715,27 @@ impl LicensingManager {
             .ok_or(LicensingClientError::MissingActiveLease)?;
 
         if resp.activation_id != lease.activation_id {
+            // A structurally valid status for another activation is a
+            // binding violation, not an outage eligible for offline grace.
+            // Keep denying until a newly verified signed lease is accepted.
+            lease.server_restricted = true;
             return Err(LicensingClientError::Verification(
                 LicenseError::DeviceBindingMismatch,
             ));
+        }
+
+        // Terminal revocation takes precedence over clock diagnostics. A valid
+        // revocation response cannot be forgotten just because the local
+        // clock or the server timestamp moved backwards. Never lower the
+        // already-trusted time floor while persisting that revocation.
+        if resp.state == "REVOKED" {
+            lease.last_trusted_server_time = lease.last_trusted_server_time.max(resp.server_time);
+            lease.known_revocation = RevocationState::ActivationRevoked;
+            return Err(LicensingClientError::Revoked {
+                reason: resp
+                    .reason_code
+                    .or_else(|| resp.reason_codes.first().cloned()),
+            });
         }
 
         if now < lease.last_trusted_server_time || resp.server_time < lease.last_trusted_server_time
@@ -712,18 +746,6 @@ impl LicensingManager {
             return Err(LicensingClientError::ClockRollback {
                 now: now.min(resp.server_time),
                 last_trusted_server_time: lease.last_trusted_server_time,
-            });
-        }
-
-        // A trusted explicit revocation overrides every cached offline lease.
-        // It cannot be cleared by a later status reply or server outage.
-        if resp.state == "REVOKED" {
-            lease.last_trusted_server_time = resp.server_time;
-            lease.known_revocation = RevocationState::ActivationRevoked;
-            return Err(LicensingClientError::Revoked {
-                reason: resp
-                    .reason_code
-                    .or_else(|| resp.reason_codes.first().cloned()),
             });
         }
 
@@ -1506,6 +1528,93 @@ mod tests {
     }
 
     #[test]
+    fn malformed_status_cannot_fall_back_to_a_cached_active_lease() {
+        let malformed_responses: [&[u8]; 4] = [
+            b"not-json",
+            br#"{"activation_id":"55555555-5555-4555-8555-555555555555","state":"ACTIVE","reason_codes":[],"server_time":1001000}"#,
+            br#"{"activation_id":"55555555-5555-4555-8555-555555555555","state":"ACTIVE","reason_codes":[],"current_sequence":1,"sequence":1,"server_time":1001000}"#,
+            br#"{"activation_id":"55555555-5555-4555-8555-555555555555","state":"ACTIVE","reason_codes":[],"current_sequence":1,"server_time":1001000,"surprise":"unknown"}"#,
+        ];
+        for response in malformed_responses {
+            let mut manager = activated_manager_for_status_tests();
+            assert_eq!(
+                manager.process_status_response(response, 1_001_000),
+                Err(LicensingClientError::InvalidResponseFormat(
+                    "malformed ActivationStatusResponse"
+                ))
+            );
+            assert_eq!(
+                manager.evaluate_state(1_001_050),
+                Ok(LicenseState::Restricted)
+            );
+            assert_eq!(
+                manager.handle_server_failure(1_001_050, ServerFailureReason::NetworkUnreachable),
+                Ok(LicenseState::Restricted)
+            );
+            assert!(manager.check_session_allowed(1_001_050, 0).is_err());
+        }
+    }
+
+    #[test]
+    fn wrong_activation_status_cannot_leave_cached_permission_active() {
+        let mut manager = activated_manager_for_status_tests();
+        let mismatched = br#"{"activation_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","state":"ACTIVE","reason_codes":[],"current_sequence":1,"server_time":1001000}"#;
+        assert_eq!(
+            manager.process_status_response(mismatched, 1_001_000),
+            Err(LicensingClientError::Verification(
+                LicenseError::DeviceBindingMismatch
+            ))
+        );
+        assert_eq!(
+            manager.evaluate_state(1_001_100),
+            Ok(LicenseState::Restricted)
+        );
+        assert_eq!(
+            manager.handle_server_failure(1_001_100, ServerFailureReason::NetworkUnreachable),
+            Ok(LicenseState::Restricted)
+        );
+        assert!(manager.check_session_allowed(1_001_100, 0).is_err());
+    }
+
+    #[test]
+    fn revocation_remains_terminal_even_when_local_or_server_clock_rolls_back() {
+        for (now, server_time) in [(999_999_u64, 1_001_000_u64), (1_001_000, 999_999)] {
+            let mut manager = activated_manager_for_status_tests();
+            let response = serde_json::to_vec(&ActivationStatusResponse {
+                activation_id: "55555555-5555-4555-8555-555555555555".to_owned(),
+                state: "REVOKED".to_owned(),
+                sequence: 1,
+                reason_code: None,
+                reason_codes: vec!["ACTIVATION_REVOKED".to_owned()],
+                revoked_at: None,
+                server_time,
+            })
+            .unwrap();
+
+            assert_eq!(
+                manager.process_status_response(&response, now),
+                Err(LicensingClientError::Revoked {
+                    reason: Some("ACTIVATION_REVOKED".to_owned()),
+                })
+            );
+            let cached = manager.active_lease().expect("activated test lease");
+            assert_eq!(
+                cached.last_trusted_server_time,
+                1_000_000_u64.max(server_time)
+            );
+            assert!(matches!(
+                manager.evaluate_state(1_001_200),
+                Err(LicensingClientError::Revoked { .. })
+            ));
+            assert!(matches!(
+                manager.handle_server_failure(1_001_200, ServerFailureReason::NetworkUnreachable),
+                Err(LicensingClientError::Revoked { .. })
+            ));
+            assert!(manager.check_session_allowed(1_001_200, 0).is_err());
+        }
+    }
+
+    #[test]
     fn backwards_server_clock_is_sticky_without_a_prior_sequence_failure() {
         let mut manager = activated_manager_for_status_tests();
         let backwards = br#"{"activation_id":"55555555-5555-4555-8555-555555555555","state":"ACTIVE","reason_codes":[],"current_sequence":1,"server_time":999999}"#;
@@ -1520,6 +1629,30 @@ mod tests {
             manager.evaluate_state(1_001_050),
             Ok(LicenseState::Restricted)
         );
+    }
+
+    #[test]
+    fn structured_status_rejection_cannot_reopen_cached_active_permission() {
+        for response in [
+            br#"{"error":"ACTIVATION_REVOKED","request_id":"req-123456","message":"Denied"}"#
+                .as_slice(),
+            br#"{"error":"ISSUANCE_NOT_CONFIGURED"}"#.as_slice(),
+        ] {
+            let mut manager = activated_manager_for_status_tests();
+            assert!(matches!(
+                manager.process_status_response(response, 1_001_000),
+                Err(LicensingClientError::ServerRejected { .. })
+            ));
+            assert_eq!(
+                manager.evaluate_state(1_001_050),
+                Ok(LicenseState::Restricted)
+            );
+            assert_eq!(
+                manager.handle_server_failure(1_001_050, ServerFailureReason::NetworkUnreachable),
+                Ok(LicenseState::Restricted)
+            );
+            assert!(manager.check_session_allowed(1_001_050, 0).is_err());
+        }
     }
 
     #[test]
