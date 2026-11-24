@@ -681,6 +681,12 @@ impl LicensingManager {
         now: u64,
     ) -> Result<LicenseState, LicensingClientError> {
         if let Ok(error_resp) = serde_json::from_slice::<LicensingErrorResponse>(response_bytes) {
+            // A structured rejection of a status check is not an offline
+            // transport failure. Retain the fail-closed state across later
+            // cached-lease evaluation and network retry fallback.
+            if let Some(lease) = self.active_lease.as_mut() {
+                lease.server_restricted = true;
+            }
             return Err(LicensingClientError::ServerRejected {
                 error: error_resp.error,
                 request_id: error_resp.request_id,
@@ -689,9 +695,19 @@ impl LicensingManager {
         }
 
         let resp: ActivationStatusResponse =
-            serde_json::from_slice(response_bytes).map_err(|_| {
-                LicensingClientError::InvalidResponseFormat("malformed ActivationStatusResponse")
-            })?;
+            if let Ok(response) = serde_json::from_slice(response_bytes) {
+                response
+            } else {
+                // A malformed status is not a transient network outage.
+                // A cached lease cannot remain usable after an unexpected,
+                // incomplete or contradictory response from its status API.
+                if let Some(lease) = self.active_lease.as_mut() {
+                    lease.server_restricted = true;
+                }
+                return Err(LicensingClientError::InvalidResponseFormat(
+                    "malformed ActivationStatusResponse",
+                ));
+            };
 
         let lease = self
             .active_lease
@@ -1512,6 +1528,34 @@ mod tests {
     }
 
     #[test]
+    fn malformed_status_cannot_fall_back_to_a_cached_active_lease() {
+        let malformed_responses: [&[u8]; 4] = [
+            b"not-json",
+            br#"{"activation_id":"55555555-5555-4555-8555-555555555555","state":"ACTIVE","reason_codes":[],"server_time":1001000}"#,
+            br#"{"activation_id":"55555555-5555-4555-8555-555555555555","state":"ACTIVE","reason_codes":[],"current_sequence":1,"sequence":1,"server_time":1001000}"#,
+            br#"{"activation_id":"55555555-5555-4555-8555-555555555555","state":"ACTIVE","reason_codes":[],"current_sequence":1,"server_time":1001000,"surprise":"unknown"}"#,
+        ];
+        for response in malformed_responses {
+            let mut manager = activated_manager_for_status_tests();
+            assert_eq!(
+                manager.process_status_response(response, 1_001_000),
+                Err(LicensingClientError::InvalidResponseFormat(
+                    "malformed ActivationStatusResponse"
+                ))
+            );
+            assert_eq!(
+                manager.evaluate_state(1_001_050),
+                Ok(LicenseState::Restricted)
+            );
+            assert_eq!(
+                manager.handle_server_failure(1_001_050, ServerFailureReason::NetworkUnreachable),
+                Ok(LicenseState::Restricted)
+            );
+            assert!(manager.check_session_allowed(1_001_050, 0).is_err());
+        }
+    }
+
+    #[test]
     fn wrong_activation_status_cannot_leave_cached_permission_active() {
         let mut manager = activated_manager_for_status_tests();
         let mismatched = br#"{"activation_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","state":"ACTIVE","reason_codes":[],"current_sequence":1,"server_time":1001000}"#;
@@ -1585,6 +1629,30 @@ mod tests {
             manager.evaluate_state(1_001_050),
             Ok(LicenseState::Restricted)
         );
+    }
+
+    #[test]
+    fn structured_status_rejection_cannot_reopen_cached_active_permission() {
+        for response in [
+            br#"{"error":"ACTIVATION_REVOKED","request_id":"req-123456","message":"Denied"}"#
+                .as_slice(),
+            br#"{"error":"ISSUANCE_NOT_CONFIGURED"}"#.as_slice(),
+        ] {
+            let mut manager = activated_manager_for_status_tests();
+            assert!(matches!(
+                manager.process_status_response(response, 1_001_000),
+                Err(LicensingClientError::ServerRejected { .. })
+            ));
+            assert_eq!(
+                manager.evaluate_state(1_001_050),
+                Ok(LicenseState::Restricted)
+            );
+            assert_eq!(
+                manager.handle_server_failure(1_001_050, ServerFailureReason::NetworkUnreachable),
+                Ok(LicenseState::Restricted)
+            );
+            assert!(manager.check_session_allowed(1_001_050, 0).is_err());
+        }
     }
 
     #[test]
